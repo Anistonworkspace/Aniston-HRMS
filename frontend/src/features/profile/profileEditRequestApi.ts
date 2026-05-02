@@ -27,6 +27,14 @@ export interface ProfileCompletion {
     documents: boolean;
   };
   missingDocs: string[];
+  missingDocLabels: string[];
+  missingFields: {
+    personalDetails: string[];
+    address: string[];
+    emergencyContact: string[];
+    bankDetails: string[];
+  };
+  onboardingComplete: boolean;
 }
 
 export const profileEditRequestApi = api.injectEndpoints({

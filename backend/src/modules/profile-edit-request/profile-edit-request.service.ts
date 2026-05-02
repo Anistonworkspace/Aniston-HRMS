@@ -347,12 +347,53 @@ export class ProfileEditRequestService {
     const addr = emp.address as any;
     const ec = emp.emergencyContact as any;
 
+    const missingFields = {
+      personalDetails: [
+        ...(!emp.firstName ? ['First name'] : []),
+        ...(!emp.lastName ? ['Last name'] : []),
+        ...(!emp.dateOfBirth ? ['Date of birth'] : []),
+        ...(!emp.gender ? ['Gender'] : []),
+        ...(!emp.phone || emp.phone === '0000000000' ? ['Phone number'] : []),
+      ],
+      address: [
+        ...(!addr?.line1 ? ['Street / flat no.'] : []),
+        ...(!addr?.city ? ['City'] : []),
+        ...(!addr?.state ? ['State'] : []),
+        ...(!addr?.pincode ? ['Pincode'] : []),
+      ],
+      emergencyContact: [
+        ...(!ec?.name ? ['Contact name'] : []),
+        ...(!ec?.relationship ? ['Relationship'] : []),
+        ...(!ec?.phone ? ['Phone number'] : []),
+      ],
+      bankDetails: [
+        ...(!emp.bankAccountNumber ? ['Account number'] : []),
+        ...(!emp.bankName ? ['Bank name'] : []),
+        ...(!emp.ifscCode ? ['IFSC code'] : []),
+        ...(!emp.accountHolderName ? ['Account holder name'] : []),
+      ],
+    };
+
+    const DOC_LABELS: Record<string, string> = {
+      PAN: 'PAN Card',
+      CANCELLED_CHEQUE: 'Cancelled Cheque',
+      RESIDENCE_PROOF: 'Residence Proof',
+      IDENTITY_PROOF: 'Identity Proof (Aadhaar / Passport / Voter ID)',
+      PHOTO: 'Passport-size Photo',
+      TENTH_CERTIFICATE: '10th Certificate',
+      TWELFTH_CERTIFICATE: '12th Certificate',
+      DEGREE_CERTIFICATE: 'Degree Certificate',
+      POST_GRADUATION_CERTIFICATE: 'Post-Graduation Certificate',
+      EXPERIENCE_LETTER: 'Experience Letter',
+      RELIEVING_LETTER: 'Relieving Letter',
+    };
+    const missingDocLabels = missingDocs.map(t => DOC_LABELS[t] || t.replace(/_/g, ' '));
+
     const sections = {
-      personalDetails: !!(emp.firstName && emp.lastName && emp.dateOfBirth && emp.gender &&
-        emp.phone && emp.phone !== '0000000000'),
-      address: !!(addr?.line1 && addr?.city && addr?.state && addr?.pincode),
-      emergencyContact: !!(ec?.name && ec?.relationship && ec?.phone),
-      bankDetails: !!(emp.bankAccountNumber && emp.bankName && emp.ifscCode && emp.accountHolderName),
+      personalDetails: missingFields.personalDetails.length === 0,
+      address: missingFields.address.length === 0,
+      emergencyContact: missingFields.emergencyContact.length === 0,
+      bankDetails: missingFields.bankDetails.length === 0,
       documents: missingDocs.length === 0,
     };
 
@@ -361,6 +402,8 @@ export class ProfileEditRequestService {
     return {
       sections,
       missingDocs,
+      missingDocLabels,
+      missingFields,
       allComplete,
       onboardingComplete: emp.onboardingComplete,
     };

@@ -3081,7 +3081,6 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const { data: hrReviewRes, refetch: refetchKycStatus } = useGetKycHrReviewQuery(employeeId, { skip: !isManagement });
   const kycStatus: string = hrReviewRes?.data?.gate?.kycStatus || '';
   const { data: completionRes } = useGetProfileCompletionQuery(employeeId, { skip: !isManagement });
-  const profileComplete = completionRes?.data?.allComplete ?? true;
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -3661,6 +3660,10 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
         const pendingCount = documents.filter((d: any) => d.status === 'PENDING' || d.status === 'FLAGGED').length;
         const rejectedCount = documents.filter((d: any) => d.status === 'REJECTED').length;
         const hasCancelledCheque = documents.some((d: any) => d.type === 'CANCELLED_CHEQUE' && d.status === 'VERIFIED');
+        const profileComplete = completionRes?.data?.allComplete ?? true;
+        const sections = completionRes?.data?.sections;
+        const missingFields = completionRes?.data?.missingFields;
+        const missingDocLabels = completionRes?.data?.missingDocLabels ?? [];
         const canGrant = allVerified && profileComplete && hasCancelledCheque && kycStatus !== 'VERIFIED';
         return (
           <div className="layer-card p-4 mt-4 border border-gray-100">
@@ -3685,14 +3688,71 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
             </div>
 
             {kycStatus !== 'VERIFIED' && (
-              <ul className="text-xs text-gray-500 space-y-1 mb-3">
-                {documents.length === 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-gray-400 shrink-0" /> No documents uploaded yet</li>}
-                {pendingCount > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-amber-400 shrink-0" /> {pendingCount} document{pendingCount !== 1 ? 's' : ''} still pending/flagged — approve each one first</li>}
-                {rejectedCount > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-red-500 shrink-0" /> {rejectedCount} document{rejectedCount !== 1 ? 's' : ''} rejected — employee must re-upload</li>}
-                {!hasCancelledCheque && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-amber-500 shrink-0" /> Cancelled Cheque not uploaded — employee must upload it for payroll processing</li>}
-                {!profileComplete && documents.length > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-red-500 shrink-0" /> Employee profile incomplete (required fields missing)</li>}
-                {allVerified && profileComplete && hasCancelledCheque && <li className="flex items-center gap-1.5 text-emerald-700"><span className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" /> All documents verified — ready to grant access</li>}
-              </ul>
+              <div className="space-y-2 mb-3">
+                {/* Document status issues */}
+                {documents.length === 0 && (
+                  <div className="flex items-start gap-2 text-xs text-gray-500">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0 mt-1" />
+                    <span>No documents uploaded yet</span>
+                  </div>
+                )}
+                {pendingCount > 0 && (
+                  <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 mt-1" />
+                    <span><strong>{pendingCount} document{pendingCount !== 1 ? 's' : ''}</strong> pending / flagged — verify each document above first</span>
+                  </div>
+                )}
+                {rejectedCount > 0 && (
+                  <div className="flex items-start gap-2 text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0 mt-1" />
+                    <span><strong>{rejectedCount} document{rejectedCount !== 1 ? 's' : ''} rejected</strong> — employee must re-upload before access can be granted</span>
+                  </div>
+                )}
+
+                {/* Missing document types */}
+                {missingDocLabels.length > 0 && (
+                  <div className="bg-red-50 rounded-lg px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-semibold text-red-700 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" /> Missing required documents</p>
+                    {missingDocLabels.map((label, i) => (
+                      <p key={i} className="text-xs text-red-600 pl-3">• {label}</p>
+                    ))}
+                  </div>
+                )}
+
+                {/* Profile section issues */}
+                {sections && !sections.personalDetails && (missingFields?.personalDetails?.length ?? 0) > 0 && (
+                  <div className="bg-orange-50 rounded-lg px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" /> Personal details incomplete</p>
+                    {missingFields!.personalDetails.map((f, i) => <p key={i} className="text-xs text-orange-600 pl-3">• {f} missing</p>)}
+                  </div>
+                )}
+                {sections && !sections.address && (missingFields?.address?.length ?? 0) > 0 && (
+                  <div className="bg-orange-50 rounded-lg px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" /> Address incomplete</p>
+                    {missingFields!.address.map((f, i) => <p key={i} className="text-xs text-orange-600 pl-3">• {f} missing</p>)}
+                  </div>
+                )}
+                {sections && !sections.emergencyContact && (missingFields?.emergencyContact?.length ?? 0) > 0 && (
+                  <div className="bg-orange-50 rounded-lg px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" /> Emergency contact incomplete</p>
+                    {missingFields!.emergencyContact.map((f, i) => <p key={i} className="text-xs text-orange-600 pl-3">• {f} missing</p>)}
+                  </div>
+                )}
+                {sections && !sections.bankDetails && (missingFields?.bankDetails?.length ?? 0) > 0 && (
+                  <div className="bg-orange-50 rounded-lg px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" /> Bank details incomplete</p>
+                    {missingFields!.bankDetails.map((f, i) => <p key={i} className="text-xs text-orange-600 pl-3">• {f} missing</p>)}
+                  </div>
+                )}
+
+                {/* Ready state */}
+                {allVerified && profileComplete && hasCancelledCheque && (
+                  <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    All documents verified and profile complete — ready to grant access
+                  </div>
+                )}
+              </div>
             )}
 
             {kycStatus !== 'VERIFIED' && (
