@@ -72,7 +72,6 @@ model Organization {
   socialLikes          SocialLike[]
   ticketComments       TicketComment[]
   notifications        Notification[]
-  leaveAllocationLogs  LeaveAllocationLog[]
 }
 
 model User {
@@ -227,7 +226,6 @@ model Employee {
   projectSiteCheckIns ProjectSiteCheckIn[]
   leaveBalances     LeaveBalance[]
   leaveRequests     LeaveRequest[]
-  leaveAllocationLogs LeaveAllocationLog[]
   salaryStructure   SalaryStructure?
   salaryHistory     SalaryHistory[]
   payrollRecords    PayrollRecord[]
@@ -905,11 +903,10 @@ model LeaveType {
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  organization    Organization         @relation(fields: [organizationId], references: [id])
-  leaveBalances   LeaveBalance[]
-  leaveRequests   LeaveRequest[]
-  policyRules     LeavePolicyRule[]
-  allocationLogs  LeaveAllocationLog[]
+  organization Organization @relation(fields: [organizationId], references: [id])
+  leaveBalances LeaveBalance[]
+  leaveRequests LeaveRequest[]
+  policyRules   LeavePolicyRule[]
 
   @@unique([code, organizationId])
   @@index([organizationId])
@@ -3205,73 +3202,32 @@ model LocationVisit {
 }
 
 model LeavePolicy {
-  id                      String            @id @default(uuid())
-  name                    String
-  description             String?
-  organizationId          String
-  isDefault               Boolean           @default(false)
-  isActive                Boolean           @default(true)
-  probationDurationMonths Int               @default(3)
-  internDurationMonths    Int               @default(3)
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
-  deletedAt               DateTime?
-  organization            Organization      @relation(fields: [organizationId], references: [id])
-  rules                   LeavePolicyRule[]
-  employees               Employee[]
-  allocationLogs          LeaveAllocationLog[]
+  id             String            @id @default(uuid())
+  name           String
+  description    String?
+  organizationId String
+  isDefault      Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  deletedAt      DateTime?
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  rules          LeavePolicyRule[]
+  employees      Employee[]
 
   @@index([organizationId])
 }
 
-// Per-category allocation rule: one row per (policy × leaveType × employeeCategory)
 model LeavePolicyRule {
-  id               String      @id @default(uuid())
-  policyId         String
-  leaveTypeId      String
-  // Employee category this rule applies to: ALL | ACTIVE | PROBATION | INTERN | NOTICE_PERIOD
-  employeeCategory String      @default("ALL")
-  // Yearly upfront allocation (used when accrualType = UPFRONT)
-  yearlyDays       Float       @default(0)
-  // Monthly accrual amount (used when accrualType = MONTHLY)
-  monthlyDays      Float       @default(0)
-  // UPFRONT = allocate all at year start; MONTHLY = accrue each month
-  accrualType      String      @default("UPFRONT")
-  // Prorate allocation when employee joins mid-year
-  isProrata        Boolean     @default(false)
-  // Legacy alias — kept for backward compat; prefer yearlyDays
-  daysAllowed      Float       @default(0)
-  isAllowed        Boolean     @default(true)
-  policy           LeavePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
-  leaveType        LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  id          String      @id @default(uuid())
+  policyId    String
+  leaveTypeId String
+  daysAllowed Float
+  isAllowed   Boolean     @default(true)
+  policy      LeavePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
 
-  @@unique([policyId, leaveTypeId, employeeCategory])
-}
-
-// Audit trail: every allocation event (initial, prorata, manual, status-change)
-model LeaveAllocationLog {
-  id               String      @id @default(uuid())
-  employeeId       String
-  leaveTypeId      String
-  policyId         String?
-  year             Int
-  // INITIAL | PRORATA | MANUAL_ADJUSTMENT | STATUS_CHANGE | POLICY_CHANGE
-  allocationType   String
-  days             Float
-  previousDays     Float?
-  reason           String?
-  calculationBasis Json?
-  changedBy        String?
-  organizationId   String
-  createdAt        DateTime    @default(now())
-
-  employee     Employee     @relation(fields: [employeeId], references: [id])
-  leaveType    LeaveType    @relation(fields: [leaveTypeId], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id])
-  policy       LeavePolicy? @relation(fields: [policyId], references: [id])
-
-  @@index([employeeId, year])
-  @@index([organizationId])
+  @@unique([policyId, leaveTypeId])
 }
 
 // ══════════════════════════════════════════════════════════

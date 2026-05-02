@@ -27,9 +27,6 @@ import {
   useGetEmployeeLeaveOverviewQuery,
   useGetOrgLeaveSettingsQuery,
   useUpdateOrgLeaveSettingsMutation,
-  useGetLeavePoliciesQuery,
-  useUpdateLeavePolicyMutation,
-  useRecalculatePolicyAllocationsMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -88,7 +85,7 @@ export default function LeavePage() {
 
 function LeaveManagementView() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations' | 'employee-leaves' | 'policy'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations' | 'employee-leaves'>('approvals');
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -364,19 +361,6 @@ function LeaveManagementView() {
         >
           <Users size={14} />
           Employee Leaves
-        </button>
-        <button
-          role="tab" aria-selected={activeTab === 'policy'}
-          onClick={() => setActiveTab('policy')}
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
-            activeTab === 'policy'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          )}
-        >
-          <FileText size={14} />
-          Policy Settings
         </button>
       </div>
 
@@ -751,9 +735,6 @@ function LeaveManagementView() {
 
       {/* Employee Leaves Tab */}
       {activeTab === 'employee-leaves' && <EmployeeOverviewTab />}
-
-      {/* Policy Settings Tab */}
-      {activeTab === 'policy' && <PolicySettingsTab />}
 
       {/* Create/Edit Leave Type Modal */}
       <AnimatePresence>
@@ -1642,7 +1623,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <motion.div
@@ -2246,7 +2227,7 @@ function LeavePersonalView() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40"
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={() => setSelectedHoliday(null)}
         >
           <motion.div
@@ -2373,327 +2354,5 @@ function LeaveRequestCard({ leave }: { leave: any }) {
         )}
       </div>
     </div>
-  );
-}
-
-/* =============================================================================
-   POLICY SETTINGS TAB
-   ============================================================================= */
-
-const CATEGORY_LABELS: Record<string, string> = {
-  ALL: 'All Employees',
-  ACTIVE: 'Active (Confirmed)',
-  PROBATION: 'Probation',
-  INTERN: 'Intern',
-  NOTICE_PERIOD: 'Notice Period',
-};
-
-const ACCRUAL_LABELS: Record<string, string> = {
-  UPFRONT: 'Upfront (full year at once)',
-  MONTHLY: 'Monthly accrual',
-};
-
-function PolicySettingsTab() {
-  const { data: policiesData, isLoading, refetch } = useGetLeavePoliciesQuery();
-  const [updatePolicy] = useUpdateLeavePolicyMutation();
-  const [recalculate] = useRecalculatePolicyAllocationsMutation();
-  const { data: leaveTypesData } = useGetLeaveTypesQuery();
-
-  const policies: any[] = policiesData?.data ?? [];
-  const leaveTypes: any[] = leaveTypesData?.data ?? [];
-  const policy = policies.find((p: any) => p.isDefault) ?? policies[0];
-
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [recalculating, setRecalculating] = useState(false);
-  const [durationMonths, setDurationMonths] = useState({ probation: 3, intern: 3 });
-  const [rules, setRules] = useState<any[]>([]);
-  const [expandedType, setExpandedType] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (policy) {
-      setDurationMonths({
-        probation: policy.probationDurationMonths ?? 3,
-        intern: policy.internDurationMonths ?? 3,
-      });
-      setRules(policy.rules ?? []);
-    }
-  }, [policy]);
-
-  const groupedRules = leaveTypes.reduce((acc: any, lt: any) => {
-    acc[lt.id] = {
-      leaveType: lt,
-      rules: rules.filter((r: any) => r.leaveTypeId === lt.id),
-    };
-    return acc;
-  }, {});
-
-  const updateRule = (leaveTypeId: string, category: string, field: string, value: any) => {
-    setRules((prev) => {
-      const existing = prev.find((r: any) => r.leaveTypeId === leaveTypeId && r.employeeCategory === category);
-      if (existing) {
-        return prev.map((r: any) =>
-          r.leaveTypeId === leaveTypeId && r.employeeCategory === category
-            ? { ...r, [field]: value }
-            : r
-        );
-      }
-      return [...prev, { leaveTypeId, employeeCategory: category, yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true, [field]: value }];
-    });
-  };
-
-  const getRuleValue = (leaveTypeId: string, category: string, field: string, fallback: any) => {
-    const r = rules.find((r: any) => r.leaveTypeId === leaveTypeId && r.employeeCategory === category);
-    return r ? r[field] ?? fallback : fallback;
-  };
-
-  const handleSave = async () => {
-    if (!policy) return;
-    setSaving(true);
-    try {
-      await updatePolicy({
-        id: policy.id,
-        data: {
-          probationDurationMonths: durationMonths.probation,
-          internDurationMonths: durationMonths.intern,
-          rules,
-        },
-      }).unwrap();
-      toast.success('Policy saved');
-      setEditing(false);
-      refetch();
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to save policy');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRecalculate = async () => {
-    if (!policy) return;
-    if (!window.confirm('This will recalculate and update leave balances for ALL employees. Continue?')) return;
-    setRecalculating(true);
-    try {
-      const result = await recalculate({ id: policy.id }).unwrap();
-      toast.success(`Recalculated: ${result.data?.success ?? 0} employees updated`);
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to recalculate');
-    } finally {
-      setRecalculating(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="animate-spin text-brand-500" size={28} />
-      </div>
-    );
-  }
-
-  if (!policy) {
-    return (
-      <div className="layer-card p-8 text-center text-gray-400">
-        <FileText size={40} className="mx-auto mb-3 opacity-40" />
-        <p className="text-sm">No leave policy found. One will be created automatically when an employee applies for leave.</p>
-      </div>
-    );
-  }
-
-  return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-gray-800">{policy.name}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Configure allocation rules per employee category. Changes apply to new allocations; use Recalculate to update existing balances.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {!editing ? (
-            <button onClick={() => setEditing(true)} className="btn-primary flex items-center gap-1.5 text-sm">
-              <Pencil size={14} /> Edit Policy
-            </button>
-          ) : (
-            <>
-              <button onClick={() => { setEditing(false); setRules(policy.rules ?? []); setDurationMonths({ probation: policy.probationDurationMonths ?? 3, intern: policy.internDurationMonths ?? 3 }); }} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                Cancel
-              </button>
-              <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-1.5 text-sm">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                Save Policy
-              </button>
-            </>
-          )}
-          <button
-            onClick={handleRecalculate}
-            disabled={recalculating}
-            title="Recalculate all employee balances using current policy"
-            className="px-3 py-2 text-sm border border-brand-200 text-brand-600 rounded-lg hover:bg-brand-50 transition-colors flex items-center gap-1.5"
-          >
-            {recalculating ? <Loader2 size={14} className="animate-spin" /> : <TrendingUp size={14} />}
-            Recalculate All
-          </button>
-        </div>
-      </div>
-
-      {/* Duration settings */}
-      <div className="layer-card p-4">
-        <p className="text-sm font-semibold text-gray-700 mb-3">Duration Settings</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Probation Duration (months)</label>
-            <input
-              type="number" min={1} max={24}
-              value={durationMonths.probation}
-              disabled={!editing}
-              onChange={(e) => setDurationMonths((d) => ({ ...d, probation: Number(e.target.value) }))}
-              className="input-glass w-full text-sm disabled:opacity-60"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">Probation employees accrue 1 leave/month up to this limit</p>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Intern Duration (months)</label>
-            <input
-              type="number" min={1} max={24}
-              value={durationMonths.intern}
-              disabled={!editing}
-              onChange={(e) => setDurationMonths((d) => ({ ...d, intern: Number(e.target.value) }))}
-              className="input-glass w-full text-sm disabled:opacity-60"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">Intern employees accrue 1 leave/month up to this limit</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Per leave type rules */}
-      <div className="space-y-3">
-        <p className="text-sm font-semibold text-gray-700">Allocation Rules by Leave Type</p>
-        {leaveTypes.filter((lt: any) => lt.isActive).map((lt: any) => {
-          const group = groupedRules[lt.id] ?? { leaveType: lt, rules: [] };
-          const isExpanded = expandedType === lt.id;
-          const hasRules = group.rules.length > 0;
-
-          return (
-            <div key={lt.id} className="layer-card overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between p-4 text-left hover:bg-surface-2/50 transition-colors"
-                onClick={() => setExpandedType(isExpanded ? null : lt.id)}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">{LEAVE_ICONS[lt.code] || '📅'}</span>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">{lt.name} <span className="text-gray-400 font-normal text-xs">({lt.code})</span></p>
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                      {(['ACTIVE', 'PROBATION', 'INTERN'] as const).map((cat) => {
-                        const yr = getRuleValue(lt.id, cat, 'yearlyDays', 0);
-                        const mo = getRuleValue(lt.id, cat, 'monthlyDays', 0);
-                        const accrual = getRuleValue(lt.id, cat, 'accrualType', 'UPFRONT');
-                        const prorata = getRuleValue(lt.id, cat, 'isProrata', false);
-                        if (!yr && !mo) return null;
-                        return (
-                          <span key={cat} className="text-[11px] text-gray-500">
-                            <span className="font-medium text-gray-700">{cat}:</span>{' '}
-                            {accrual === 'MONTHLY' ? `${mo}/mo` : `${yr}/yr`}
-                            {prorata ? ' (pro-rata)' : ''}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-                <ChevronRight size={16} className={cn('text-gray-400 transition-transform', isExpanded && 'rotate-90')} />
-              </button>
-
-              <AnimatePresence>
-                {isExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden border-t border-gray-100"
-                  >
-                    <div className="p-4 space-y-3">
-                      {(['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] as const).map((category) => (
-                        <div key={category} className="bg-surface-2 rounded-xl p-3">
-                          <p className="text-xs font-semibold text-gray-600 mb-2">{CATEGORY_LABELS[category]}</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div>
-                              <label className="block text-[11px] text-gray-400 mb-1">Yearly Days</label>
-                              <input
-                                type="number" min={0} step={0.5}
-                                value={getRuleValue(lt.id, category, 'yearlyDays', 0)}
-                                disabled={!editing}
-                                onChange={(e) => updateRule(lt.id, category, 'yearlyDays', parseFloat(e.target.value) || 0)}
-                                className="input-glass w-full text-sm disabled:opacity-60"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] text-gray-400 mb-1">Monthly Days</label>
-                              <input
-                                type="number" min={0} step={0.5}
-                                value={getRuleValue(lt.id, category, 'monthlyDays', 0)}
-                                disabled={!editing}
-                                onChange={(e) => updateRule(lt.id, category, 'monthlyDays', parseFloat(e.target.value) || 0)}
-                                className="input-glass w-full text-sm disabled:opacity-60"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] text-gray-400 mb-1">Accrual Type</label>
-                              <select
-                                value={getRuleValue(lt.id, category, 'accrualType', 'UPFRONT')}
-                                disabled={!editing}
-                                onChange={(e) => updateRule(lt.id, category, 'accrualType', e.target.value)}
-                                className="input-glass w-full text-sm disabled:opacity-60"
-                              >
-                                <option value="UPFRONT">Upfront</option>
-                                <option value="MONTHLY">Monthly</option>
-                              </select>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                              <label className="block text-[11px] text-gray-400">Options</label>
-                              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={getRuleValue(lt.id, category, 'isProrata', false)}
-                                  disabled={!editing}
-                                  onChange={(e) => updateRule(lt.id, category, 'isProrata', e.target.checked)}
-                                  className="rounded"
-                                />
-                                Pro-rata
-                              </label>
-                              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={getRuleValue(lt.id, category, 'isAllowed', true)}
-                                  disabled={!editing}
-                                  onChange={(e) => updateRule(lt.id, category, 'isAllowed', e.target.checked)}
-                                  className="rounded"
-                                />
-                                Allowed
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Info footer */}
-      <div className="flex items-start gap-2 text-xs text-gray-400 bg-blue-50 rounded-xl p-3 border border-blue-100">
-        <Info size={14} className="text-blue-400 mt-0.5 shrink-0" />
-        <p>
-          <span className="font-medium text-blue-600">Pro-rata</span> allocates yearly days based on months remaining in the year.{' '}
-          <span className="font-medium text-blue-600">Monthly accrual</span> gives the employee {'"'}monthly days{'"'} each month up to the duration limit.{' '}
-          <span className="font-medium text-blue-600">Recalculate All</span> immediately applies the current policy to all employees{' '}
-          (updates their balance for the current year).
-        </p>
-      </div>
-    </motion.div>
   );
 }

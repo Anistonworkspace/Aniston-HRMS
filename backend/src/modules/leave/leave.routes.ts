@@ -393,17 +393,11 @@ router.get(
 // Leave policies CRUD
 router.get('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
-    const { leavePolicyService } = await import('./leave-policy.service.js');
-    const policy = await leavePolicyService.getOrCreateDefaultPolicy(req.user!.organizationId);
-    // Return the full policy list (most orgs will have just one default)
     const { prisma } = await import('../../lib/prisma.js');
     const policies = await prisma.leavePolicy.findMany({
       where: { organizationId: req.user!.organizationId, isActive: true },
-      include: {
-        rules: { include: { leaveType: { select: { id: true, name: true, code: true } } }, orderBy: { leaveType: { name: 'asc' } } },
-        _count: { select: { employees: true } },
-      },
-      orderBy: { isDefault: 'desc' },
+      include: { rules: { include: { leaveType: { select: { id: true, name: true, code: true } } } }, _count: { select: { employees: true } } },
+      orderBy: { createdAt: 'asc' },
     });
     res.json({ success: true, data: policies });
   } catch (err) { next(err); }
@@ -412,7 +406,7 @@ router.get('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async 
 router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const { name, description, isDefault, probationDurationMonths, internDurationMonths, rules } = req.body;
+    const { name, description, isDefault, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
         where: { organizationId: req.user!.organizationId, isDefault: true },
@@ -422,23 +416,8 @@ router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
     const policy = await prisma.leavePolicy.create({
       data: {
         name, description, isDefault: !!isDefault,
-        probationDurationMonths: probationDurationMonths ?? 3,
-        internDurationMonths: internDurationMonths ?? 3,
         organizationId: req.user!.organizationId,
-        rules: rules?.length ? {
-          createMany: {
-            data: rules.map((r: any) => ({
-              leaveTypeId: r.leaveTypeId,
-              employeeCategory: r.employeeCategory ?? 'ALL',
-              yearlyDays: r.yearlyDays ?? r.daysAllowed ?? 0,
-              monthlyDays: r.monthlyDays ?? 0,
-              accrualType: r.accrualType ?? 'UPFRONT',
-              isProrata: r.isProrata ?? false,
-              daysAllowed: r.daysAllowed ?? r.yearlyDays ?? 0,
-              isAllowed: r.isAllowed ?? true,
-            })),
-          },
-        } : undefined,
+        rules: rules?.length ? { createMany: { data: rules.map((r: any) => ({ leaveTypeId: r.leaveTypeId, daysAllowed: r.daysAllowed, isAllowed: r.isAllowed ?? true })) } } : undefined,
       },
       include: { rules: { include: { leaveType: { select: { id: true, name: true, code: true } } } } },
     });
@@ -449,64 +428,24 @@ router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
 router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const { name, description, isDefault, probationDurationMonths, internDurationMonths, rules } = req.body;
+    const { name, description, isDefault, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
         where: { organizationId: req.user!.organizationId, isDefault: true, id: { not: req.params.id } },
         data: { isDefault: false },
       });
     }
-    const updateData: any = {};
-    if (name !== undefined) updateData.name = name;
-    if (description !== undefined) updateData.description = description;
-    if (isDefault !== undefined) updateData.isDefault = isDefault;
-    if (probationDurationMonths !== undefined) updateData.probationDurationMonths = probationDurationMonths;
-    if (internDurationMonths !== undefined) updateData.internDurationMonths = internDurationMonths;
-
     const policy = await prisma.leavePolicy.update({
       where: { id: req.params.id },
-      data: updateData,
+      data: { name, description, isDefault },
     });
-
     if (rules?.length) {
-      // Upsert rules by (policyId, leaveTypeId, employeeCategory)
-      await Promise.all(rules.map((r: any) =>
-        prisma.leavePolicyRule.upsert({
-          where: {
-            policyId_leaveTypeId_employeeCategory: {
-              policyId: req.params.id,
-              leaveTypeId: r.leaveTypeId,
-              employeeCategory: r.employeeCategory ?? 'ALL',
-            },
-          },
-          update: {
-            yearlyDays: r.yearlyDays ?? r.daysAllowed ?? 0,
-            monthlyDays: r.monthlyDays ?? 0,
-            accrualType: r.accrualType ?? 'UPFRONT',
-            isProrata: r.isProrata ?? false,
-            daysAllowed: r.daysAllowed ?? r.yearlyDays ?? 0,
-            isAllowed: r.isAllowed ?? true,
-          },
-          create: {
-            policyId: req.params.id,
-            leaveTypeId: r.leaveTypeId,
-            employeeCategory: r.employeeCategory ?? 'ALL',
-            yearlyDays: r.yearlyDays ?? r.daysAllowed ?? 0,
-            monthlyDays: r.monthlyDays ?? 0,
-            accrualType: r.accrualType ?? 'UPFRONT',
-            isProrata: r.isProrata ?? false,
-            daysAllowed: r.daysAllowed ?? r.yearlyDays ?? 0,
-            isAllowed: r.isAllowed ?? true,
-          },
-        })
-      ));
+      await prisma.leavePolicyRule.deleteMany({ where: { policyId: req.params.id } });
+      await prisma.leavePolicyRule.createMany({
+        data: rules.map((r: any) => ({ policyId: req.params.id, leaveTypeId: r.leaveTypeId, daysAllowed: r.daysAllowed, isAllowed: r.isAllowed ?? true })),
+      });
     }
-
-    const updated = await prisma.leavePolicy.findUnique({
-      where: { id: req.params.id },
-      include: { rules: { include: { leaveType: { select: { id: true, name: true, code: true } } } } },
-    });
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: policy });
   } catch (err) { next(err); }
 });
 
@@ -515,36 +454,6 @@ router.delete('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
     const { prisma } = await import('../../lib/prisma.js');
     await prisma.leavePolicy.update({ where: { id: req.params.id }, data: { isActive: false } });
     res.json({ success: true, message: 'Leave policy deactivated' });
-  } catch (err) { next(err); }
-});
-
-// Recalculate leave allocations for all employees under a policy
-router.post('/policies/:id/recalculate', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
-  try {
-    const { leavePolicyService } = await import('./leave-policy.service.js');
-    const { prisma } = await import('../../lib/prisma.js');
-    const orgId = req.user!.organizationId;
-    const year = req.body.year ?? new Date().getFullYear();
-
-    // Verify policy belongs to org
-    const policy = await prisma.leavePolicy.findFirst({ where: { id: req.params.id, organizationId: orgId } });
-    if (!policy) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Policy not found' } });
-
-    // Get all active employees in the org
-    const employees = await prisma.employee.findMany({
-      where: { organizationId: orgId, deletedAt: null },
-      select: { id: true },
-    });
-
-    let success = 0, failed = 0;
-    for (const emp of employees) {
-      try {
-        await leavePolicyService.allocateForEmployee(emp.id, year, { force: true, triggeredBy: req.user!.userId });
-        success++;
-      } catch { failed++; }
-    }
-
-    res.json({ success: true, data: { processed: employees.length, success, failed, year } });
   } catch (err) { next(err); }
 });
 
