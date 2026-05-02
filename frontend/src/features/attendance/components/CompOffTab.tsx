@@ -210,7 +210,7 @@ export function CompOffTab() {
         {showGrant && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
             onClick={e => e.target === e.currentTarget && setShowGrant(false)}
           >
             <motion.div

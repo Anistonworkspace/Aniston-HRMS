@@ -84,7 +84,7 @@ export default function GeoLocationsTab() {
       {/* Map Preview Modal */}
       {mapPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMapPreview(null)} />
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMapPreview(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
               <div className="flex items-center gap-2">

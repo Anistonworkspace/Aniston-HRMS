@@ -526,7 +526,7 @@ function ScoreModal({ round, onClose }: { round: any; onClose: () => void }) {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
         onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-y-auto" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
         <div className="flex items-center justify-between sticky top-0 bg-white z-10 px-6 pt-6 pb-4 border-b border-gray-100">

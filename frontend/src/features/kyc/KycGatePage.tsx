@@ -637,7 +637,7 @@ function SubmitConfirmDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
+      <div className="fixed inset-0 bg-black/50" onClick={onCancel} />
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
         <div className="px-5 pt-5 pb-4 border-b border-gray-100">
           <div className="flex items-center gap-3">

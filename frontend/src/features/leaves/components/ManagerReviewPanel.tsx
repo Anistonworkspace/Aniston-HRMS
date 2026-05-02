@@ -36,7 +36,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
 
   if (isLoading) {
     return (
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
+      <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
         <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl max-h-[90vh] p-8 flex items-center justify-center">
           <Loader2 size={24} className="animate-spin text-brand-600" />
         </div>
@@ -50,7 +50,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
   const isHighRisk = data.riskLevel === 'HIGH' || data.riskLevel === 'CRITICAL';
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl" style={{ maxHeight: 'min(90dvh, calc(100dvh - 1rem))' }}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">

@@ -233,7 +233,7 @@ export default function AppShell() {
 
       {/* Inactivity timeout warning modal */}
       {showTimeoutWarning && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="timeout-title">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="timeout-title">
           <div className="layer-card mx-4 w-full max-w-sm rounded-2xl p-6 shadow-xl">
             <h2 id="timeout-title" className="font-sora text-lg font-semibold text-gray-900">{t('appShell.sessionExpiring')}</h2>
             <p className="mt-2 text-sm text-gray-600">

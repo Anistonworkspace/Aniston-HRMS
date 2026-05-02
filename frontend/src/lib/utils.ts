@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { Capacitor } from '@capacitor/core';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -42,6 +43,9 @@ export function getInitials(firstName?: string, lastName?: string): string {
  *   <img src={getUploadUrl(branding.logoUrl)} />
  */
 const _BACKEND_ORIGIN = (() => {
+  // On native Android/iOS, relative /uploads/ paths resolve to capacitor://localhost
+  // which has no backend — always use the production origin directly.
+  if (Capacitor.isNativePlatform()) return 'https://hr.anistonav.com';
   const raw = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
   // Strip the /api suffix to get the bare origin
   return raw === '/api' ? '' : raw.replace(/\/api$/, '');

@@ -217,7 +217,7 @@ function ShiftsPanel() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 z-50 overflow-y-auto">
           <div className="flex items-start justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-6 mx-auto">
               <div className="p-5 space-y-3">
@@ -632,7 +632,7 @@ function LocationsPanel() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 z-50 overflow-y-auto">
           <div className="flex items-start justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl my-6 mx-auto">
               <div className="p-5 space-y-3">

@@ -321,7 +321,7 @@ function JobOpeningsTab() {
       <AnimatePresence>
         {deleteConfirm && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
             onClick={() => setDeleteConfirm(null)}>
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
               onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 max-w-sm">
@@ -379,7 +379,7 @@ function QuestionsPreviewModal({ jobTitle, questions, onClose, onRegenerate, isR
 }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
       onClick={onClose}>
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
         onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col" style={{ maxHeight: 'min(85dvh, calc(100dvh - 2rem))' }}>
@@ -516,7 +516,7 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 30, opacity: 0 }}
         onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
         {/* Header */}
@@ -1194,7 +1194,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
     <>
       {/* Backdrop */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40" onClick={onClose} />
+        className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
 
       {/* Panel */}
       <motion.div
@@ -1536,7 +1536,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
       <AnimatePresence>
         {resumePreview && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4"
             onClick={() => setResumePreview(null)}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
               onClick={e => e.stopPropagation()}
@@ -2057,7 +2057,7 @@ function HireModal({ candidate, onClose, onSuccess }: { candidate: any; onClose:
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
         onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
         <div className="flex items-center justify-between mb-4">
@@ -2121,7 +2121,7 @@ function EditJobModal({ job, onClose }: { job: any; onClose: () => void }) {
   };
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-lg overflow-y-auto" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
@@ -2191,7 +2191,7 @@ function CreateJobModal({ onClose }: { onClose: () => void }) {
   };
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-lg overflow-y-auto" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
@@ -2294,7 +2294,7 @@ function HiringPassedInviteModal({ open, onClose, candidateEmail, candidateName,
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4" onClick={handleClose}>
+    <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4" onClick={handleClose}>
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
         onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
         <div className="flex items-center justify-between mb-5">

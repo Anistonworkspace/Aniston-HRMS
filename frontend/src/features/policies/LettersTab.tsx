@@ -733,7 +733,7 @@ export default function LettersTab() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex flex-col"
+            className="fixed inset-0 bg-black/60 z-50 flex flex-col"
           >
             <div className="flex items-center justify-between px-4 py-3 bg-gray-900 text-white">
               <div className="flex items-center gap-2">

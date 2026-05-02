@@ -244,7 +244,7 @@ export default function EmployeeDetailPage() {
           <AnimatePresence>
             {showAttachmentsPopup && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
                 onClick={() => setShowAttachmentsPopup(false)}>
                 <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
                   onClick={e => e.stopPropagation()}
@@ -287,7 +287,7 @@ export default function EmployeeDetailPage() {
           <AnimatePresence>
             {showTagsPopup && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
                 onClick={() => setShowTagsPopup(false)}>
                 <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
                   onClick={e => e.stopPropagation()}
@@ -933,7 +933,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}
@@ -2912,7 +2912,7 @@ function HrKycUploadModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
         onClick={e => e.stopPropagation()}
@@ -3224,7 +3224,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
 
       {/* Reject All Documents modal */}
       {showRejectAll && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-glass-lg w-full max-w-sm p-6 space-y-4">
             <h3 className="text-base font-display font-semibold text-gray-900 flex items-center gap-2">
               <AlertTriangle size={18} className="text-red-500" /> Reject All Documents
@@ -3808,7 +3808,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
 
       {/* Image: authenticated blob URL — actual /uploads/ path never exposed */}
       {previewDocId && !/\.pdf$/i.test(previewFileUrl) && !previewOfficeUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closePreview}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={closePreview}>
           <div className="bg-white rounded-2xl shadow-2xl w-[90vw] h-[85vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-800">{previewName}</h3>
@@ -3847,7 +3847,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
 
       {/* Office docs (DOCX/XLSX/PPTX/TXT): Google Docs Viewer */}
       {previewOfficeUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closePreview}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={closePreview}>
           <div className="bg-white rounded-2xl shadow-2xl w-[90vw] h-[85vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-800">{previewName}</h3>
@@ -3884,7 +3884,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
 
       {/* Delete Confirmation Modal */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!deleting) { setConfirmDeleteId(null); setDeleteReason(''); } }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { if (!deleting) { setConfirmDeleteId(null); setDeleteReason(''); } }}>
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-[460px] max-w-[94vw]" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
@@ -4393,7 +4393,7 @@ function InternProfileTab({ employeeId, employee, isManagement }: { employeeId: 
       {/* Issue Letter Modal */}
       <AnimatePresence>
         {showLetterModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowLetterModal(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowLetterModal(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               onClick={e => e.stopPropagation()}
@@ -4533,7 +4533,7 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
         className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
         {/* Header */}
@@ -4780,7 +4780,7 @@ function LeaveDetailModal({ records, onClose }: { records: any[]; onClose: () =>
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
         className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden" style={{ maxHeight: 'min(80dvh, calc(100dvh - 2rem))' }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -4836,7 +4836,7 @@ function LifecycleDetailModal({ events, onClose }: { events: any[]; onClose: () 
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
         className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden" style={{ maxHeight: 'min(80dvh, calc(100dvh - 2rem))' }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">

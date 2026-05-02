@@ -494,7 +494,7 @@ const handleCreateRun = async () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/40"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -577,7 +577,7 @@ const handleCreateRun = async () => {
 
       {/* Reject modal */}
       {rejectForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setRejectForm(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setRejectForm(null)}>
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-4 md:p-6 w-full max-w-md mx-4">
             <h3 className="text-base font-semibold text-gray-800 mb-3">Reject Deletion Request</h3>
@@ -598,7 +598,7 @@ const handleCreateRun = async () => {
       <AnimatePresence>
         {preflightRunId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreflightRunId(null)}>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/40" />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -705,7 +705,7 @@ const handleCreateRun = async () => {
 
       {/* Request Deletion Modal (HR) */}
       {deletionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setDeletionModal(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setDeletionModal(null)}>
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-4 md:p-6 w-full max-w-md mx-4">
             <h3 className="text-base font-semibold text-gray-800 mb-1">Request Payroll Deletion</h3>

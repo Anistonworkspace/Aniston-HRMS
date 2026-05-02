@@ -1237,7 +1237,7 @@ export default function OcrVerificationPanel({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/60" onClick={onClose} />
 
       {/* Centered popup */}
       <div className="relative w-full max-w-4xl max-h-[92vh] bg-white shadow-2xl overflow-y-auto rounded-2xl animate-in zoom-in-95 duration-200 flex flex-col">
@@ -1380,7 +1380,7 @@ export default function OcrVerificationPanel({
 
           {/* Image / Office: authenticated blob URL preview — real /uploads/ path never in DOM */}
           {showInlinePreview && fileUrl && (
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowInlinePreview(false)}>
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70" onClick={() => setShowInlinePreview(false)}>
               <div className="bg-white rounded-2xl shadow-2xl w-[92vw] h-[88vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
                   <p className="text-sm font-semibold text-gray-800">{documentName}</p>

@@ -667,7 +667,7 @@ export default function BulkEmailPage() {
 
       {/* Confirm dialog */}
       {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" role="dialog" aria-modal="true">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-display font-semibold text-gray-900 mb-2">Confirm Bulk Email</h3>
             <p className="text-sm text-gray-600 mb-4">

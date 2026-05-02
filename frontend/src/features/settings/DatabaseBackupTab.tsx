@@ -76,7 +76,7 @@ interface ConfirmModalProps {
 
 function ConfirmModal({ title, message, confirmLabel, confirmCls = 'btn-primary', onConfirm, onCancel, isLoading, danger = false }: ConfirmModalProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 border border-gray-100">
         <div className="flex items-start gap-3 mb-4">
           <div className={cn('p-2 rounded-lg flex-shrink-0', danger ? 'bg-red-50' : 'bg-amber-50')}>
