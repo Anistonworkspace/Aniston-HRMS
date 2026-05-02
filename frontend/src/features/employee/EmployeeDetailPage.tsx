@@ -457,7 +457,7 @@ export default function EmployeeDetailPage() {
                       <dl className="space-y-2.5">
                         <InfoRow label="Account Holder" value={employee.accountHolderName || '—'} />
                         <InfoRow label="Bank" value={employee.bankName || '—'} />
-                        <InfoRow label="Account No." value={`••••${employee.bankAccountNumber.slice(-4)}`} mono />
+                        <InfoRow label="Account No." value={employee.bankAccountNumber} mono />
                         <InfoRow label="IFSC" value={employee.ifscCode || '—'} mono />
                         <InfoRow label="Account Type" value={employee.accountType || '—'} />
                         {((employee as any).epfUan || (employee as any).epfMemberId) && (
