@@ -152,11 +152,23 @@ router.get(
           firstName: true,
           lastName: true,
           employeeCode: true,
+          gender: true,
+          status: true,
+          joiningDate: true,
+          user: { select: { role: true } },
           department: { select: { name: true } },
           designation: { select: { name: true } },
           leaveBalances: {
             where: { year },
-            include: { leaveType: { select: { id: true, name: true, code: true, isPaid: true } } },
+            include: {
+              leaveType: {
+                select: {
+                  id: true, name: true, code: true, isPaid: true,
+                  gender: true, applicableTo: true, applicableToRole: true,
+                  applicableToEmployeeIds: true, probationMonths: true, isActive: true,
+                },
+              },
+            },
           },
         },
         orderBy: [{ department: { name: 'asc' } }, { firstName: 'asc' }],
@@ -185,11 +197,48 @@ router.get(
         leaveCountMap.set(lc.employeeId, existing);
       });
 
+      // Same applicability logic as leave.service.ts getLeaveBalances()
+      const isLeaveApplicable = (lt: any, emp: any): boolean => {
+        if (!lt.isActive) return false;
+        if (lt.gender && lt.gender !== emp.gender) return false;
+
+        const specificIds: string[] | null = lt.applicableToEmployeeIds
+          ? (() => { try { return JSON.parse(lt.applicableToEmployeeIds); } catch { return null; } })()
+          : null;
+        if (specificIds && specificIds.length > 0) return specificIds.includes(emp.id);
+
+        const userRole = emp.user?.role;
+        if (lt.applicableToRole && lt.applicableToRole !== userRole) return false;
+
+        const probationMonths = lt.probationMonths ?? 0;
+        if (probationMonths > 0 && emp.joiningDate) {
+          const joined = new Date(emp.joiningDate);
+          const now = new Date();
+          const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
+          if (monthsWorked < probationMonths) return false;
+        }
+
+        const app = lt.applicableTo;
+        if (app === 'ALL') return emp.status !== 'ONBOARDING';
+        if (app === 'PROBATION') return emp.status === 'PROBATION';
+        if (app === 'ACTIVE' || app === 'CONFIRMED') return emp.status === 'ACTIVE';
+        if (app === 'NOTICE_PERIOD') return emp.status === 'NOTICE_PERIOD';
+        if (app === 'ONBOARDING') return emp.status === 'ONBOARDING';
+        if (app === 'INTERN') return emp.status === 'INTERN' || userRole === 'INTERN';
+        if (app === 'SUSPENDED') return emp.status === 'SUSPENDED';
+        if (app === 'INACTIVE') return emp.status === 'INACTIVE';
+        if (app === 'TERMINATED') return emp.status === 'TERMINATED';
+        if (app === 'ABSCONDED') return emp.status === 'ABSCONDED';
+        return true;
+      };
+
       const data = employees.map((emp) => {
         const counts = leaveCountMap.get(emp.id) || { applied: 0, approved: 0, pending: 0, totalDays: 0 };
-        const totalAllocated = emp.leaveBalances.reduce((s, b) => s + Number(b.allocated) + Number(b.carriedForward), 0);
-        const totalUsed = emp.leaveBalances.reduce((s, b) => s + Number(b.used), 0);
-        const totalPending = emp.leaveBalances.reduce((s, b) => s + Number(b.pending), 0);
+        // Only count balances for leave types that actually apply to this employee
+        const applicableBalances = emp.leaveBalances.filter((b) => isLeaveApplicable(b.leaveType, emp));
+        const totalAllocated = applicableBalances.reduce((s, b) => s + Number(b.allocated) + Number(b.carriedForward), 0);
+        const totalUsed = applicableBalances.reduce((s, b) => s + Number(b.used), 0);
+        const totalPending = applicableBalances.reduce((s, b) => s + Number(b.pending), 0);
         const totalRemaining = totalAllocated - totalUsed - totalPending;
         return {
           id: emp.id,
@@ -202,7 +251,7 @@ router.get(
           totalUsed,
           totalPending,
           totalRemaining,
-          balances: emp.leaveBalances.map((b) => ({
+          balances: applicableBalances.map((b) => ({
             leaveTypeId: b.leaveTypeId,
             leaveTypeName: b.leaveType.name,
             leaveTypeCode: b.leaveType.code,
