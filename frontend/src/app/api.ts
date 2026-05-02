@@ -34,6 +34,13 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
   let result = await baseQuery(args, api, extraOptions);
 
   if (result.error && result.error.status === 401) {
+    // Session revoked by force-login from another device — logout immediately, no refresh
+    const errCode = (result.error.data as any)?.error?.code;
+    if (errCode === 'SESSION_REVOKED') {
+      if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');
+      api.dispatch({ type: 'auth/logout' });
+      return result;
+    }
     // Use mutex to prevent parallel refresh requests
     if (!refreshPromise) {
       refreshPromise = (async () => {

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { UnauthorizedError, ForbiddenError } from './errorHandler.js';
+import { UnauthorizedError, ForbiddenError, AppError } from './errorHandler.js';
 import { Role, hasPermission, type Resource, type Action } from '@aniston/shared';
 import { prisma } from '../lib/prisma.js';
 import { redis } from '../lib/redis.js';
@@ -14,6 +14,7 @@ export interface JwtPayload {
   employeeId?: string;
   mfaPending?: boolean;
   kycCompleted?: boolean;
+  deviceId?: string;
 }
 
 /** Shape of an ExitAccessConfig row (subset used by the middleware). */
@@ -62,7 +63,7 @@ declare global {
   }
 }
 
-export function authenticate(req: Request, _res: Response, next: NextFunction) {
+export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -73,10 +74,17 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
     if (decoded.mfaPending) {
       throw new UnauthorizedError('MFA verification required. Complete two-factor authentication first.');
     }
+    // Single-session enforcement: check if this device's session was revoked by a force-login
+    if (decoded.deviceId) {
+      const revoked = await redis.get(`revoked:session:${decoded.userId}:${decoded.deviceId}`);
+      if (revoked) {
+        return next(new AppError('Your session was ended because you signed in from another device.', 401, 'SESSION_REVOKED'));
+      }
+    }
     req.user = decoded;
     next();
   } catch (err) {
-    if (err instanceof UnauthorizedError) return next(err);
+    if (err instanceof AppError) return next(err);
     if (err instanceof jwt.TokenExpiredError) return next(new UnauthorizedError('Token expired'));
     if (err instanceof jwt.JsonWebTokenError) return next(new UnauthorizedError('Invalid token'));
     next(err);

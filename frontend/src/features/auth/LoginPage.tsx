@@ -43,6 +43,7 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     const reason = params.get('reason');
     if (reason === 'inactivity') setLoginError(t('login.sessionExpiredInactivity'));
+    else if (reason === 'session_revoked') setLoginError('You were signed out because your account was logged in from another device.');
     else if (reason === 'session_expired') setLoginError(t('login.sessionExpired'));
     else if (reason === 'unauthorized') setLoginError(t('login.needToSignIn'));
   }, [t]);

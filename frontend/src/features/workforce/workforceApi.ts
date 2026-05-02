@@ -37,17 +37,22 @@ export interface UpdateShiftRequest {
 export interface AssignShiftRequest {
   employeeId: string;
   shiftId: string;
-  effectiveFrom: string;
-  effectiveTo?: string;
+  locationId?: string;
+  startDate: string;
+  endDate?: string;
 }
 
 export interface ShiftAssignment {
   id: string;
   employeeId: string;
   shiftId: string;
-  effectiveFrom: string;
-  effectiveTo?: string | null;
+  locationId?: string | null;
+  organizationId?: string | null;
+  startDate: string;
+  endDate?: string | null;
+  assignedBy: string;
   shift: Shift;
+  location?: { id: string; name: string } | null;
   employee?: {
     id: string;
     firstName: string;

@@ -43,7 +43,8 @@ model Organization {
   leaveTypes   LeaveType[]
   auditLogs    AuditLog[]
   geofences    Geofence[]
-  shifts       Shift[]
+  shifts           Shift[]
+  shiftAssignments ShiftAssignment[]
   leavePolicies LeavePolicy[]
   attendancePolicy AttendancePolicy?
   shiftRotationPatterns ShiftRotationPattern[]
@@ -2411,20 +2412,25 @@ model Shift {
 }
 
 model ShiftAssignment {
-  id         String    @id @default(uuid())
-  employeeId String
-  shiftId    String
-  locationId String?
-  startDate  DateTime  @db.Date
-  endDate    DateTime? @db.Date
-  assignedBy String
-  createdAt  DateTime  @default(now())
+  id             String    @id @default(uuid())
+  employeeId     String
+  shiftId        String
+  locationId     String?
+  organizationId String?
+  startDate      DateTime  @db.Date
+  endDate        DateTime? @db.Date
+  assignedBy     String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
-  employee Employee        @relation(fields: [employeeId], references: [id])
-  shift    Shift           @relation(fields: [shiftId], references: [id])
-  location OfficeLocation? @relation(fields: [locationId], references: [id])
+  employee     Employee        @relation(fields: [employeeId], references: [id])
+  shift        Shift           @relation(fields: [shiftId], references: [id])
+  location     OfficeLocation? @relation(fields: [locationId], references: [id])
+  organization Organization?   @relation(fields: [organizationId], references: [id])
 
   @@index([employeeId, startDate])
+  @@index([organizationId, startDate])
 }
 
 // =====================

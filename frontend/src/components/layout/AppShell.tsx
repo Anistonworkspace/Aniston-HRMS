@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WifiOff, RefreshCw } from 'lucide-react';
 import Sidebar from './Sidebar';
@@ -12,7 +12,7 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { api } from '../../app/api';
-import { setUser } from '../../features/auth/authSlice';
+import { setUser, logout } from '../../features/auth/authSlice';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
@@ -147,6 +147,20 @@ export default function AppShell() {
     onSocketEvent('kyc:status-changed', handleKycStatusChanged);
     return () => { offSocketEvent('kyc:status-changed', handleKycStatusChanged); };
   }, [dispatch, user]);
+
+  const navigate = useNavigate();
+
+  // Single-session enforcement — kicked off because another device logged in with force-login
+  useEffect(() => {
+    const handleSessionRevoked = () => {
+      dispatch(logout());
+      disconnectSocket();
+      toast.error('You were signed out because your account was logged in from another device.', { duration: 8000 });
+      navigate('/login?reason=session_revoked', { replace: true });
+    };
+    onSocketEvent('session:revoked', handleSessionRevoked);
+    return () => { offSocketEvent('session:revoked', handleSessionRevoked); };
+  }, [dispatch, navigate]);
 
   const location = useLocation();
   const isAdminOrHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');

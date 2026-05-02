@@ -66,11 +66,21 @@ export class AuthService {
             `Click "Login on this device" to log out the other device automatically.`
           );
         }
-        // forceLogin=true — deactivate old session silently
+        // forceLogin=true — deactivate old session and immediately revoke it
+        const oldDeviceId = existingSession.deviceId;
         await prisma.deviceSession.update({
           where: { userId_deviceType: { userId: user.id, deviceType } },
           data: { isActive: false },
         });
+        // Blacklist old device JWT for 24h — any access token will expire within this window
+        await redis.setex(`revoked:session:${user.id}:${oldDeviceId}`, 86400, '1');
+        // Revoke all refresh tokens so old device cannot silently obtain a new access token
+        await this.revokeAllUserTokens(user.id);
+        // Real-time kick via Socket.io — AppShell listener will dispatch logout immediately
+        try {
+          const { emitToUser } = await import('../../sockets/index.js');
+          emitToUser(user.id, 'session:revoked', { deviceType, reason: 'login_from_new_device' });
+        } catch { /* non-blocking — socket may not be initialized */ }
       }
       await prisma.deviceSession.upsert({
         where: { userId_deviceType: { userId: user.id, deviceType } },
@@ -105,8 +115,8 @@ export class AuthService {
       } as any;
     }
 
-    // Generate tokens
-    const accessToken = this.generateAccessToken(user);
+    // Generate tokens — embed deviceId so middleware can check session revocation
+    const accessToken = this.generateAccessToken(user, deviceInfo?.deviceId);
     const refreshToken = await this.generateRefreshToken(user.id);
 
     // Update last login
@@ -475,7 +485,7 @@ export class AuthService {
   }
 
   /** Generate tokens for a user (used by login + invitation accept) */
-  public generateAccessToken(user: any): string {
+  public generateAccessToken(user: any, deviceId?: string): string {
     const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
     const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
 
@@ -486,6 +496,7 @@ export class AuthService {
       organizationId: user.organizationId,
       employeeId: user.employee?.id,
       kycCompleted,
+      ...(deviceId ? { deviceId } : {}),
     };
 
     return jwt.sign(payload, env.JWT_SECRET, {
