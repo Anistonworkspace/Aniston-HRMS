@@ -39,11 +39,15 @@ export class AuthController {
         path: '/api/auth',
       });
 
+      // Native Capacitor clients can't use httpOnly cookies cross-origin (capacitor://localhost →
+      // hr.anistonav.com). Return the token in the body so it can be persisted in localStorage.
+      const isNativeApp = req.headers['x-native-app'] === 'true';
       res.json({
         success: true,
         data: {
           accessToken: result.accessToken,
           user: result.user,
+          ...(isNativeApp ? { refreshToken: result.refreshToken } : {}),
         },
         message: 'Login successful',
       });
@@ -54,7 +58,9 @@ export class AuthController {
 
   async refresh(req: Request, res: Response, next: NextFunction) {
     try {
-      const refreshToken = req.cookies.refreshToken;
+      // Accept token from httpOnly cookie (web) OR request body (native Capacitor clients
+      // which can't send cross-origin cookies from capacitor://localhost).
+      const refreshToken = req.cookies.refreshToken || req.body?.refreshToken;
       if (!refreshToken) {
         res.status(401).json({
           success: false,
@@ -74,9 +80,13 @@ export class AuthController {
         path: '/api/auth',
       });
 
+      const isNativeApp = req.headers['x-native-app'] === 'true';
       res.json({
         success: true,
-        data: { accessToken: result.accessToken },
+        data: {
+          accessToken: result.accessToken,
+          ...(isNativeApp ? { refreshToken: result.refreshToken } : {}),
+        },
       });
     } catch (err) {
       next(err);
@@ -319,7 +329,8 @@ export class AuthController {
       res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000, path: '/api/auth' });
 
       const userData = await authService.getMe(user.id);
-      res.json({ success: true, data: { accessToken, user: userData } });
+      const isNativeAppMfa = req.headers['x-native-app'] === 'true';
+      res.json({ success: true, data: { accessToken, user: userData, ...(isNativeAppMfa ? { refreshToken } : {}) } });
     } catch (err) { next(err); }
   }
 

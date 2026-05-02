@@ -245,3 +245,11 @@
     padding-top: env(safe-area-inset-top);
   }
 }
+
+/* Disable all backdrop-filter on native Android/iOS (Capacitor) to prevent ANR.
+   Android WebView recomputes blur on every viewport resize (e.g. keyboard open),
+   blocking the main thread and triggering "App isn't responding". */
+html.capacitor-native * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

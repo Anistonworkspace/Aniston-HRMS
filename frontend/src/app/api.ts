@@ -17,6 +17,11 @@ const baseQuery = fetchBaseQuery({
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
+    // Tell the backend this is a native Capacitor client so it returns refreshToken in the body
+    // (httpOnly cookies can't be sent cross-origin from capacitor://localhost).
+    if (Capacitor.isNativePlatform()) {
+      headers.set('X-Native-App', 'true');
+    }
     return headers;
   },
 });
@@ -32,19 +37,33 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
     // Use mutex to prevent parallel refresh requests
     if (!refreshPromise) {
       refreshPromise = (async () => {
+        // On native, cookies can't be sent cross-origin — include the stored token in the body
+        const storedNativeToken = Capacitor.isNativePlatform()
+          ? localStorage.getItem('nativeRefreshToken')
+          : null;
+
         const refreshResult = await baseQuery(
-          { url: '/auth/refresh', method: 'POST' },
+          {
+            url: '/auth/refresh',
+            method: 'POST',
+            body: storedNativeToken ? { refreshToken: storedNativeToken } : undefined,
+          },
           api,
           extraOptions
         );
         if (refreshResult.data) {
-          const data = refreshResult.data as { data: { accessToken: string } };
+          const data = refreshResult.data as { data: { accessToken: string; refreshToken?: string } };
           api.dispatch({
             type: 'auth/setAccessToken',
             payload: data.data.accessToken,
           });
+          // Rotate stored native refresh token
+          if (data.data.refreshToken && Capacitor.isNativePlatform()) {
+            localStorage.setItem('nativeRefreshToken', data.data.refreshToken);
+          }
           return true;
         } else {
+          if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');
           api.dispatch({ type: 'auth/logout' });
           return false;
         }

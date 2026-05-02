@@ -1,5 +1,19 @@
+import { Capacitor } from '@capacitor/core';
 import { api } from '../../app/api';
 import type { ApiResponse, LoginRequest, LoginResponse, AuthUser } from '@aniston/shared';
+
+// Helpers to persist the refresh token for native Capacitor builds.
+// On Android/iOS, httpOnly cookies can't be sent cross-origin (capacitor://localhost →
+// hr.anistonav.com), so we keep a copy in localStorage and send it in the request body.
+const NATIVE_TOKEN_KEY = 'nativeRefreshToken';
+function saveNativeToken(data: any) {
+  if (!Capacitor.isNativePlatform()) return;
+  const token = data?.data?.refreshToken;
+  if (token) localStorage.setItem(NATIVE_TOKEN_KEY, token);
+}
+function clearNativeToken() {
+  if (Capacitor.isNativePlatform()) localStorage.removeItem(NATIVE_TOKEN_KEY);
+}
 
 export const authApi = api.injectEndpoints({
   endpoints: (builder) => ({
@@ -9,12 +23,24 @@ export const authApi = api.injectEndpoints({
         method: 'POST',
         body: credentials,
       }),
+      async onQueryStarted(_, { queryFulfilled }) {
+        try {
+          const result = await queryFulfilled;
+          saveNativeToken(result.data);
+        } catch {}
+      },
     }),
     logout: builder.mutation<ApiResponse<null>, void>({
       query: () => ({
         url: '/auth/logout',
         method: 'POST',
       }),
+      async onQueryStarted(_, { queryFulfilled }) {
+        try {
+          await queryFulfilled;
+        } catch {}
+        clearNativeToken();
+      },
     }),
     getMe: builder.query<ApiResponse<AuthUser>, void>({
       query: () => '/auth/me',
@@ -55,6 +81,12 @@ export const authApi = api.injectEndpoints({
     }),
     verifyMfa: builder.mutation<ApiResponse<LoginResponse>, { tempToken: string; token: string }>({
       query: (body) => ({ url: '/auth/mfa/verify', method: 'POST', body }),
+      async onQueryStarted(_, { queryFulfilled }) {
+        try {
+          const result = await queryFulfilled;
+          saveNativeToken(result.data);
+        } catch {}
+      },
     }),
     disableMfa: builder.mutation<ApiResponse<{ message: string }>, { code: string }>({
       query: (body) => ({ url: '/auth/mfa/disable', method: 'POST', body }),

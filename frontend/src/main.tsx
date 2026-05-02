@@ -1,8 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Capacitor } from '@capacitor/core';
 import App from './App';
 import './styles/globals.css';
 import './i18n'; // Initialize i18n before app renders
+
+// Disable backdrop-filter on native Android/iOS to prevent ANR during keyboard/resize events
+if (Capacitor.isNativePlatform()) {
+  document.documentElement.classList.add('capacitor-native');
+}
 
 // ===== PWA Install Prompt — capture BEFORE any lazy routes load =====
 // beforeinstallprompt fires once during page load. DownloadPage is lazy-loaded,
