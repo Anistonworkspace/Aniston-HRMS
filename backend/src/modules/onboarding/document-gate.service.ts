@@ -11,8 +11,9 @@ import { enqueueEmail } from '../../jobs/queues.js';
 export const IDENTITY_PROOF_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
 export const EMPLOYMENT_PROOF_TYPES = ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC'];
 
-// Education levels ordered lowest → highest
+// Education levels ordered lowest → highest (DIPLOMA is stored as-is but treated as GRADUATION-level)
 const QUALIFICATION_ORDER = ['TENTH', 'TWELFTH', 'GRADUATION', 'POST_GRADUATION', 'PHD'];
+const ALLOWED_QUALIFICATIONS = ['NONE', 'DIPLOMA', ...QUALIFICATION_ORDER];
 
 // Document type label map for human-readable messages
 const DOC_LABELS: Record<string, string> = {
@@ -52,7 +53,9 @@ export function computeRequiredDocs(
 
   // Education chain — skip entirely when employee has no formal education ('NONE')
   if (highestQualification !== 'NONE') {
-    const qualIdx = QUALIFICATION_ORDER.indexOf(highestQualification);
+    // DIPLOMA requires same certs as GRADUATION (10th + 12th + Degree)
+    const normalizedQual = highestQualification === 'DIPLOMA' ? 'GRADUATION' : highestQualification;
+    const qualIdx = QUALIFICATION_ORDER.indexOf(normalizedQual);
     if (qualIdx >= 0) required.push('TENTH_CERTIFICATE');
     if (qualIdx >= 1) required.push('TWELFTH_CERTIFICATE');
     if (qualIdx >= 2) required.push('DEGREE_CERTIFICATE');
@@ -121,8 +124,8 @@ export class DocumentGateService {
     if (!['FRESHER', 'EXPERIENCED'].includes(fresherOrExperienced)) {
       throw new BadRequestError('fresherOrExperienced must be FRESHER or EXPERIENCED');
     }
-    if (!['NONE', ...QUALIFICATION_ORDER].includes(highestQualification)) {
-      throw new BadRequestError(`highestQualification must be one of: NONE, ${QUALIFICATION_ORDER.join(', ')}`);
+    if (!ALLOWED_QUALIFICATIONS.includes(highestQualification)) {
+      throw new BadRequestError(`highestQualification must be one of: ${ALLOWED_QUALIFICATIONS.join(', ')}`);
     }
 
     // Compute required docs

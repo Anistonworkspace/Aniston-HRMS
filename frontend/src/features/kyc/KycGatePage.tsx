@@ -26,7 +26,7 @@ import toast from 'react-hot-toast';
 
 type UploadMode = 'SEPARATE' | null;
 type Experience = 'FRESHER' | 'EXPERIENCED' | null;
-type Qualification = 'NONE' | 'TENTH' | 'TWELFTH' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD' | null;
+type Qualification = 'NONE' | 'TENTH' | 'TWELFTH' | 'DIPLOMA' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD' | null;
 
 type FlowStep =
   | 'SEPARATE_UPLOAD' // Step 1: Separate docs
@@ -52,7 +52,9 @@ function computeRequiredDocs(experience: Experience, qualification: Qualificatio
 
   // Education chain — skip entirely for NONE (no formal education)
   if (qualification !== 'NONE') {
-    const qualIdx = qualification ? QUALIFICATION_ORDER.indexOf(qualification) : 2; // default GRADUATION when null
+    // DIPLOMA requires same certs as GRADUATION (10th + 12th + Degree)
+    const normalizedQual = qualification === 'DIPLOMA' ? 'GRADUATION' : qualification;
+    const qualIdx = normalizedQual ? QUALIFICATION_ORDER.indexOf(normalizedQual) : 2; // default GRADUATION when null
     if (qualIdx >= 0) docs.push({ type: 'TENTH_CERTIFICATE', label: '10th Marksheet / Certificate', required: true });
     if (qualIdx >= 1) docs.push({ type: 'TWELFTH_CERTIFICATE', label: '12th Marksheet / Certificate', required: true });
     if (qualIdx >= 2) docs.push({ type: 'DEGREE_CERTIFICATE', label: 'Graduation / Degree Certificate', required: true });
@@ -154,6 +156,7 @@ const QUAL_LABELS: Record<string, string> = {
   NONE: 'None — No formal education',
   TENTH: '10th / SSLC',
   TWELFTH: '12th / Intermediate / PUC',
+  DIPLOMA: 'Diploma',
   GRADUATION: 'Graduation / Bachelor\'s Degree',
   POST_GRADUATION: 'Post-Graduation / Master\'s Degree',
   PHD: 'PhD / Doctorate',

@@ -54,6 +54,7 @@ const REQUIRED_NON_IDENTITY_LABELS: Record<string, string> = {
 
 // New enum values — must match backend
 const QUALIFICATIONS = [
+  { value: 'NONE', label: 'None — No formal education' },
   { value: 'TENTH', label: '10th Pass' },
   { value: 'TWELFTH', label: '12th Pass' },
   { value: 'DIPLOMA', label: 'Diploma' },
@@ -66,6 +67,7 @@ type WorkMode = 'OFFICE' | 'PROJECT_SITE' | 'FIELD_SALES' | 'HYBRID' | 'REMOTE';
 
 function getRequiredEducationDocs(qualification: string | null | undefined): string[] {
   switch (qualification) {
+    case 'NONE':          return [];
     case 'TWELFTH':       return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
     case 'DIPLOMA':       return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
     case 'GRADUATION':    return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
@@ -108,17 +110,20 @@ function getDocSections(
       { title: 'Passport Photo', docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }] },
     ];
   }
-  const eduDocs: { name: string; type: string; required: boolean }[] = [
-    { name: '10th Marksheet / Certificate', type: 'TENTH_CERTIFICATE', required: true },
-  ];
-  if (['TWELFTH', 'DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD'].includes(qualification || '')) {
-    eduDocs.push({ name: '12th Marksheet / Certificate', type: 'TWELFTH_CERTIFICATE', required: true });
-  }
-  if (['DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD'].includes(qualification || '')) {
-    eduDocs.push({ name: 'Diploma / Degree Certificate', type: 'DEGREE_CERTIFICATE', required: true });
-  }
-  if (['POST_GRADUATION', 'PHD'].includes(qualification || '')) {
-    eduDocs.push({ name: 'Post-Graduation Certificate', type: 'POST_GRADUATION_CERTIFICATE', required: true });
+  const eduDocs: { name: string; type: string; required: boolean }[] = [];
+  if (qualification !== 'NONE') {
+    if ((qualification || '') !== '') {
+      eduDocs.push({ name: '10th Marksheet / Certificate', type: 'TENTH_CERTIFICATE', required: true });
+    }
+    if (['TWELFTH', 'DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD'].includes(qualification || '')) {
+      eduDocs.push({ name: '12th Marksheet / Certificate', type: 'TWELFTH_CERTIFICATE', required: true });
+    }
+    if (['DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD'].includes(qualification || '')) {
+      eduDocs.push({ name: 'Diploma / Degree Certificate', type: 'DEGREE_CERTIFICATE', required: true });
+    }
+    if (['POST_GRADUATION', 'PHD'].includes(qualification || '')) {
+      eduDocs.push({ name: 'Post-Graduation Certificate', type: 'POST_GRADUATION_CERTIFICATE', required: true });
+    }
   }
 
   const residenceDocs = addressSameAsPermanent === false
@@ -129,7 +134,7 @@ function getDocSections(
     : [{ name: 'Residence Proof (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true }];
 
   const sections: { title: string; docs: { name: string; type: string; required: boolean }[] }[] = [
-    { title: 'Education Certificates', docs: eduDocs },
+    ...(eduDocs.length > 0 ? [{ title: 'Education Certificates', docs: eduDocs }] : []),
     {
       title: addressSameAsPermanent === false ? 'Address Proof (Current & Permanent)' : 'Address & Tax',
       docs: [
@@ -705,8 +710,10 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
             </select>
             {form.qualification && (
               <p className="text-[11px] text-brand-600 mt-1">
-                {t('onboarding.requiredCertificates')} {getRequiredEducationDocs(form.qualification)
-                  .map(docType => REQUIRED_NON_IDENTITY_LABELS[docType] || docType).join(' + ')}
+                {form.qualification === 'NONE'
+                  ? 'No education certificates required'
+                  : `${t('onboarding.requiredCertificates')} ${getRequiredEducationDocs(form.qualification)
+                      .map(docType => REQUIRED_NON_IDENTITY_LABELS[docType] || docType).join(' + ')}`}
               </p>
             )}
           </div>
