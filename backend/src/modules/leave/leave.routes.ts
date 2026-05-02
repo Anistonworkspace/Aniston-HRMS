@@ -240,6 +240,12 @@ router.get(
         const totalUsed = applicableBalances.reduce((s, b) => s + Number(b.used), 0);
         const totalPending = applicableBalances.reduce((s, b) => s + Number(b.pending), 0);
         const totalRemaining = totalAllocated - totalUsed - totalPending;
+        // Breakdown aggregates
+        const totalPolicyAllocated = applicableBalances.reduce((s, b) => s + Number((b as any).policyAllocated ?? b.allocated), 0);
+        const totalManualAdjustment = applicableBalances.reduce((s, b) => s + Number((b as any).manualAdjustment ?? 0), 0);
+        const totalPreviousUsed = applicableBalances.reduce((s, b) => s + Number((b as any).previousUsed ?? 0), 0);
+        const hasManualAdjustments = totalManualAdjustment !== 0;
+        const hasPreviousUsed = totalPreviousUsed > 0;
         return {
           id: emp.id,
           employeeCode: emp.employeeCode,
@@ -251,11 +257,21 @@ router.get(
           totalUsed,
           totalPending,
           totalRemaining,
+          totalPolicyAllocated,
+          totalManualAdjustment,
+          totalPreviousUsed,
+          totalEffectiveAllocated: totalPolicyAllocated + totalManualAdjustment,
+          hasManualAdjustments,
+          hasPreviousUsed,
           balances: applicableBalances.map((b) => ({
             leaveTypeId: b.leaveTypeId,
             leaveTypeName: b.leaveType.name,
             leaveTypeCode: b.leaveType.code,
             isPaid: b.leaveType.isPaid,
+            policyAllocated: Number((b as any).policyAllocated ?? b.allocated),
+            manualAdjustment: Number((b as any).manualAdjustment ?? 0),
+            previousUsed: Number((b as any).previousUsed ?? 0),
+            effectiveAllocated: Number((b as any).policyAllocated ?? b.allocated) + Number((b as any).manualAdjustment ?? 0),
             allocated: Number(b.allocated),
             carriedForward: Number(b.carriedForward),
             used: Number(b.used),
@@ -628,14 +644,17 @@ router.patch(
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Leave type not found' } });
       }
 
-      const existingBalance = await db.leaveBalance.findUnique({
+      const existingBalance = await (db.leaveBalance.findUnique as any)({
         where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
-        select: { allocated: true },
+        select: { allocated: true, manualAdjustment: true },
       });
+      // Preserve existing manualAdjustment — this route sets the policy baseline only
+      const existingManualAdj = Number(existingBalance?.manualAdjustment ?? 0);
 
       const balance = await (db.leaveBalance.upsert as any)({
         where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
-        update: { policyAllocated: allocated, manualAdjustment: 0, allocated },
+        // SAFE: only policyAllocated is set; manualAdjustment is intentionally preserved
+        update: { policyAllocated: allocated, allocated: allocated + existingManualAdj },
         create: { employeeId, leaveTypeId, year, policyAllocated: allocated, manualAdjustment: 0, previousUsed: 0, allocated, used: 0, pending: 0, carriedForward: 0 },
       });
 
@@ -736,7 +755,7 @@ router.post(
     try {
       const { prisma: db } = await import('../../lib/prisma.js');
       const { employeeId } = req.params;
-      const { adjustmentType, leaveTypeId, year: yearInput, days, reason } = req.body;
+      const { adjustmentType, leaveTypeId, year: yearInput, days, reason, effectiveDate } = req.body;
       const year = Number(yearInput) || new Date().getFullYear();
 
       if (!['PREVIOUS_USED', 'BALANCE_CORRECTION'].includes(adjustmentType)) {
@@ -802,7 +821,7 @@ router.post(
             reason: reason.trim(),
             changedBy: req.user!.userId,
             organizationId: req.user!.organizationId,
-            calculationBasis: { adjustmentType, field: 'used' },
+            calculationBasis: { adjustmentType, field: 'used', effectiveDate: effectiveDate || new Date().toISOString().slice(0, 10) },
           },
           include: { leaveType: { select: { id: true, name: true, code: true } } },
         });
@@ -838,7 +857,7 @@ router.post(
             reason: reason.trim(),
             changedBy: req.user!.userId,
             organizationId: req.user!.organizationId,
-            calculationBasis: { adjustmentType, field: 'allocated' },
+            calculationBasis: { adjustmentType, field: 'allocated', effectiveDate: effectiveDate || new Date().toISOString().slice(0, 10) },
           },
           include: { leaveType: { select: { id: true, name: true, code: true } } },
         });

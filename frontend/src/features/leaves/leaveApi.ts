@@ -217,9 +217,11 @@ export const leaveApi = api.injectEndpoints({
       year?: number;
       days: number;
       reason: string;
+      effectiveDate?: string;
     }>({
       query: ({ employeeId, ...body }) => ({ url: `/leaves/adjustments/${employeeId}`, method: 'POST', body }),
       invalidatesTags: (result, error, { employeeId }) => [
+        { type: 'Leave' as const, id: employeeId },     // triggers getEmployeeLeaveOverview refetch
         { type: 'LeaveBalance' as const, id: employeeId },
         'LeaveBalance',
         'Leave',

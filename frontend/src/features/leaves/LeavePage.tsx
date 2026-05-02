@@ -1155,13 +1155,39 @@ function EmployeeOverviewTab() {
                         {(emp.firstName?.[0] || '') + (emp.lastName?.[0] || '')}
                       </div>
                       <div>
-                        <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
+                          {/* Adjustment indicator badges */}
+                          {emp.hasPreviousUsed && (
+                            <span
+                              title={`Previous used leaves: ${emp.totalPreviousUsed} day${emp.totalPreviousUsed !== 1 ? 's' : ''}`}
+                              className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 cursor-help"
+                            >
+                              Prev {emp.totalPreviousUsed}d
+                            </span>
+                          )}
+                          {emp.hasManualAdjustments && (
+                            <span
+                              title={`Manual balance correction: ${emp.totalManualAdjustment > 0 ? '+' : ''}${emp.totalManualAdjustment} days`}
+                              className={cn('text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-help',
+                                emp.totalManualAdjustment > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-500'
+                              )}
+                            >
+                              Adj {emp.totalManualAdjustment > 0 ? '+' : ''}{emp.totalManualAdjustment}d
+                            </span>
+                          )}
+                        </div>
                         <p className="text-gray-400 font-mono text-[11px]" data-mono>{emp.employeeCode}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500">{emp.department}</td>
-                  <td className="px-4 py-3 text-center font-mono font-medium text-gray-700" data-mono>{emp.totalAllocated}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-gray-700" data-mono>
+                    {emp.totalEffectiveAllocated ?? emp.totalAllocated}
+                    {emp.hasManualAdjustments && (
+                      <p className="text-[9px] text-gray-400 font-normal">({emp.totalPolicyAllocated} policy)</p>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-center font-mono font-medium text-amber-600" data-mono>{emp.totalUsed}</td>
                   <td className="px-4 py-3 text-center font-mono font-medium text-blue-600" data-mono>{emp.totalPending}</td>
                   <td className="px-4 py-3 text-center">
@@ -1225,10 +1251,11 @@ function EmployeeLeaveDetailModal({
   const [activeSection, setActiveSection] = useState<'requests' | 'adjustments'>('requests');
   const [showAdjForm, setShowAdjForm] = useState(false);
   const [adjForm, setAdjForm] = useState({
-    adjustmentType: 'BALANCE_CORRECTION' as 'PREVIOUS_USED' | 'BALANCE_CORRECTION',
+    adjustmentType: 'PREVIOUS_USED' as 'PREVIOUS_USED' | 'BALANCE_CORRECTION',
     leaveTypeId: '',
     days: '' as string | number,
     reason: '',
+    effectiveDate: new Date().toISOString().slice(0, 10),
   });
 
   const { data, isLoading, isFetching } = useGetEmployeeLeaveOverviewQuery(
@@ -1269,10 +1296,15 @@ function EmployeeLeaveDetailModal({
         year: modalYear,
         days,
         reason: adjForm.reason.trim(),
+        effectiveDate: adjForm.effectiveDate,
       }).unwrap();
-      toast.success('Adjustment saved');
+      toast.success(adjForm.adjustmentType === 'PREVIOUS_USED'
+        ? 'Previous used leave recorded — balance updated'
+        : 'Balance correction applied'
+      );
+      // Keep modal open; reset just the input fields so HR can add more
+      setAdjForm((f) => ({ ...f, days: '', reason: '', effectiveDate: new Date().toISOString().slice(0, 10) }));
       setShowAdjForm(false);
-      setAdjForm({ adjustmentType: 'BALANCE_CORRECTION', leaveTypeId: '', days: '', reason: '' });
     } catch (e: any) {
       toast.error(e?.data?.error?.message || 'Failed to save adjustment');
     }
@@ -1360,48 +1392,78 @@ function EmployeeLeaveDetailModal({
                 ))}
               </div>
 
-              {/* Leave Type Breakdown */}
+              {/* Leave Type Breakdown — full HR view */}
               {overview.balances.length > 0 && (
                 <div className="px-5 pt-4">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Leave Balance by Type</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {overview.balances.map((b: any) => (
-                      <div key={b.leaveTypeId} className="bg-surface-2 rounded-xl p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-base">{LEAVE_ICONS[b.leaveTypeCode] || '📅'}</span>
-                            <div>
-                              <p className="text-xs font-semibold text-gray-800">{b.leaveTypeName}</p>
-                              <p className="text-[10px] text-gray-400">{b.leaveTypeCode} · {b.isPaid ? 'Paid' : 'Unpaid'}</p>
+                  <div className="space-y-2">
+                    {overview.balances.map((b: any) => {
+                      const policyAlloc = b.policyAllocated ?? b.allocated;
+                      const manualAdj = b.manualAdjustment ?? 0;
+                      const effectiveAlloc = policyAlloc + manualAdj;
+                      const prevUsed = b.previousUsed ?? 0;
+                      const approvedUsed = Math.max(0, Number(b.used) - prevUsed);
+                      return (
+                        <div key={b.leaveTypeId} className="bg-surface-2 rounded-xl p-3">
+                          {/* Header row */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">{LEAVE_ICONS[b.leaveTypeCode] || '📅'}</span>
+                              <div>
+                                <p className="text-xs font-semibold text-gray-800">{b.leaveTypeName}</p>
+                                <p className="text-[10px] text-gray-400">{b.leaveTypeCode} · {b.isPaid ? 'Paid' : 'Unpaid'}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className={`text-sm font-bold font-mono ${b.remaining < 1 ? 'text-red-600' : b.remaining < 3 ? 'text-amber-600' : 'text-emerald-600'}`} data-mono>
+                                {b.remaining}
+                              </span>
+                              <p className="text-[9px] text-gray-400">remaining</p>
                             </div>
                           </div>
-                          <span className={`text-sm font-bold font-mono ${b.remaining < 1 ? 'text-red-600' : b.remaining < 3 ? 'text-amber-600' : 'text-emerald-600'}`} data-mono>
-                            {b.remaining}
-                          </span>
+                          {/* Progress bar */}
+                          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden mb-2">
+                            <div
+                              className={`h-full rounded-full transition-all ${b.remaining < 1 ? 'bg-red-400' : b.remaining < 3 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                              style={{ width: `${Math.min(100, (b.remaining / Math.max(effectiveAlloc + b.carriedForward, 1)) * 100)}%` }}
+                            />
+                          </div>
+                          {/* Breakdown grid */}
+                          <div className="grid grid-cols-3 gap-1 text-center text-[10px]">
+                            <div className="bg-white rounded-lg py-1.5 px-1">
+                              <p className="font-bold text-indigo-600 font-mono" data-mono>{policyAlloc}</p>
+                              <p className="text-gray-400">Policy</p>
+                            </div>
+                            <div className={`rounded-lg py-1.5 px-1 ${manualAdj !== 0 ? 'bg-white' : 'bg-gray-50 opacity-50'}`}>
+                              <p className={`font-bold font-mono ${manualAdj > 0 ? 'text-emerald-600' : manualAdj < 0 ? 'text-red-500' : 'text-gray-400'}`} data-mono>
+                                {manualAdj > 0 ? '+' : ''}{manualAdj}
+                              </p>
+                              <p className="text-gray-400">Manual Adj</p>
+                            </div>
+                            <div className={`rounded-lg py-1.5 px-1 ${b.carriedForward > 0 ? 'bg-white' : 'bg-gray-50 opacity-50'}`}>
+                              <p className="font-bold text-blue-500 font-mono" data-mono>{b.carriedForward}</p>
+                              <p className="text-gray-400">Carried Fwd</p>
+                            </div>
+                            <div className={`rounded-lg py-1.5 px-1 ${approvedUsed > 0 ? 'bg-white' : 'bg-gray-50 opacity-50'}`}>
+                              <p className="font-bold text-amber-600 font-mono" data-mono>{approvedUsed}</p>
+                              <p className="text-gray-400">Approved Used</p>
+                            </div>
+                            <div className={`rounded-lg py-1.5 px-1 ${prevUsed > 0 ? 'bg-white' : 'bg-gray-50 opacity-50'}`}>
+                              <p className="font-bold text-orange-500 font-mono" data-mono>{prevUsed}</p>
+                              <p className="text-gray-400">Prev Used</p>
+                            </div>
+                            <div className={`rounded-lg py-1.5 px-1 ${b.pending > 0 ? 'bg-white' : 'bg-gray-50 opacity-50'}`}>
+                              <p className="font-bold text-blue-600 font-mono" data-mono>{b.pending}</p>
+                              <p className="text-gray-400">Pending</p>
+                            </div>
+                          </div>
+                          {/* Formula */}
+                          <p className="text-[9px] text-gray-300 mt-1.5 text-right">
+                            ({policyAlloc}{manualAdj !== 0 ? (manualAdj > 0 ? `+${manualAdj}` : `${manualAdj}`) : ''} policy{b.carriedForward > 0 ? ` +${b.carriedForward} CF` : ''}) − {approvedUsed} approved − {prevUsed} prev − {b.pending} pending = <strong className="text-gray-400">{b.remaining}</strong>
+                          </p>
                         </div>
-                        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${b.remaining < 1 ? 'bg-red-400' : b.remaining < 3 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                            style={{ width: `${Math.min(100, (b.remaining / Math.max(b.allocated + b.carriedForward, 1)) * 100)}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between mt-1.5 text-[10px] text-gray-400 flex-wrap gap-x-2">
-                          <span>Policy: <span className="font-medium text-gray-600">{b.policyAllocated ?? b.allocated}</span></span>
-                          {(b.manualAdjustment ?? 0) !== 0 && (
-                            <span>Adj: <span className={cn('font-medium', (b.manualAdjustment ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500')}>
-                              {(b.manualAdjustment ?? 0) > 0 ? '+' : ''}{b.manualAdjustment ?? 0}
-                            </span></span>
-                          )}
-                          {(b.previousUsed ?? 0) > 0 && (
-                            <span>Prev.Used: <span className="font-medium text-orange-500">{b.previousUsed}</span></span>
-                          )}
-                          {b.carriedForward > 0 && <span>CF: <span className="font-medium text-blue-500">{b.carriedForward}</span></span>}
-                        </div>
-                        <div className="text-[9px] text-gray-300 mt-1 text-right">
-                          ({b.policyAllocated ?? b.allocated}{(b.manualAdjustment ?? 0) !== 0 ? ((b.manualAdjustment > 0 ? `+${b.manualAdjustment}` : `${b.manualAdjustment}`)) : ''}{b.carriedForward > 0 ? `+${b.carriedForward}CF` : ''} − {b.used} used − {b.pending} pending = {b.remaining})
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1519,66 +1581,112 @@ function EmployeeLeaveDetailModal({
                   {/* Inline Add Adjustment form */}
                   {showAdjForm && (
                     <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4 space-y-3">
-                      <p className="text-xs font-semibold text-indigo-700 mb-2 flex items-center gap-1.5">
-                        <SlidersHorizontal size={12} /> New Adjustment
-                      </p>
+                      <div className="flex items-start gap-2 mb-1">
+                        <SlidersHorizontal size={14} className="text-indigo-500 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-xs font-semibold text-indigo-700">Opening Balance / Previous Leave Entry</p>
+                          <p className="text-[10px] text-indigo-500 mt-0.5">
+                            Use <strong>Previous Used</strong> to record leaves taken before this system was active.
+                            Use <strong>Balance Correction</strong> to manually adjust allocated days.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Adjustment type selector — shown as two prominent buttons */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          { value: 'PREVIOUS_USED', label: 'Previous Used Leave', sub: 'Leaves taken before onboarding', icon: '📋' },
+                          { value: 'BALANCE_CORRECTION', label: 'Balance Correction', sub: 'Add or deduct allocated days', icon: '⚖️' },
+                        ] as const).map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setAdjForm((f) => ({ ...f, adjustmentType: opt.value }))}
+                            className={cn(
+                              'rounded-xl border-2 p-2.5 text-left transition-all',
+                              adjForm.adjustmentType === opt.value
+                                ? 'border-indigo-500 bg-white shadow-sm'
+                                : 'border-indigo-200 bg-white/50 hover:border-indigo-300'
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">{opt.icon}</span>
+                              <div>
+                                <p className={`text-[11px] font-semibold ${adjForm.adjustmentType === opt.value ? 'text-indigo-700' : 'text-gray-600'}`}>{opt.label}</p>
+                                <p className="text-[10px] text-gray-400">{opt.sub}</p>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs text-gray-600 mb-1 font-medium">Type</label>
-                          <select
-                            value={adjForm.adjustmentType}
-                            onChange={(e) => setAdjForm((f) => ({ ...f, adjustmentType: e.target.value as any }))}
-                            className="input-glass text-xs w-full"
-                          >
-                            <option value="BALANCE_CORRECTION">Balance Correction (± allocated)</option>
-                            <option value="PREVIOUS_USED">Previous Used (+ used)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1 font-medium">Leave Type</label>
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">Leave Type <span className="text-red-400">*</span></label>
                           <select
                             value={adjForm.leaveTypeId}
                             onChange={(e) => setAdjForm((f) => ({ ...f, leaveTypeId: e.target.value }))}
                             className="input-glass text-xs w-full"
                           >
-                            <option value="">— Select —</option>
-                            {(overview.balances || []).map((b: any) => (
-                              <option key={b.leaveTypeId} value={b.leaveTypeId}>{b.leaveTypeName}</option>
-                            ))}
+                            <option value="">— Select Leave Type —</option>
+                            {(overview.balances || [])
+                              .filter((b: any) => !b.leaveTypeName?.toLowerCase().includes('probation'))
+                              .map((b: any) => (
+                                <option key={b.leaveTypeId} value={b.leaveTypeId}>{b.leaveTypeName} ({b.leaveTypeCode})</option>
+                              ))}
                           </select>
                         </div>
                         <div>
                           <label className="block text-xs text-gray-600 mb-1 font-medium">
-                            Days {adjForm.adjustmentType === 'BALANCE_CORRECTION' ? '(use − for deduction)' : '(positive only)'}
+                            {adjForm.adjustmentType === 'BALANCE_CORRECTION' ? 'Days (+ add / − deduct)' : 'Days Taken (positive)'}
+                            <span className="text-red-400"> *</span>
                           </label>
                           <input
                             type="number"
                             step="0.5"
                             value={adjForm.days}
                             onChange={(e) => setAdjForm((f) => ({ ...f, days: e.target.value }))}
-                            placeholder={adjForm.adjustmentType === 'BALANCE_CORRECTION' ? 'e.g. -2 or +3' : 'e.g. 5'}
+                            placeholder={adjForm.adjustmentType === 'BALANCE_CORRECTION' ? 'e.g. -2 or +3' : 'e.g. 4'}
                             className="input-glass text-xs w-full"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-600 mb-1 font-medium">Reason <span className="text-red-400">*</span></label>
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">Effective Date</label>
+                          <input
+                            type="date"
+                            value={adjForm.effectiveDate}
+                            onChange={(e) => setAdjForm((f) => ({ ...f, effectiveDate: e.target.value }))}
+                            className="input-glass text-xs w-full"
+                          />
+                          <p className="text-[10px] text-gray-400 mt-0.5">When were these leaves taken/applied?</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">Reason / Note <span className="text-red-400">*</span></label>
                           <input
                             type="text"
                             value={adjForm.reason}
                             onChange={(e) => setAdjForm((f) => ({ ...f, reason: e.target.value }))}
-                            placeholder="Brief reason for this adjustment"
+                            placeholder={adjForm.adjustmentType === 'PREVIOUS_USED' ? 'e.g. Taken before HRMS onboarding' : 'e.g. Opening balance correction'}
                             className="input-glass text-xs w-full"
                           />
                         </div>
                       </div>
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
-                        {adjForm.adjustmentType === 'BALANCE_CORRECTION'
-                          ? 'Balance Correction: adjusts the allocated days (+ adds, − deducts). Does not affect actual leave requests.'
-                          : 'Previous Used: marks days as already consumed (adds to used count). Use for leaves taken before system was active.'}
+
+                      {/* Contextual help */}
+                      <div className={cn(
+                        'rounded-lg px-3 py-2 text-[11px]',
+                        adjForm.adjustmentType === 'PREVIOUS_USED'
+                          ? 'bg-orange-50 border border-orange-200 text-orange-700'
+                          : 'bg-blue-50 border border-blue-200 text-blue-700'
+                      )}>
+                        {adjForm.adjustmentType === 'PREVIOUS_USED'
+                          ? '📋 Previous Used: Adds to the employee\'s used count. Reduces remaining balance. Survives Recalculate All. No fake leave request is created.'
+                          : '⚖️ Balance Correction: Adjusts the effective allocated days (+ adds more, − reduces). Stored separately from policy allocation and survives Recalculate All.'}
                       </div>
+
                       <div className="flex gap-2 justify-end">
                         <button
-                          onClick={() => { setShowAdjForm(false); setAdjForm({ adjustmentType: 'BALANCE_CORRECTION', leaveTypeId: '', days: '', reason: '' }); }}
+                          onClick={() => { setShowAdjForm(false); setAdjForm({ adjustmentType: 'PREVIOUS_USED', leaveTypeId: '', days: '', reason: '', effectiveDate: new Date().toISOString().slice(0, 10) }); }}
                           className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                         >
                           Cancel
@@ -1589,54 +1697,85 @@ function EmployeeLeaveDetailModal({
                           className="flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
                         >
                           {isCreating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-                          Save Adjustment
+                          {adjForm.adjustmentType === 'PREVIOUS_USED' ? 'Record Previous Leave' : 'Apply Correction'}
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Adjustment history list */}
+                  {/* Adjustment history table */}
                   {adjustments.length === 0 ? (
                     <div className="text-center py-8 text-sm text-gray-400 bg-gray-50 rounded-xl">
+                      <SlidersHorizontal size={24} className="mx-auto text-gray-200 mb-2" />
                       No adjustments recorded for {modalYear}
+                      <p className="text-xs text-gray-300 mt-1">Use "Add Adjustment" to record previous leave usage or balance corrections.</p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {adjustments.map((adj: any) => {
-                        const basis = adj.calculationBasis as any;
-                        const isUsedAdj = basis?.adjustmentType === 'PREVIOUS_USED';
-                        const isPositive = adj.days > 0;
-                        return (
-                          <div key={adj.id} className="border border-gray-100 rounded-xl p-3.5 bg-white">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full', adjTypeLabel(adj.allocationType).color)}>
-                                    {isUsedAdj ? 'Prev. Used' : adjTypeLabel(adj.allocationType).label}
-                                  </span>
-                                  <span className="text-xs font-medium text-gray-800">{adj.leaveType?.name}</span>
-                                  {adj.reason && (
-                                    <span className="text-[11px] text-gray-400 italic line-clamp-1">"{adj.reason}"</span>
-                                  )}
-                                </div>
-                                {adj.previousDays != null && (
-                                  <p className="text-[10px] text-gray-400 mt-1">
-                                    {isUsedAdj ? 'Used' : 'Allocated'}: {adj.previousDays} → {(Number(adj.previousDays) + adj.days).toFixed(1)}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex flex-col items-end gap-1 shrink-0">
-                                <span className={cn('text-sm font-bold font-mono', isPositive ? 'text-emerald-600' : 'text-red-500')} data-mono>
-                                  {isPositive ? '+' : ''}{adj.days}
-                                </span>
-                                <span className="text-[10px] text-gray-300">
+                    <div className="overflow-x-auto rounded-xl border border-gray-100">
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="bg-gray-50 text-gray-400 text-left">
+                            <th className="px-3 py-2 font-medium">Date</th>
+                            <th className="px-3 py-2 font-medium">Leave Type</th>
+                            <th className="px-3 py-2 font-medium">Type</th>
+                            <th className="px-3 py-2 font-medium text-center">Days</th>
+                            <th className="px-3 py-2 font-medium">Prev → New</th>
+                            <th className="px-3 py-2 font-medium">Effective Date</th>
+                            <th className="px-3 py-2 font-medium">Reason</th>
+                            <th className="px-3 py-2 font-medium">By</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {adjustments.map((adj: any) => {
+                            const basis = adj.calculationBasis as any;
+                            const isUsedAdj = basis?.adjustmentType === 'PREVIOUS_USED';
+                            const isBal = basis?.adjustmentType === 'BALANCE_CORRECTION' || basis?.adjustmentType === 'BALANCE_SET';
+                            const isPositive = adj.days > 0;
+                            const effectiveDateStr = basis?.effectiveDate;
+                            const prevVal = adj.previousDays ?? 0;
+                            const newVal = isUsedAdj ? prevVal + adj.days : prevVal + adj.days;
+                            return (
+                              <tr key={adj.id} className="hover:bg-gray-50/60 transition-colors">
+                                <td className="px-3 py-2 text-gray-400 whitespace-nowrap">
                                   {new Date(adj.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                                </td>
+                                <td className="px-3 py-2 font-medium text-gray-700">
+                                  {adj.leaveType?.name ?? '—'}
+                                  <span className="ml-1 text-gray-400 font-normal">({adj.leaveType?.code})</span>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap',
+                                    isUsedAdj ? 'bg-orange-100 text-orange-700'
+                                    : isBal ? 'bg-blue-100 text-blue-700'
+                                    : adjTypeLabel(adj.allocationType).color
+                                  )}>
+                                    {isUsedAdj ? 'Prev. Used' : isBal ? 'Balance Adj' : adjTypeLabel(adj.allocationType).label}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={cn('font-bold font-mono', isPositive ? 'text-emerald-600' : 'text-red-500')} data-mono>
+                                    {isPositive ? '+' : ''}{adj.days}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-400 font-mono whitespace-nowrap" data-mono>
+                                  {adj.previousDays != null ? `${adj.previousDays} → ${Number(newVal).toFixed(1)}` : '—'}
+                                </td>
+                                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                                  {effectiveDateStr
+                                    ? new Date(effectiveDateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })
+                                    : '—'}
+                                </td>
+                                <td className="px-3 py-2 text-gray-500 max-w-[120px]">
+                                  <span className="line-clamp-1 italic">{adj.reason || '—'}</span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-400 font-mono text-[10px]" data-mono>
+                                  {adj.changedBy ? adj.changedBy.slice(0, 8) + '…' : 'System'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
@@ -2357,7 +2496,7 @@ function LeavePersonalView() {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2 md:gap-4 mb-6 md:mb-8">
-          {balances.map((bal: any, index: number) => (
+          {balances.filter((bal: any) => !bal.leaveType?.name?.toLowerCase().includes('probation')).map((bal: any, index: number) => (
             <motion.div
               key={bal.id}
               initial={{ opacity: 0, y: 10 }}
