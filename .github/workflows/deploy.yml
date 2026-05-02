@@ -304,69 +304,61 @@ jobs:
             echo "✅ Prisma client regenerated"
 
             echo "=== [8/17] Building & starting AI service (Docker + OCR) ==="
+            # Entire AI service section runs in a subshell — any failure is non-blocking.
+            # OCR falls back to Node.js for single docs; combined KYC PDFs go to PENDING.
+            (
+              sudo apt-get install -y -qq --fix-missing tesseract-ocr tesseract-ocr-eng poppler-utils || true
 
-            # Install tesseract + poppler on the host so the Node.js fallback also works
-            sudo apt-get install -y -qq --fix-missing tesseract-ocr tesseract-ocr-eng poppler-utils || true
-
-            # Install Docker if missing
-            if ! command -v docker &>/dev/null; then
-              echo "Docker not found — installing..."
-              curl -fsSL https://get.docker.com | sudo sh
-              sudo usermod -aG docker ubuntu
-              echo "Docker installed."
-            fi
-
-            # Use sudo docker because group membership requires a fresh login to take effect.
-            # Verify docker daemon is running.
-            sudo systemctl start docker || true
-            sudo docker info > /dev/null 2>&1 || { echo "⚠️  Docker daemon not accessible — skipping AI service"; }
-
-            cd /home/ubuntu/Aniston-HRMS/docker
-
-            # Set AI service API key from GitHub secret so the Python auth guard is active.
-            # Falls back to a generated random key if the secret is not configured yet.
-            touch /home/ubuntu/Aniston-HRMS/docker/.env
-            sed -i '/^AI_SERVICE_API_KEY=/d' /home/ubuntu/Aniston-HRMS/docker/.env 2>/dev/null || true
-            if [ -n "${{ secrets.AI_SERVICE_API_KEY }}" ]; then
-              echo "AI_SERVICE_API_KEY=${{ secrets.AI_SERVICE_API_KEY }}" >> /home/ubuntu/Aniston-HRMS/docker/.env
-              echo "✅ docker/.env: AI_SERVICE_API_KEY set from secret"
-            else
-              RAND_KEY=$(openssl rand -hex 32)
-              echo "AI_SERVICE_API_KEY=${RAND_KEY}" >> /home/ubuntu/Aniston-HRMS/docker/.env
-              echo "⚠️  AI_SERVICE_API_KEY secret not set — using generated key. Add AI_SERVICE_API_KEY to GitHub secrets."
-            fi
-
-            echo "Building AI service Docker image (picks up any ai-service/ code changes)..."
-            sudo docker compose build ai-service \
-              || sudo docker-compose build ai-service \
-              || { echo "⚠️  AI service Docker build failed"; cd /home/ubuntu/Aniston-HRMS; }
-
-            echo "Starting AI service container (--no-deps avoids conflicting postgres/redis containers)..."
-            sudo docker compose up -d --no-deps --force-recreate ai-service \
-              || sudo docker-compose up -d --no-deps --force-recreate ai-service \
-              || echo "⚠️  AI service start failed"
-
-            cd /home/ubuntu/Aniston-HRMS
-
-            # Wait up to 90 s for the service to become healthy (it needs to load OCR models)
-            echo "Waiting for AI service health check (up to 90s)..."
-            AI_HEALTHY=false
-            for attempt in $(seq 1 18); do
-              sleep 5
-              if curl -sf http://localhost:8000/ai/health > /dev/null 2>&1; then
-                echo "✅ AI service healthy after $((attempt * 5))s"
-                AI_HEALTHY=true
-                break
+              if ! command -v docker &>/dev/null; then
+                echo "Docker not found — installing..."
+                curl -fsSL https://get.docker.com | sudo sh
+                sudo usermod -aG docker ubuntu
               fi
-              echo "  Attempt ${attempt}/18 — not ready yet..."
-            done
 
-            if [ "$AI_HEALTHY" != "true" ]; then
-              echo "⚠️  AI service did not become healthy within 90s. Last container logs:"
-              sudo docker logs aniston-ai-service --tail 50 2>/dev/null || true
-              echo "Deployment continues — OCR will use Node.js fallback for single docs;"
-              echo "combined KYC PDFs will be marked PENDING for manual HR review."
-            fi
+              sudo systemctl start docker || true
+              if ! sudo docker info > /dev/null 2>&1; then
+                echo "⚠️  Docker daemon not accessible — skipping AI service"
+                exit 0
+              fi
+
+              cd /home/ubuntu/Aniston-HRMS/docker || exit 0
+
+              touch /home/ubuntu/Aniston-HRMS/docker/.env || true
+              sed -i '/^AI_SERVICE_API_KEY=/d' /home/ubuntu/Aniston-HRMS/docker/.env 2>/dev/null || true
+              if [ -n "${{ secrets.AI_SERVICE_API_KEY }}" ]; then
+                echo "AI_SERVICE_API_KEY=${{ secrets.AI_SERVICE_API_KEY }}" >> /home/ubuntu/Aniston-HRMS/docker/.env
+                echo "✅ docker/.env: AI_SERVICE_API_KEY set from secret"
+              else
+                RAND_KEY=$(openssl rand -hex 32)
+                echo "AI_SERVICE_API_KEY=${RAND_KEY}" >> /home/ubuntu/Aniston-HRMS/docker/.env
+                echo "⚠️  AI_SERVICE_API_KEY not set — using generated key"
+              fi
+
+              echo "Building AI service Docker image..."
+              sudo docker compose build ai-service \
+                || sudo docker-compose build ai-service \
+                || { echo "⚠️  AI service build failed — skipping"; exit 0; }
+
+              echo "Starting AI service container..."
+              sudo docker compose up -d --no-deps --force-recreate ai-service \
+                || sudo docker-compose up -d --no-deps --force-recreate ai-service \
+                || echo "⚠️  AI service start failed"
+
+              cd /home/ubuntu/Aniston-HRMS || true
+
+              echo "Waiting for AI service (up to 90s)..."
+              for attempt in $(seq 1 18); do
+                sleep 5
+                if curl -sf http://localhost:8000/ai/health > /dev/null 2>&1; then
+                  echo "✅ AI service healthy after $((attempt * 5))s"
+                  exit 0
+                fi
+                echo "  Attempt ${attempt}/18 — not ready yet..."
+              done
+              echo "⚠️  AI service did not become healthy — OCR uses Node.js fallback"
+              sudo docker logs aniston-ai-service --tail 30 2>/dev/null || true
+            ) || echo "⚠️  AI service setup failed (non-blocking) — deployment continues"
+            cd /home/ubuntu/Aniston-HRMS || true
 
             echo "=== [9/17] Cleanup scripts ==="
             # cleanup-employees.ts is intentionally NOT called here.
