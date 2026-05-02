@@ -921,6 +921,12 @@ model LeaveBalance {
   leaveTypeId    String
   organizationId String?
   year           Int
+  // Policy engine sets this — updated by Recalculate All
+  policyAllocated  Decimal   @default(0) @db.Decimal(5, 1)
+  // HR manual balance corrections (cumulative delta, survives Recalculate)
+  manualAdjustment Decimal   @default(0) @db.Decimal(5, 1)
+  // HR-entered previously used leaves (cumulative, survives Recalculate)
+  previousUsed     Decimal   @default(0) @db.Decimal(5, 1)
   allocated      Decimal   @db.Decimal(5, 1)
   used           Decimal   @default(0) @db.Decimal(5, 1)
   carriedForward Decimal   @default(0) @db.Decimal(5, 1)

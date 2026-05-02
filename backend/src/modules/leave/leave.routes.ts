@@ -335,6 +335,10 @@ router.get(
         leaveTypeName: b.leaveType.name,
         leaveTypeCode: b.leaveType.code,
         isPaid: b.leaveType.isPaid,
+        policyAllocated: Number((b as any).policyAllocated ?? b.allocated),
+        manualAdjustment: Number((b as any).manualAdjustment ?? 0),
+        previousUsed: Number((b as any).previousUsed ?? 0),
+        effectiveAllocated: Number((b as any).policyAllocated ?? b.allocated) + Number((b as any).manualAdjustment ?? 0),
         allocated: Number(b.allocated),
         carriedForward: Number(b.carriedForward),
         used: Number(b.used),
@@ -629,10 +633,10 @@ router.patch(
         select: { allocated: true },
       });
 
-      const balance = await db.leaveBalance.upsert({
+      const balance = await (db.leaveBalance.upsert as any)({
         where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
-        update: { allocated },
-        create: { employeeId, leaveTypeId, year, allocated, used: 0, pending: 0, carriedForward: 0 },
+        update: { policyAllocated: allocated, manualAdjustment: 0, allocated },
+        create: { employeeId, leaveTypeId, year, policyAllocated: allocated, manualAdjustment: 0, previousUsed: 0, allocated, used: 0, pending: 0, carriedForward: 0 },
       });
 
       await db.leaveAllocationLog.create({
@@ -771,43 +775,76 @@ router.post(
         where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
       });
 
-      const prevAllocated = existing ? Number(existing.allocated) : 0;
-      const prevUsed = existing ? Number(existing.used) : 0;
-
       let balance;
       if (adjustmentType === 'PREVIOUS_USED') {
-        balance = await db.leaveBalance.upsert({
+        const prevPreviousUsed = existing ? Number((existing as any).previousUsed ?? 0) : 0;
+        balance = await (db.leaveBalance.upsert as any)({
           where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
-          update: { used: { increment: days } },
-          create: { employeeId, leaveTypeId, year, allocated: 0, used: days, pending: 0, carriedForward: 0 },
+          update: {
+            used: { increment: days },
+            previousUsed: { increment: days },
+          },
+          create: {
+            employeeId, leaveTypeId, year,
+            policyAllocated: 0, manualAdjustment: 0, previousUsed: days,
+            allocated: 0, used: days, pending: 0, carriedForward: 0,
+          },
         });
+
+        const log = await db.leaveAllocationLog.create({
+          data: {
+            employeeId,
+            leaveTypeId,
+            year,
+            allocationType: 'MANUAL_ADJUSTMENT',
+            days,
+            previousDays: prevPreviousUsed,
+            reason: reason.trim(),
+            changedBy: req.user!.userId,
+            organizationId: req.user!.organizationId,
+            calculationBasis: { adjustmentType, field: 'used' },
+          },
+          include: { leaveType: { select: { id: true, name: true, code: true } } },
+        });
+
+        return res.status(201).json({ success: true, data: { log, balance } });
       } else {
-        // BALANCE_CORRECTION: apply delta to allocated (never go below 0)
-        const newAllocated = Math.max(0, prevAllocated + days);
-        balance = await db.leaveBalance.upsert({
+        // BALANCE_CORRECTION: apply delta to manualAdjustment; keep policyAllocated intact
+        const prevManualAdj = existing ? Number((existing as any).manualAdjustment ?? 0) : 0;
+        const prevPolicyAlloc = existing ? Number((existing as any).policyAllocated ?? existing.allocated) : 0;
+        const newManualAdj = prevManualAdj + days;
+        const newAllocated = Math.max(0, prevPolicyAlloc + newManualAdj);
+        balance = await (db.leaveBalance.upsert as any)({
           where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
-          update: { allocated: newAllocated },
-          create: { employeeId, leaveTypeId, year, allocated: Math.max(0, days), used: 0, pending: 0, carriedForward: 0 },
+          update: {
+            manualAdjustment: newManualAdj,
+            allocated: newAllocated,
+          },
+          create: {
+            employeeId, leaveTypeId, year,
+            policyAllocated: 0, manualAdjustment: days,
+            allocated: Math.max(0, days), used: 0, pending: 0, carriedForward: 0, previousUsed: 0,
+          },
         });
+
+        const log = await db.leaveAllocationLog.create({
+          data: {
+            employeeId,
+            leaveTypeId,
+            year,
+            allocationType: 'MANUAL_ADJUSTMENT',
+            days,
+            previousDays: prevManualAdj,
+            reason: reason.trim(),
+            changedBy: req.user!.userId,
+            organizationId: req.user!.organizationId,
+            calculationBasis: { adjustmentType, field: 'allocated' },
+          },
+          include: { leaveType: { select: { id: true, name: true, code: true } } },
+        });
+
+        return res.status(201).json({ success: true, data: { log, balance } });
       }
-
-      const log = await db.leaveAllocationLog.create({
-        data: {
-          employeeId,
-          leaveTypeId,
-          year,
-          allocationType: 'MANUAL_ADJUSTMENT',
-          days,
-          previousDays: adjustmentType === 'PREVIOUS_USED' ? prevUsed : prevAllocated,
-          reason: reason.trim(),
-          changedBy: req.user!.userId,
-          organizationId: req.user!.organizationId,
-          calculationBasis: { adjustmentType, field: adjustmentType === 'PREVIOUS_USED' ? 'used' : 'allocated' },
-        },
-        include: { leaveType: { select: { id: true, name: true, code: true } } },
-      });
-
-      res.status(201).json({ success: true, data: { log, balance } });
     } catch (err) { next(err); }
   }
 );

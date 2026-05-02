@@ -144,11 +144,14 @@ export class LeaveService {
         const allocation = leavePolicyService._resolveFromPolicy(employee, rule.leaveTypeId, currentYear, defaultPolicy);
         if (!allocation) continue;
         try {
-          const created = await prisma.leaveBalance.create({
+          const created = await (prisma.leaveBalance.create as any)({
             data: {
               employeeId,
               leaveTypeId: rule.leaveTypeId,
               year: currentYear,
+              policyAllocated: allocation.days,
+              manualAdjustment: 0,
+              previousUsed: 0,
               allocated: allocation.days,
               used: 0,
               pending: 0,
@@ -175,6 +178,10 @@ export class LeaveService {
           return {
             ...balance,
             leaveType: { id: lt.id, name: lt.name, code: lt.code, isPaid: lt.isPaid },
+            policyAllocated: Number((balance as any).policyAllocated ?? balance.allocated),
+            manualAdjustment: Number((balance as any).manualAdjustment ?? 0),
+            previousUsed: Number((balance as any).previousUsed ?? 0),
+            effectiveAllocated: Number((balance as any).policyAllocated ?? balance.allocated) + Number((balance as any).manualAdjustment ?? 0),
             remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
             allocationBasis: allocation?.basis,
             allocationCategory: allocation?.category,
@@ -222,9 +229,12 @@ export class LeaveService {
 
     const missingTypes = leaveTypes.filter(lt => !balanceMap.has(lt.id));
     if (missingTypes.length > 0) {
-      await prisma.leaveBalance.createMany({
+      await (prisma.leaveBalance.createMany as any)({
         data: missingTypes.map(lt => ({
           employeeId, leaveTypeId: lt.id, year: currentYear,
+          policyAllocated: lt.defaultBalance,
+          manualAdjustment: 0,
+          previousUsed: 0,
           allocated: lt.defaultBalance, used: 0, pending: 0, carriedForward: 0,
         })),
         skipDuplicates: true,

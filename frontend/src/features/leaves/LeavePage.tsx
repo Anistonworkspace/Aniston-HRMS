@@ -651,20 +651,35 @@ function LeaveManagementView() {
           {/* Org Working Days Settings */}
           <OrgWorkingDaysCard />
 
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <p className="text-sm text-gray-500">{leaveTypes.length} leave types configured</p>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleCreateLeaveType}
-              className="btn-primary flex items-center gap-2 text-sm self-start sm:self-auto"
-            >
-              <Plus size={16} />
-              {t('leaves.createLeaveType')}
-            </motion.button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {leaveTypes.map((lt: any, idx: number) => (
+          {/* Filter out probation-named leave types from display (deduplication guard) */}
+          {(() => {
+            const displayTypes = leaveTypes.filter((lt: any) => !lt.name.toLowerCase().includes('probation'));
+            return (
+              <>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-sm text-gray-500">{displayTypes.length} leave types configured</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-xs text-indigo-500 bg-indigo-50 px-2 py-1 rounded-lg flex items-center gap-1">
+                        <Info size={11} /> Allocation rules managed in Policy Settings
+                      </span>
+                      <button onClick={() => setActiveTab('policy')} className="text-xs text-brand-600 hover:underline">
+                        → Go to Policy Settings
+                      </button>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleCreateLeaveType}
+                    className="btn-primary flex items-center gap-2 text-sm self-start sm:self-auto"
+                  >
+                    <Plus size={16} />
+                    {t('leaves.createLeaveType')}
+                  </motion.button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {displayTypes.map((lt: any, idx: number) => (
               <motion.div
                 key={lt.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -765,8 +780,11 @@ function LeaveManagementView() {
                   </div>
                 )}
               </motion.div>
-            ))}
-          </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </motion.div>
       )}
 
@@ -1367,10 +1385,20 @@ function EmployeeLeaveDetailModal({
                             style={{ width: `${Math.min(100, (b.remaining / Math.max(b.allocated + b.carriedForward, 1)) * 100)}%` }}
                           />
                         </div>
-                        <div className="flex justify-between mt-1.5 text-[10px] text-gray-400">
-                          <span>Used: <span className="font-medium text-gray-600">{b.used}</span></span>
+                        <div className="flex justify-between mt-1.5 text-[10px] text-gray-400 flex-wrap gap-x-2">
+                          <span>Policy: <span className="font-medium text-gray-600">{b.policyAllocated ?? b.allocated}</span></span>
+                          {(b.manualAdjustment ?? 0) !== 0 && (
+                            <span>Adj: <span className={cn('font-medium', (b.manualAdjustment ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                              {(b.manualAdjustment ?? 0) > 0 ? '+' : ''}{b.manualAdjustment ?? 0}
+                            </span></span>
+                          )}
+                          {(b.previousUsed ?? 0) > 0 && (
+                            <span>Prev.Used: <span className="font-medium text-orange-500">{b.previousUsed}</span></span>
+                          )}
                           {b.carriedForward > 0 && <span>CF: <span className="font-medium text-blue-500">{b.carriedForward}</span></span>}
-                          <span>Alloc: <span className="font-medium text-gray-600">{b.allocated}</span></span>
+                        </div>
+                        <div className="text-[9px] text-gray-300 mt-1 text-right">
+                          ({b.policyAllocated ?? b.allocated}{(b.manualAdjustment ?? 0) !== 0 ? ((b.manualAdjustment > 0 ? `+${b.manualAdjustment}` : `${b.manualAdjustment}`)) : ''}{b.carriedForward > 0 ? `+${b.carriedForward}CF` : ''} − {b.used} used − {b.pending} pending = {b.remaining})
                         </div>
                       </div>
                     ))}
@@ -1787,6 +1815,13 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose: () => void }) {
   const { t } = useTranslation();
   const isEditing = !!leaveType;
+  const { data: policiesRes } = useGetLeavePoliciesQuery();
+  const modalPolicyRulesByType: Record<string, any[]> = (policiesRes?.data?.[0]?.rules ?? []).reduce((acc: any, r: any) => {
+    if (!acc[r.leaveTypeId]) acc[r.leaveTypeId] = [];
+    acc[r.leaveTypeId].push(r);
+    return acc;
+  }, {});
+  const hasPolicyRules = isEditing && modalPolicyRulesByType[leaveType?.id]?.length > 0;
 
   const [formData, setFormData] = useState(() => {
     if (leaveType) {
@@ -1894,6 +1929,21 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
         {/* Scrollable form body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+          {/* Policy notice — shown when this leave type has active policy rules */}
+          {hasPolicyRules && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-800">Allocation managed by Policy Settings</p>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  Leave allocation, accrual type, and per-category rules are configured in the{' '}
+                  <strong>Policy Settings tab</strong>. The Default Balance below is a legacy fallback
+                  only used when no policy rule exists for an employee.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* ── BASIC INFO ── */}
           <section>
@@ -2749,15 +2799,20 @@ function PolicySettingsTab() {
               </button>
             </>
           )}
-          <button
-            onClick={handleRecalculate}
-            disabled={recalculating}
-            title="Recalculate all employee balances using current policy"
-            className="px-3 py-2 text-sm border border-brand-200 text-brand-600 rounded-lg hover:bg-brand-50 transition-colors flex items-center gap-1.5"
-          >
-            {recalculating ? <Loader2 size={14} className="animate-spin" /> : <TrendingUp size={14} />}
-            Recalculate All
-          </button>
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={handleRecalculate}
+              disabled={recalculating}
+              title="Recalculate all employee balances using current policy"
+              className="px-3 py-2 text-sm border border-brand-200 text-brand-600 rounded-lg hover:bg-brand-50 transition-colors flex items-center gap-1.5"
+            >
+              {recalculating ? <Loader2 size={14} className="animate-spin" /> : <TrendingUp size={14} />}
+              Recalculate All
+            </button>
+            <p className="text-xs text-gray-400 text-right">
+              Updates policy allocation only. Manual adjustments and previous-used entries are preserved.
+            </p>
+          </div>
         </div>
       </div>
 

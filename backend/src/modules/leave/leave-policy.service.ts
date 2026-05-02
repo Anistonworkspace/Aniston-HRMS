@@ -274,11 +274,14 @@ export class LeavePolicyService {
       });
 
       if (!existing) {
-        await prisma.leaveBalance.create({
+        await (prisma.leaveBalance.create as any)({
           data: {
             employeeId,
             leaveTypeId: rule.leaveTypeId,
             year,
+            policyAllocated: allocation.days,
+            manualAdjustment: 0,
+            previousUsed: 0,
             allocated: allocation.days,
             used: 0,
             pending: 0,
@@ -288,14 +291,24 @@ export class LeavePolicyService {
         });
         await this._logAllocation(employeeId, rule.leaveTypeId, policy.id || '', year, 'INITIAL', allocation.days, null, allocation, options.triggeredBy, emp.organizationId);
         created++;
-      } else if (options.force && Number(existing.allocated) !== allocation.days) {
-        const prev = Number(existing.allocated);
-        await prisma.leaveBalance.update({
-          where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: rule.leaveTypeId, year } },
-          data: { allocated: allocation.days },
-        });
-        await this._logAllocation(employeeId, rule.leaveTypeId, policy.id || '', year, 'POLICY_CHANGE', allocation.days, prev, allocation, options.triggeredBy, emp.organizationId);
-        updated++;
+      } else if (options.force) {
+        // Update only policyAllocated; preserve manualAdjustment and other fields
+        const prevPolicyAlloc = Number((existing as any).policyAllocated ?? existing.allocated);
+        const manualAdj = Number((existing as any).manualAdjustment ?? 0);
+        const newAllocated = allocation.days + manualAdj;
+        if (prevPolicyAlloc !== allocation.days) {
+          await (prisma.leaveBalance.update as any)({
+            where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: rule.leaveTypeId, year } },
+            data: {
+              policyAllocated: allocation.days,
+              allocated: newAllocated,
+            },
+          });
+          await this._logAllocation(employeeId, rule.leaveTypeId, policy.id || '', year, 'POLICY_CHANGE', allocation.days, prevPolicyAlloc, allocation, options.triggeredBy, emp.organizationId);
+          updated++;
+        } else {
+          skipped++;
+        }
       } else {
         skipped++;
       }
@@ -346,21 +359,30 @@ export class LeavePolicyService {
       });
 
       if (existing) {
-        const prev = Number(existing.allocated);
-        await prisma.leaveBalance.update({
+        const prevPolicyAlloc = Number((existing as any).policyAllocated ?? existing.allocated);
+        const manualAdj = Number((existing as any).manualAdjustment ?? 0);
+        const newPolicyAlloc = prevPolicyAlloc + proratedDays;
+        const newAllocated = newPolicyAlloc + manualAdj;
+        await (prisma.leaveBalance.update as any)({
           where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: rule.leaveTypeId, year } },
-          data: { allocated: prev + proratedDays },
+          data: {
+            policyAllocated: newPolicyAlloc,
+            allocated: newAllocated,
+          },
         });
         await this._logAllocation(
           employeeId, rule.leaveTypeId, policy.id || '', year,
-          'PRORATA', proratedDays, prev,
+          'PRORATA', proratedDays, prevPolicyAlloc,
           { days: proratedDays, basis: `Prorated from month ${currentMonth} on probation graduation`, accrualType: 'UPFRONT', isProrata: true, category: 'ACTIVE', monthlyDays: 0 },
           triggeredBy, emp.organizationId,
         );
       } else {
-        await prisma.leaveBalance.create({
+        await (prisma.leaveBalance.create as any)({
           data: {
             employeeId, leaveTypeId: rule.leaveTypeId, year,
+            policyAllocated: proratedDays,
+            manualAdjustment: 0,
+            previousUsed: 0,
             allocated: proratedDays, used: 0, pending: 0, carriedForward: 0,
             organizationId: emp.organizationId,
           },
