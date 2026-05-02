@@ -182,6 +182,28 @@ export const leaveApi = api.injectEndpoints({
       }),
       invalidatesTags: ['LeaveBalance', 'Leave'],
     }),
+
+    // Leave Policy CRUD
+    getLeavePolicies: builder.query<any, void>({
+      query: () => '/leaves/policies',
+      providesTags: ['Leave'],
+    }),
+    createLeavePolicy: builder.mutation<any, any>({
+      query: (body) => ({ url: '/leaves/policies', method: 'POST', body }),
+      invalidatesTags: ['Leave', 'LeaveBalance'],
+    }),
+    updateLeavePolicy: builder.mutation<any, { id: string; data: any }>({
+      query: ({ id, data }) => ({ url: `/leaves/policies/${id}`, method: 'PATCH', body: data }),
+      invalidatesTags: ['Leave', 'LeaveBalance'],
+    }),
+    deleteLeavePolicy: builder.mutation<any, string>({
+      query: (id) => ({ url: `/leaves/policies/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Leave', 'LeaveBalance'],
+    }),
+    recalculatePolicyAllocations: builder.mutation<any, { id: string; year?: number }>({
+      query: ({ id, year }) => ({ url: `/leaves/policies/${id}/recalculate`, method: 'POST', body: { year } }),
+      invalidatesTags: ['LeaveBalance', 'Leave'],
+    }),
   }),
 });
 
@@ -217,4 +239,10 @@ export const {
   useGetOrgLeaveSettingsQuery,
   useUpdateOrgLeaveSettingsMutation,
   useAdjustLeaveBalanceMutation,
+  // Leave Policy
+  useGetLeavePoliciesQuery,
+  useCreateLeavePolicyMutation,
+  useUpdateLeavePolicyMutation,
+  useDeleteLeavePolicyMutation,
+  useRecalculatePolicyAllocationsMutation,
 } = leaveApi;

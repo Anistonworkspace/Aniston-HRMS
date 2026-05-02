@@ -448,12 +448,39 @@ export class TaskIntegrationService {
   }
 
   private async clickupFetchTasks(apiKey: string, assigneeId: string): Promise<TaskItem[]> {
-    // ClickUp requires team ID — simplified implementation
-    const res = await fetch(`https://api.clickup.com/api/v2/team`, {
+    // Get workspaces first, then fetch tasks per workspace filtered by assignee
+    const teamsRes = await fetch('https://api.clickup.com/api/v2/team', {
       headers: { 'Authorization': apiKey },
+      signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) throw new Error(`ClickUp fetch failed: ${res.status}`);
-    return []; // Would need team-specific implementation
+    if (!teamsRes.ok) throw new Error(`ClickUp teams fetch failed: ${teamsRes.status}`);
+    const teamsData = await teamsRes.json();
+    const teams: any[] = teamsData.teams || [];
+    if (teams.length === 0) return [];
+
+    const allTasks: TaskItem[] = [];
+    for (const team of teams.slice(0, 3)) {
+      try {
+        const tasksRes = await fetch(
+          `https://api.clickup.com/api/v2/team/${team.id}/task?assignees[]=${encodeURIComponent(assigneeId)}&include_closed=false&subtasks=true&page=0`,
+          { headers: { 'Authorization': apiKey }, signal: AbortSignal.timeout(10000) }
+        );
+        if (!tasksRes.ok) continue;
+        const tasksData = await tasksRes.json();
+        for (const t of tasksData.tasks || []) {
+          allTasks.push({
+            externalTaskId: t.id,
+            taskTitle: t.name,
+            projectName: t.project?.name || t.list?.name,
+            priority: t.priority?.priority,
+            dueDate: t.due_date ? new Date(Number(t.due_date)) : null,
+            currentStatus: t.status?.status,
+            blockerFlag: ['blocked', 'stuck'].includes((t.status?.status || '').toLowerCase()),
+          });
+        }
+      } catch { /* skip this workspace on error */ }
+    }
+    return allTasks;
   }
 
   // ── Custom / Monday.com Provider ──
@@ -597,7 +624,7 @@ export class TaskIntegrationService {
     organizationId: string,
     employeeId: string,
     employeeEmail?: string
-  ): Promise<{ tasks: TaskItem[]; configured: boolean; provider: string | null }> {
+  ): Promise<{ tasks: TaskItem[]; configured: boolean; provider: string | null; fetchError?: string }> {
     const config = await prisma.taskManagerConfig.findFirst({
       where: { organizationId, isActive: true },
     });
@@ -623,7 +650,8 @@ export class TaskIntegrationService {
       return result;
     } catch (err: any) {
       logger.warn(`[Performance] Failed to fetch tasks for ${employeeId}: ${err.message}`);
-      return { tasks: [], configured: true, provider: config.provider };
+      // Return fetchError so the UI can distinguish "no tasks" from "fetch failed"
+      return { tasks: [], configured: true, provider: config.provider, fetchError: err.message };
     }
   }
 

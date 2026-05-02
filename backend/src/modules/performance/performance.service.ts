@@ -330,17 +330,23 @@ export class PerformanceService {
     taskHealthScore = Math.max(0, Math.min(100, Math.round(taskHealthScore)));
 
     // ── Leave Stats ──
-    const leavesByType = leaveBalances.map((lb: any) => ({
-      typeId: lb.leaveTypeId,
-      typeName: lb.leaveType?.name || '',
-      typeCode: lb.leaveType?.code || '',
-      isPaid: lb.leaveType?.isPaid ?? true,
-      allocated: lb.allocated,
-      used: Number(lb.used) || 0,
-      pending: Number(lb.pending) || 0,
-      carriedForward: Number(lb.carriedForward) || 0,
-      remaining: Math.max(0, lb.allocated + (lb.carriedForward || 0) - (lb.used || 0) - (lb.pending || 0)),
-    }));
+    const leavesByType = leaveBalances.map((lb: any) => {
+      const allocated = Number(lb.allocated) || 0;
+      const used = Number(lb.used) || 0;
+      const pending = Number(lb.pending) || 0;
+      const carriedForward = Number(lb.carriedForward) || 0;
+      return {
+        typeId: lb.leaveTypeId,
+        typeName: lb.leaveType?.name || '',
+        typeCode: lb.leaveType?.code || '',
+        isPaid: lb.leaveType?.isPaid ?? true,
+        allocated,
+        used,
+        pending,
+        carriedForward,
+        remaining: Math.max(0, allocated + carriedForward - used - pending),
+      };
+    });
 
     const totalAllocated = leavesByType.reduce((s: number, l: any) => s + l.allocated, 0);
     const totalUsed = leavesByType.reduce((s: number, l: any) => s + l.used, 0);
@@ -417,6 +423,7 @@ export class PerformanceService {
       tasks: {
         configured: taskResult.configured,
         provider: taskResult.provider,
+        fetchError: (taskResult as any).fetchError || null,
         total: tasks.length,
         overdue: overdueTaskCount,
         blocked: blockedTaskCount,

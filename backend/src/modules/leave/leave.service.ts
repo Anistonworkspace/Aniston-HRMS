@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
+import { leavePolicyService } from './leave-policy.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { emitToOrg, emitToUser, invalidateDashboardCache } from '../../sockets/index.js';
 import { taskIntegrationService } from '../task-integration/task-integration.service.js';
@@ -84,34 +85,115 @@ export class LeaveService {
 
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { organizationId: true, gender: true, status: true, joiningDate: true, user: { select: { role: true } } },
+      select: { id: true, organizationId: true, gender: true, status: true, joiningDate: true, user: { select: { role: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
 
     const userRole = employee.user?.role;
 
-    // Get only active leave types
+    // ── Policy-engine path ───────────────────────────────────────────────────
+    // Try to get a default policy. If one exists, use it to determine applicable
+    // leave types and their policy-driven allocation amounts.
+    // Falls back to legacy LeaveType.defaultBalance if no policy found.
+    let defaultPolicy: any = null;
+    try {
+      defaultPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
+    } catch { /* non-blocking — fall through to legacy path */ }
+
+    if (defaultPolicy) {
+      const category = leavePolicyService.getEmployeeCategory(employee);
+
+      // Determine which leave types this employee should have based on policy rules
+      const applicableRules = defaultPolicy.rules.filter((r: any) =>
+        (r.employeeCategory === category || r.employeeCategory === 'ALL') &&
+        r.isAllowed &&
+        r.leaveType?.isActive !== false,
+      );
+
+      // Also apply gender/specific-employee filters from the LeaveType itself
+      const allLeaveTypes = await prisma.leaveType.findMany({
+        where: {
+          id: { in: applicableRules.map((r: any) => r.leaveTypeId) },
+          organizationId: employee.organizationId,
+          isActive: true,
+        },
+      });
+      const leaveTypeMap = new Map(allLeaveTypes.map(lt => [lt.id, lt]));
+
+      const filteredRules = applicableRules.filter((r: any) => {
+        const lt = leaveTypeMap.get(r.leaveTypeId);
+        if (!lt) return false;
+        if (lt.gender && lt.gender !== employee.gender) return false;
+        const specificIds: string[] | null = (lt as any).applicableToEmployeeIds
+          ? (() => { try { return JSON.parse((lt as any).applicableToEmployeeIds); } catch { return null; } })()
+          : null;
+        if (specificIds && specificIds.length > 0) return specificIds.includes(employeeId);
+        if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
+        return true;
+      });
+
+      // Fetch existing balances
+      const existingBalances = await prisma.leaveBalance.findMany({
+        where: { employeeId, leaveTypeId: { in: filteredRules.map((r: any) => r.leaveTypeId) }, year: currentYear },
+      });
+      const balanceMap = new Map(existingBalances.map(b => [b.leaveTypeId, b]));
+
+      // Create missing balances using policy-driven allocation
+      for (const rule of filteredRules) {
+        if (balanceMap.has(rule.leaveTypeId)) continue;
+        const allocation = leavePolicyService._resolveFromPolicy(employee, rule.leaveTypeId, currentYear, defaultPolicy);
+        if (!allocation) continue;
+        try {
+          const created = await prisma.leaveBalance.create({
+            data: {
+              employeeId,
+              leaveTypeId: rule.leaveTypeId,
+              year: currentYear,
+              allocated: allocation.days,
+              used: 0,
+              pending: 0,
+              carriedForward: 0,
+              organizationId: employee.organizationId,
+            },
+          });
+          balanceMap.set(rule.leaveTypeId, created);
+        } catch { /* skipDuplicates equivalent */ }
+      }
+
+      // Re-fetch to pick up any just-created records
+      const allBalances = await prisma.leaveBalance.findMany({
+        where: { employeeId, leaveTypeId: { in: filteredRules.map((r: any) => r.leaveTypeId) }, year: currentYear },
+      });
+      allBalances.forEach(b => balanceMap.set(b.leaveTypeId, b));
+
+      return filteredRules
+        .filter((r: any) => balanceMap.has(r.leaveTypeId))
+        .map((r: any) => {
+          const lt = leaveTypeMap.get(r.leaveTypeId)!;
+          const balance = balanceMap.get(r.leaveTypeId)!;
+          const allocation = leavePolicyService._resolveFromPolicy(employee, r.leaveTypeId, currentYear, defaultPolicy);
+          return {
+            ...balance,
+            leaveType: { id: lt.id, name: lt.name, code: lt.code, isPaid: lt.isPaid },
+            remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
+            allocationBasis: allocation?.basis,
+            allocationCategory: allocation?.category,
+          };
+        });
+    }
+
+    // ── Legacy path (no default policy) ─────────────────────────────────────
     const allLeaveTypes = await prisma.leaveType.findMany({
       where: { organizationId: employee.organizationId, isActive: true },
     });
 
-    // Filter by applicability and gender — all rules driven by leave type settings
     const leaveTypes = allLeaveTypes.filter((lt) => {
-      // Gender check — skip if leave type is gender-specific and doesn't match
       if (lt.gender && lt.gender !== employee.gender) return false;
-
-      // Specific employee restriction — overrides ALL status/role filters
       const specificIds: string[] | null = (lt as any).applicableToEmployeeIds
         ? (() => { try { return JSON.parse((lt as any).applicableToEmployeeIds); } catch { return null; } })()
         : null;
-      if (specificIds && specificIds.length > 0) {
-        return specificIds.includes(employeeId);
-      }
-
-      // Role check — if applicableToRole is set, only that role can see this leave
+      if (specificIds && specificIds.length > 0) return specificIds.includes(employeeId);
       if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
-
-      // Min Service Months — HR-configured tenure gate (default 0 = no gate)
       const probationMonths = (lt as any).probationMonths ?? 0;
       if (probationMonths > 0 && (employee as any).joiningDate) {
         const joined = new Date((employee as any).joiningDate);
@@ -119,12 +201,10 @@ export class LeaveService {
         const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
         if (monthsWorked < probationMonths) return false;
       }
-
-      // Applicability check (status-based) — driven entirely by HR settings
       const app = lt.applicableTo;
       if (app === 'ALL') return employee.status !== 'ONBOARDING';
       if (app === 'PROBATION') return employee.status === 'PROBATION';
-      if (app === 'ACTIVE' || app === 'CONFIRMED') return employee.status === 'ACTIVE'; // CONFIRMED kept for backward compat
+      if (app === 'ACTIVE' || app === 'CONFIRMED') return employee.status === 'ACTIVE';
       if (app === 'NOTICE_PERIOD') return employee.status === 'NOTICE_PERIOD';
       if (app === 'ONBOARDING') return employee.status === 'ONBOARDING';
       if (app === 'INTERN') return employee.status === 'INTERN' || userRole === 'INTERN';
@@ -135,57 +215,34 @@ export class LeaveService {
       return true;
     });
 
-    // Batch fetch all existing balances in one query (fixes N+1)
     const existingBalances = await prisma.leaveBalance.findMany({
-      where: {
-        employeeId,
-        leaveTypeId: { in: leaveTypes.map((lt) => lt.id) },
-        year: currentYear,
-      },
+      where: { employeeId, leaveTypeId: { in: leaveTypes.map(lt => lt.id) }, year: currentYear },
     });
-    const balanceMap = new Map(existingBalances.map((b) => [b.leaveTypeId, b]));
+    const balanceMap = new Map(existingBalances.map(b => [b.leaveTypeId, b]));
 
-    // Batch create any missing balances
-    const missingTypes = leaveTypes.filter((lt) => !balanceMap.has(lt.id));
+    const missingTypes = leaveTypes.filter(lt => !balanceMap.has(lt.id));
     if (missingTypes.length > 0) {
       await prisma.leaveBalance.createMany({
-        data: missingTypes.map((lt) => ({
-          employeeId,
-          leaveTypeId: lt.id,
-          year: currentYear,
-          allocated: lt.defaultBalance,
-          used: 0,
-          pending: 0,
-          carriedForward: 0,
+        data: missingTypes.map(lt => ({
+          employeeId, leaveTypeId: lt.id, year: currentYear,
+          allocated: lt.defaultBalance, used: 0, pending: 0, carriedForward: 0,
         })),
         skipDuplicates: true,
       });
-      // Re-fetch newly created balances
       const newBalances = await prisma.leaveBalance.findMany({
-        where: {
-          employeeId,
-          leaveTypeId: { in: missingTypes.map((lt) => lt.id) },
-          year: currentYear,
-        },
+        where: { employeeId, leaveTypeId: { in: missingTypes.map(lt => lt.id) }, year: currentYear },
       });
-      newBalances.forEach((b) => balanceMap.set(b.leaveTypeId, b));
+      newBalances.forEach(b => balanceMap.set(b.leaveTypeId, b));
     }
 
-    const balances = leaveTypes.map((lt) => {
+    return leaveTypes.map(lt => {
       const balance = balanceMap.get(lt.id)!;
       return {
         ...balance,
-        leaveType: {
-          id: lt.id,
-          name: lt.name,
-          code: lt.code,
-          isPaid: lt.isPaid,
-        },
+        leaveType: { id: lt.id, name: lt.name, code: lt.code, isPaid: lt.isPaid },
         remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
       };
     });
-
-    return balances;
   }
 
   /**

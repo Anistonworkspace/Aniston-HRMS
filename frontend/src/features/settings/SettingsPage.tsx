@@ -1485,10 +1485,10 @@ function ExternalApiIntegrationTab() {
   const [upsertTaskConfig, { isLoading: savingTask }] = useUpsertTaskConfigMutation();
   const [testTaskConnection, { isLoading: testingTask }] = useTestTaskConnectionMutation();
 
-  const [integrations, setIntegrations] = useState<{ name: string; baseUrl: string; apiKey: string; description: string; enabled: boolean }[]>([
-    { name: 'Task Manager', baseUrl: '', apiKey: '', description: 'Connect your task management tool (Jira, ClickUp, Asana, etc.) to sync employee tasks with performance reviews.', enabled: false },
-    { name: 'Naukri / Job Board', baseUrl: '', apiKey: '', description: 'Connect job board APIs to auto-post job openings and receive applications.', enabled: false },
-    { name: 'Slack / Teams Webhook', baseUrl: '', apiKey: '', description: 'Send HRMS notifications to your team chat channels via webhook URL.', enabled: false },
+  const [integrations, setIntegrations] = useState<{ name: string; provider: string; baseUrl: string; apiKey: string; description: string; enabled: boolean }[]>([
+    { name: 'Task Manager', provider: 'CUSTOM', baseUrl: '', apiKey: '', description: 'Connect your task management tool (Jira, ClickUp, Asana, Monday.com, or custom API) to sync employee tasks with performance reviews.', enabled: false },
+    { name: 'Naukri / Job Board', provider: 'CUSTOM', baseUrl: '', apiKey: '', description: 'Connect job board APIs to auto-post job openings and receive applications.', enabled: false },
+    { name: 'Slack / Teams Webhook', provider: 'CUSTOM', baseUrl: '', apiKey: '', description: 'Send HRMS notifications to your team chat channels via webhook URL.', enabled: false },
   ]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
@@ -1500,6 +1500,7 @@ function ExternalApiIntegrationTab() {
         const updated = [...prev];
         updated[0] = {
           ...updated[0],
+          provider: cfg.provider || 'CUSTOM',
           baseUrl: cfg.baseUrl || '',
           apiKey: '', // Never pre-fill encrypted key — show placeholder
           enabled: cfg.isActive || false,
@@ -1519,7 +1520,7 @@ function ExternalApiIntegrationTab() {
       }
       try {
         await upsertTaskConfig({
-          provider: 'CUSTOM',
+          provider: intg.provider || 'CUSTOM',
           // Only send apiKey when user typed a new one — blank = keep existing encrypted key
           apiKey: intg.apiKey || '',
           baseUrl: intg.baseUrl,
@@ -1616,7 +1617,11 @@ function ExternalApiIntegrationTab() {
 
               {/* Read-only summary — shown when NOT editing and config exists */}
               {isSaved && !isEditing && (
-                <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-3">
+                <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">Provider</p>
+                    <p className="text-xs text-gray-700 font-medium">{taskConfigRes!.data.provider || 'Custom'}</p>
+                  </div>
                   <div>
                     <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">Base URL</p>
                     <p className="text-xs text-gray-700 font-mono truncate">{taskConfigRes!.data.baseUrl || '—'}</p>
@@ -1636,6 +1641,33 @@ function ExternalApiIntegrationTab() {
                 {isEditing && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                     <div className="pt-3 mt-3 border-t border-gray-100 space-y-3">
+                      {i === 0 && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Provider</label>
+                          <select
+                            value={(intg as any).provider || 'CUSTOM'}
+                            onChange={e => { const n = [...integrations]; (n[i] as any).provider = e.target.value; setIntegrations(n); }}
+                            className="input-glass w-full text-sm"
+                          >
+                            <option value="CUSTOM">Custom API / Monday.com</option>
+                            <option value="JIRA">Jira (Base URL required)</option>
+                            <option value="ASANA">Asana</option>
+                            <option value="CLICKUP">ClickUp</option>
+                          </select>
+                          {(intg as any).provider === 'JIRA' && (
+                            <p className="text-[10px] text-amber-600 mt-1">Jira: enter Base URL (e.g. https://yourcompany.atlassian.net) and API Key as <span className="font-mono">base64(email:api_token)</span></p>
+                          )}
+                          {(intg as any).provider === 'ASANA' && (
+                            <p className="text-[10px] text-gray-400 mt-1">Asana: no Base URL needed — paste your Personal Access Token as the API Key. Employee ID must match Asana user GID.</p>
+                          )}
+                          {(intg as any).provider === 'CLICKUP' && (
+                            <p className="text-[10px] text-gray-400 mt-1">ClickUp: no Base URL needed — paste your API Key. Employee ID must match the ClickUp user ID.</p>
+                          )}
+                          {(intg as any).provider === 'CUSTOM' && (
+                            <p className="text-[10px] text-gray-400 mt-1">Custom API must implement <span className="font-mono">GET /api/external/employees?search=</span> and <span className="font-mono">GET /api/external/employees/:id</span></p>
+                          )}
+                        </div>
+                      )}
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Base URL</label>
                         <input value={intg.baseUrl}
