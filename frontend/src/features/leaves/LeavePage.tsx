@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle,
   Search, FileText, ThumbsUp, ThumbsDown, Pencil, Trash2, Loader2,
-  Users, ChevronRight, TrendingUp, UserCheck, Info,
+  Users, ChevronRight, TrendingUp, UserCheck, Info, SlidersHorizontal,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
@@ -30,6 +30,7 @@ import {
   useGetLeavePoliciesQuery,
   useUpdateLeavePolicyMutation,
   useRecalculatePolicyAllocationsMutation,
+  useCreateEmployeeAdjustmentMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -150,6 +151,7 @@ function LeaveManagementView() {
 
   const { data: typesRes } = useGetLeaveTypesQuery();
   const { data: holidaysRes } = useGetHolidaysQuery({});
+  const { data: policiesRes } = useGetLeavePoliciesQuery(undefined, { skip: activeTab !== 'types' });
   const [handleAction] = useHandleLeaveActionMutation();
   const [deleteLeaveType] = useDeleteLeaveTypeMutation();
 
@@ -160,6 +162,12 @@ function LeaveManagementView() {
   const approvalsErrorMsg = approvalStatusFilter === 'pending' ? approvalsErrorData : allLeavesErrorData;
   const approvals = activeRes?.data || [];
   const leaveTypes = typesRes?.data || [];
+  // Map leaveTypeId → policy rules (from the default/first policy)
+  const policyRulesByType: Record<string, any[]> = (policiesRes?.data?.[0]?.rules ?? []).reduce((acc: any, r: any) => {
+    if (!acc[r.leaveTypeId]) acc[r.leaveTypeId] = [];
+    acc[r.leaveTypeId].push(r);
+    return acc;
+  }, {});
   const holidays = holidaysRes?.data || [];
 
   // Reset page when filter changes
@@ -737,6 +745,25 @@ function LeaveManagementView() {
                     )}
                   </div>
                 </div>
+
+                {/* Policy allocation rules */}
+                {policyRulesByType[lt.id]?.length > 0 && (
+                  <div className="mt-2.5 pt-2.5 border-t border-indigo-100">
+                    <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1.5">Policy Allocation</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {policyRulesByType[lt.id].map((r: any) => (
+                        <div key={r.id || r.employeeCategory} className="bg-indigo-50 rounded-lg px-2 py-1 text-[10px]">
+                          <span className="font-semibold text-indigo-600">{r.employeeCategory}</span>
+                          <span className="text-indigo-400 mx-1">·</span>
+                          {r.accrualType === 'MONTHLY'
+                            ? <span className="text-indigo-700">{r.monthlyDays}/mo</span>
+                            : <span className="text-indigo-700">{r.yearlyDays}/yr{r.isProrata ? ' (pro-rata)' : ''}</span>
+                          }
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             ))}
           </div>
@@ -1177,14 +1204,24 @@ function EmployeeLeaveDetailModal({
 }) {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [modalYear, setModalYear] = useState(year);
+  const [activeSection, setActiveSection] = useState<'requests' | 'adjustments'>('requests');
+  const [showAdjForm, setShowAdjForm] = useState(false);
+  const [adjForm, setAdjForm] = useState({
+    adjustmentType: 'BALANCE_CORRECTION' as 'PREVIOUS_USED' | 'BALANCE_CORRECTION',
+    leaveTypeId: '',
+    days: '' as string | number,
+    reason: '',
+  });
 
   const { data, isLoading, isFetching } = useGetEmployeeLeaveOverviewQuery(
     { employeeId, year: modalYear },
     { refetchOnMountOrArgChange: true }
   );
+  const [createAdjustment, { isLoading: isCreating }] = useCreateEmployeeAdjustmentMutation();
 
   const overview = data?.data;
   const requests: any[] = overview?.requests || [];
+  const adjustments: any[] = overview?.adjustments || [];
 
   const filteredRequests = statusFilter === 'ALL'
     ? requests
@@ -1199,6 +1236,38 @@ function EmployeeLeaveDetailModal({
     { key: 'REJECTED', label: 'Rejected', count: overview?.summary?.leavesRejected ?? 0 },
     { key: 'CANCELLED', label: 'Cancelled', count: overview?.summary?.leavesCancelled ?? 0 },
   ];
+
+  const handleSubmitAdj = async () => {
+    const days = Number(adjForm.days);
+    if (!adjForm.leaveTypeId) return toast.error('Select a leave type');
+    if (!days || days === 0) return toast.error('Days must be non-zero');
+    if (adjForm.adjustmentType === 'PREVIOUS_USED' && days < 0) return toast.error('Days must be positive for Previous Used');
+    if (!adjForm.reason.trim() || adjForm.reason.trim().length < 3) return toast.error('Reason required (min 3 chars)');
+    try {
+      await createAdjustment({
+        employeeId,
+        adjustmentType: adjForm.adjustmentType,
+        leaveTypeId: adjForm.leaveTypeId,
+        year: modalYear,
+        days,
+        reason: adjForm.reason.trim(),
+      }).unwrap();
+      toast.success('Adjustment saved');
+      setShowAdjForm(false);
+      setAdjForm({ adjustmentType: 'BALANCE_CORRECTION', leaveTypeId: '', days: '', reason: '' });
+    } catch (e: any) {
+      toast.error(e?.data?.error?.message || 'Failed to save adjustment');
+    }
+  };
+
+  const adjTypeLabel = (type: string) => {
+    if (type === 'PREVIOUS_USED') return { label: 'Prev. Used', color: 'bg-orange-100 text-orange-700' };
+    if (type === 'MANUAL_ADJUSTMENT') return { label: 'Manual Adj.', color: 'bg-indigo-100 text-indigo-700' };
+    if (type === 'INITIAL') return { label: 'Initial', color: 'bg-gray-100 text-gray-600' };
+    if (type === 'PRORATA') return { label: 'Pro-rata', color: 'bg-blue-100 text-blue-700' };
+    if (type === 'POLICY_CHANGE') return { label: 'Policy', color: 'bg-purple-100 text-purple-700' };
+    return { label: type, color: 'bg-gray-100 text-gray-500' };
+  };
 
   return (
     <motion.div
@@ -1292,7 +1361,6 @@ function EmployeeLeaveDetailModal({
                             {b.remaining}
                           </span>
                         </div>
-                        {/* Progress bar */}
                         <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full transition-all ${b.remaining < 1 ? 'bg-red-400' : b.remaining < 3 ? 'bg-amber-400' : 'bg-emerald-400'}`}
@@ -1310,84 +1378,241 @@ function EmployeeLeaveDetailModal({
                 </div>
               )}
 
-              {/* Leave Requests */}
-              <div className="px-5 pt-5 pb-5">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-                    <TrendingUp size={12} /> Leave Requests — {modalYear}
-                  </p>
-                  <span className="text-xs text-gray-400">{overview.summary.totalApprovedDays} approved days total</span>
-                </div>
-
-                {/* Status filter pills */}
-                <div className="flex gap-1.5 flex-wrap mb-3">
-                  {filterTabs.map((ft) => (
+              {/* Section tabs: Requests | Adjustments */}
+              <div className="px-5 pt-5">
+                <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit mb-4">
+                  {[
+                    { key: 'requests', label: `Requests (${requests.length})` },
+                    { key: 'adjustments', label: `Adjustments (${adjustments.length})` },
+                  ].map((t) => (
                     <button
-                      key={ft.key}
-                      onClick={() => setStatusFilter(ft.key)}
+                      key={t.key}
+                      onClick={() => setActiveSection(t.key as any)}
                       className={cn(
-                        'px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                        statusFilter === ft.key
-                          ? 'bg-brand-100 text-brand-700 ring-1 ring-brand-300'
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                        activeSection === t.key ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
                       )}
                     >
-                      {ft.label}
-                      {ft.count > 0 && (
-                        <span className="ml-1 font-bold">{ft.count}</span>
-                      )}
+                      {t.label}
                     </button>
                   ))}
                 </div>
+              </div>
 
-                {filteredRequests.length === 0 ? (
-                  <div className="text-center py-8 text-sm text-gray-400 bg-gray-50 rounded-xl">
-                    No {statusFilter === 'ALL' ? '' : statusFilter.toLowerCase()} leave requests for {modalYear}
+              {/* Leave Requests section */}
+              {activeSection === 'requests' && (
+                <div className="px-5 pb-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                      <TrendingUp size={12} /> Leave Requests — {modalYear}
+                    </p>
+                    <span className="text-xs text-gray-400">{overview.summary.totalApprovedDays} approved days total</span>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    {filteredRequests.map((req: any) => (
-                      <div key={req.id} className="border border-gray-100 rounded-xl p-3.5 bg-white hover:bg-gray-50/50 transition-colors">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-medium text-gray-800">
-                                {req.leaveType?.name || 'Leave'}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {formatDate(req.startDate)}
-                                {req.startDate !== req.endDate && ` – ${formatDate(req.endDate)}`}
-                              </span>
-                              <span className="text-xs font-mono font-medium text-gray-600" data-mono>
-                                {req.days} {req.days === 1 ? 'day' : 'days'}
-                              </span>
-                              {req.isHalfDay && (
-                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Half Day</span>
-                              )}
-                            </div>
-                            {req.reason && (
-                              <p className="text-[11px] text-gray-400 mt-1 italic line-clamp-1">"{req.reason}"</p>
-                            )}
-                            {(req.approverRemarks || req.managerRemarks) && (
-                              <p className="text-[11px] text-brand-500 mt-1">
-                                Remark: {req.approverRemarks || req.managerRemarks}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full', STATUS_COLORS[req.status] || 'bg-gray-100 text-gray-500')}>
-                              {req.status.replace(/_/g, ' ')}
-                            </span>
-                            <span className="text-[10px] text-gray-300">
-                              {new Date(req.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                  <div className="flex gap-1.5 flex-wrap mb-3">
+                    {filterTabs.map((ft) => (
+                      <button
+                        key={ft.key}
+                        onClick={() => setStatusFilter(ft.key)}
+                        className={cn(
+                          'px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                          statusFilter === ft.key
+                            ? 'bg-brand-100 text-brand-700 ring-1 ring-brand-300'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        )}
+                      >
+                        {ft.label}
+                        {ft.count > 0 && <span className="ml-1 font-bold">{ft.count}</span>}
+                      </button>
                     ))}
                   </div>
-                )}
-              </div>
+                  {filteredRequests.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-gray-400 bg-gray-50 rounded-xl">
+                      No {statusFilter === 'ALL' ? '' : statusFilter.toLowerCase()} leave requests for {modalYear}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredRequests.map((req: any) => (
+                        <div key={req.id} className="border border-gray-100 rounded-xl p-3.5 bg-white hover:bg-gray-50/50 transition-colors">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-medium text-gray-800">{req.leaveType?.name || 'Leave'}</span>
+                                <span className="text-xs text-gray-500">
+                                  {formatDate(req.startDate)}
+                                  {req.startDate !== req.endDate && ` – ${formatDate(req.endDate)}`}
+                                </span>
+                                <span className="text-xs font-mono font-medium text-gray-600" data-mono>
+                                  {req.days} {req.days === 1 ? 'day' : 'days'}
+                                </span>
+                                {req.isHalfDay && (
+                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Half Day</span>
+                                )}
+                              </div>
+                              {req.reason && (
+                                <p className="text-[11px] text-gray-400 mt-1 italic line-clamp-1">"{req.reason}"</p>
+                              )}
+                              {(req.approverRemarks || req.managerRemarks) && (
+                                <p className="text-[11px] text-brand-500 mt-1">
+                                  Remark: {req.approverRemarks || req.managerRemarks}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full', STATUS_COLORS[req.status] || 'bg-gray-100 text-gray-500')}>
+                                {req.status.replace(/_/g, ' ')}
+                              </span>
+                              <span className="text-[10px] text-gray-300">
+                                {new Date(req.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Adjustments section */}
+              {activeSection === 'adjustments' && (
+                <div className="px-5 pb-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                      <SlidersHorizontal size={12} /> Adjustment History — {modalYear}
+                    </p>
+                    <button
+                      onClick={() => setShowAdjForm((v) => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium hover:bg-brand-700 transition-colors"
+                    >
+                      <Plus size={12} /> Add Adjustment
+                    </button>
+                  </div>
+
+                  {/* Inline Add Adjustment form */}
+                  {showAdjForm && (
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4 space-y-3">
+                      <p className="text-xs font-semibold text-indigo-700 mb-2 flex items-center gap-1.5">
+                        <SlidersHorizontal size={12} /> New Adjustment
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">Type</label>
+                          <select
+                            value={adjForm.adjustmentType}
+                            onChange={(e) => setAdjForm((f) => ({ ...f, adjustmentType: e.target.value as any }))}
+                            className="input-glass text-xs w-full"
+                          >
+                            <option value="BALANCE_CORRECTION">Balance Correction (± allocated)</option>
+                            <option value="PREVIOUS_USED">Previous Used (+ used)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">Leave Type</label>
+                          <select
+                            value={adjForm.leaveTypeId}
+                            onChange={(e) => setAdjForm((f) => ({ ...f, leaveTypeId: e.target.value }))}
+                            className="input-glass text-xs w-full"
+                          >
+                            <option value="">— Select —</option>
+                            {(overview.balances || []).map((b: any) => (
+                              <option key={b.leaveTypeId} value={b.leaveTypeId}>{b.leaveTypeName}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">
+                            Days {adjForm.adjustmentType === 'BALANCE_CORRECTION' ? '(use − for deduction)' : '(positive only)'}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={adjForm.days}
+                            onChange={(e) => setAdjForm((f) => ({ ...f, days: e.target.value }))}
+                            placeholder={adjForm.adjustmentType === 'BALANCE_CORRECTION' ? 'e.g. -2 or +3' : 'e.g. 5'}
+                            className="input-glass text-xs w-full"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">Reason <span className="text-red-400">*</span></label>
+                          <input
+                            type="text"
+                            value={adjForm.reason}
+                            onChange={(e) => setAdjForm((f) => ({ ...f, reason: e.target.value }))}
+                            placeholder="Brief reason for this adjustment"
+                            className="input-glass text-xs w-full"
+                          />
+                        </div>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
+                        {adjForm.adjustmentType === 'BALANCE_CORRECTION'
+                          ? 'Balance Correction: adjusts the allocated days (+ adds, − deducts). Does not affect actual leave requests.'
+                          : 'Previous Used: marks days as already consumed (adds to used count). Use for leaves taken before system was active.'}
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => { setShowAdjForm(false); setAdjForm({ adjustmentType: 'BALANCE_CORRECTION', leaveTypeId: '', days: '', reason: '' }); }}
+                          className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSubmitAdj}
+                          disabled={isCreating}
+                          className="flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                        >
+                          {isCreating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                          Save Adjustment
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Adjustment history list */}
+                  {adjustments.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-gray-400 bg-gray-50 rounded-xl">
+                      No adjustments recorded for {modalYear}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {adjustments.map((adj: any) => {
+                        const basis = adj.calculationBasis as any;
+                        const isUsedAdj = basis?.adjustmentType === 'PREVIOUS_USED';
+                        const isPositive = adj.days > 0;
+                        return (
+                          <div key={adj.id} className="border border-gray-100 rounded-xl p-3.5 bg-white">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full', adjTypeLabel(adj.allocationType).color)}>
+                                    {isUsedAdj ? 'Prev. Used' : adjTypeLabel(adj.allocationType).label}
+                                  </span>
+                                  <span className="text-xs font-medium text-gray-800">{adj.leaveType?.name}</span>
+                                  {adj.reason && (
+                                    <span className="text-[11px] text-gray-400 italic line-clamp-1">"{adj.reason}"</span>
+                                  )}
+                                </div>
+                                {adj.previousDays != null && (
+                                  <p className="text-[10px] text-gray-400 mt-1">
+                                    {isUsedAdj ? 'Used' : 'Allocated'}: {adj.previousDays} → {(Number(adj.previousDays) + adj.days).toFixed(1)}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                <span className={cn('text-sm font-bold font-mono', isPositive ? 'text-emerald-600' : 'text-red-500')} data-mono>
+                                  {isPositive ? '+' : ''}{adj.days}
+                                </span>
+                                <span className="text-[10px] text-gray-300">
+                                  {new Date(adj.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

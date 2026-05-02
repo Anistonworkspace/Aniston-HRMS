@@ -324,6 +324,12 @@ router.get(
         orderBy: { createdAt: 'desc' },
       });
 
+      const adjustments = await db.leaveAllocationLog.findMany({
+        where: { employeeId, organizationId: orgId, year },
+        include: { leaveType: { select: { id: true, name: true, code: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+
       const balances = employee.leaveBalances.map((b) => ({
         leaveTypeId: b.leaveTypeId,
         leaveTypeName: b.leaveType.name,
@@ -383,6 +389,18 @@ router.get(
             approverRemarks: r.approverRemarks,
             managerRemarks: r.managerRemarks,
             createdAt: r.createdAt,
+          })),
+          adjustments: adjustments.map((a) => ({
+            id: a.id,
+            leaveType: a.leaveType,
+            year: a.year,
+            allocationType: a.allocationType,
+            days: a.days,
+            previousDays: a.previousDays,
+            reason: a.reason,
+            changedBy: a.changedBy,
+            calculationBasis: a.calculationBasis,
+            createdAt: a.createdAt,
           })),
         },
       });
@@ -606,10 +624,30 @@ router.patch(
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Leave type not found' } });
       }
 
+      const existingBalance = await db.leaveBalance.findUnique({
+        where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
+        select: { allocated: true },
+      });
+
       const balance = await db.leaveBalance.upsert({
         where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
         update: { allocated },
         create: { employeeId, leaveTypeId, year, allocated, used: 0, pending: 0, carriedForward: 0 },
+      });
+
+      await db.leaveAllocationLog.create({
+        data: {
+          employeeId,
+          leaveTypeId,
+          year,
+          allocationType: 'MANUAL_ADJUSTMENT',
+          days: allocated,
+          previousDays: existingBalance ? Number(existingBalance.allocated) : null,
+          reason: reason ? String(reason).trim() : null,
+          changedBy: req.user!.userId,
+          organizationId: req.user!.organizationId,
+          calculationBasis: { adjustmentType: 'BALANCE_SET', field: 'allocated' },
+        },
       });
 
       // Notify the employee — in-app, email, and real-time socket
@@ -649,6 +687,127 @@ router.patch(
       }
 
       res.json({ success: true, data: balance, message: `${leaveType.name} balance updated to ${allocated} days` });
+    } catch (err) { next(err); }
+  }
+);
+
+// GET /adjustments/:employeeId — full adjustment/audit log for an employee
+router.get(
+  '/adjustments/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma: db } = await import('../../lib/prisma.js');
+      const { employeeId } = req.params;
+      const year = req.query.year ? Number(req.query.year) : undefined;
+
+      const employee = await db.employee.findFirst({
+        where: { id: employeeId, organizationId: req.user!.organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!employee) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+      }
+
+      const logs = await db.leaveAllocationLog.findMany({
+        where: {
+          employeeId,
+          organizationId: req.user!.organizationId,
+          ...(year ? { year } : {}),
+        },
+        include: { leaveType: { select: { id: true, name: true, code: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      res.json({ success: true, data: logs });
+    } catch (err) { next(err); }
+  }
+);
+
+// POST /adjustments/:employeeId — create a manual leave adjustment (PREVIOUS_USED or BALANCE_CORRECTION)
+router.post(
+  '/adjustments/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma: db } = await import('../../lib/prisma.js');
+      const { employeeId } = req.params;
+      const { adjustmentType, leaveTypeId, year: yearInput, days, reason } = req.body;
+      const year = Number(yearInput) || new Date().getFullYear();
+
+      if (!['PREVIOUS_USED', 'BALANCE_CORRECTION'].includes(adjustmentType)) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'adjustmentType must be PREVIOUS_USED or BALANCE_CORRECTION' } });
+      }
+      if (typeof days !== 'number' || days === 0) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'days must be a non-zero number' } });
+      }
+      if (adjustmentType === 'PREVIOUS_USED' && days < 0) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'days must be positive for PREVIOUS_USED' } });
+      }
+      if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'reason is required (min 3 chars)' } });
+      }
+      if (!leaveTypeId) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'leaveTypeId is required' } });
+      }
+
+      const employee = await db.employee.findFirst({
+        where: { id: employeeId, organizationId: req.user!.organizationId, deletedAt: null },
+        select: { id: true, firstName: true, lastName: true },
+      });
+      if (!employee) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+      }
+
+      const leaveType = await db.leaveType.findFirst({
+        where: { id: leaveTypeId, organizationId: req.user!.organizationId },
+        select: { id: true, name: true },
+      });
+      if (!leaveType) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Leave type not found' } });
+      }
+
+      const existing = await db.leaveBalance.findUnique({
+        where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
+      });
+
+      const prevAllocated = existing ? Number(existing.allocated) : 0;
+      const prevUsed = existing ? Number(existing.used) : 0;
+
+      let balance;
+      if (adjustmentType === 'PREVIOUS_USED') {
+        balance = await db.leaveBalance.upsert({
+          where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
+          update: { used: { increment: days } },
+          create: { employeeId, leaveTypeId, year, allocated: 0, used: days, pending: 0, carriedForward: 0 },
+        });
+      } else {
+        // BALANCE_CORRECTION: apply delta to allocated (never go below 0)
+        const newAllocated = Math.max(0, prevAllocated + days);
+        balance = await db.leaveBalance.upsert({
+          where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
+          update: { allocated: newAllocated },
+          create: { employeeId, leaveTypeId, year, allocated: Math.max(0, days), used: 0, pending: 0, carriedForward: 0 },
+        });
+      }
+
+      const log = await db.leaveAllocationLog.create({
+        data: {
+          employeeId,
+          leaveTypeId,
+          year,
+          allocationType: 'MANUAL_ADJUSTMENT',
+          days,
+          previousDays: adjustmentType === 'PREVIOUS_USED' ? prevUsed : prevAllocated,
+          reason: reason.trim(),
+          changedBy: req.user!.userId,
+          organizationId: req.user!.organizationId,
+          calculationBasis: { adjustmentType, field: adjustmentType === 'PREVIOUS_USED' ? 'used' : 'allocated' },
+        },
+        include: { leaveType: { select: { id: true, name: true, code: true } } },
+      });
+
+      res.status(201).json({ success: true, data: { log, balance } });
     } catch (err) { next(err); }
   }
 );

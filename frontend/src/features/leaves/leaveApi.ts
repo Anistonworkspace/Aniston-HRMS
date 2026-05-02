@@ -204,6 +204,27 @@ export const leaveApi = api.injectEndpoints({
       query: ({ id, year }) => ({ url: `/leaves/policies/${id}/recalculate`, method: 'POST', body: { year } }),
       invalidatesTags: ['LeaveBalance', 'Leave'],
     }),
+
+    // Employee leave adjustments (manual previous-used + balance corrections)
+    getEmployeeAdjustments: builder.query<any, { employeeId: string; year?: number }>({
+      query: ({ employeeId, year }) => ({ url: `/leaves/adjustments/${employeeId}`, params: year ? { year } : {} }),
+      providesTags: (result, error, { employeeId }) => [{ type: 'LeaveBalance' as const, id: employeeId }, 'LeaveBalance'],
+    }),
+    createEmployeeAdjustment: builder.mutation<any, {
+      employeeId: string;
+      adjustmentType: 'PREVIOUS_USED' | 'BALANCE_CORRECTION';
+      leaveTypeId: string;
+      year?: number;
+      days: number;
+      reason: string;
+    }>({
+      query: ({ employeeId, ...body }) => ({ url: `/leaves/adjustments/${employeeId}`, method: 'POST', body }),
+      invalidatesTags: (result, error, { employeeId }) => [
+        { type: 'LeaveBalance' as const, id: employeeId },
+        'LeaveBalance',
+        'Leave',
+      ],
+    }),
   }),
 });
 
@@ -245,4 +266,7 @@ export const {
   useUpdateLeavePolicyMutation,
   useDeleteLeavePolicyMutation,
   useRecalculatePolicyAllocationsMutation,
+  // Adjustments
+  useGetEmployeeAdjustmentsQuery,
+  useCreateEmployeeAdjustmentMutation,
 } = leaveApi;
