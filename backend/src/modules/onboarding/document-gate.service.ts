@@ -488,41 +488,35 @@ export class DocumentGateService {
 
     // === DOCUMENT COMPLETENESS GUARD ===
     const submitted = gate.submittedDocs as string[];
-    const uploadMode = gate.uploadMode || 'SEPARATE';
 
     const hasPhoto = !!gate.photoUrl || submitted.includes('PHOTO');
     if (!hasPhoto) {
       throw new BadRequestError('Cannot approve: Employee has not uploaded their passport photograph.');
     }
 
-    // Cancelled Cheque is mandatory for all employees regardless of upload mode
+    // Cancelled Cheque is mandatory for all employees
     if (!submitted.includes('CANCELLED_CHEQUE')) {
       throw new BadRequestError('Cannot approve: Cancelled Cheque is required for payroll processing. Employee must upload a cancelled cheque of their salary account.');
     }
 
-    if (uploadMode === 'COMBINED') {
-      if (!gate.combinedPdfUploaded) {
-        throw new BadRequestError('Cannot approve: Employee has not uploaded their combined document PDF.');
-      }
-    } else {
-      const fresher = gate.fresherOrExperienced || 'FRESHER';
-      const qualification = gate.highestQualification || 'GRADUATION';
-      const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
-      const missingDocs: string[] = [];
+    // Always validate the full required doc set (combined PDF upload has been discontinued)
+    const fresher = gate.fresherOrExperienced || 'FRESHER';
+    const qualification = gate.highestQualification || 'GRADUATION';
+    const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
+    const missingDocs: string[] = [];
 
-      for (const docType of requiredDocs) {
-        if (docType === 'PHOTO') continue;
-        if (!submitted.includes(docType)) missingDocs.push(docLabel(docType));
-      }
-      if (needsIdentityProof && !IDENTITY_PROOF_TYPES.some(t => submitted.includes(t))) {
-        missingDocs.push('Identity Proof (Aadhaar, Passport, Driving License, or Voter ID)');
-      }
-      if (needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t))) {
-        missingDocs.push('Employment Proof (Experience Letter, Relieving Letter, Offer Letter, or Salary Slips)');
-      }
-      if (missingDocs.length > 0) {
-        throw new BadRequestError(`Cannot approve: Missing required documents — ${missingDocs.join(', ')}`);
-      }
+    for (const docType of requiredDocs) {
+      if (docType === 'PHOTO') continue;
+      if (!submitted.includes(docType)) missingDocs.push(docLabel(docType));
+    }
+    if (needsIdentityProof && !IDENTITY_PROOF_TYPES.some(t => submitted.includes(t))) {
+      missingDocs.push('Identity Proof (Aadhaar, Passport, Driving License, or Voter ID)');
+    }
+    if (needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t))) {
+      missingDocs.push('Employment Proof (Experience Letter, Relieving Letter, Offer Letter, or Salary Slips)');
+    }
+    if (missingDocs.length > 0) {
+      throw new BadRequestError(`Cannot approve: Missing required documents — ${missingDocs.join(', ')}`);
     }
 
     // === TWO-LEVEL REVIEW FOR SENIOR ROLES ===
