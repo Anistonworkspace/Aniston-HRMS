@@ -33,7 +33,7 @@ export const gpsTrailBatchSchema = z.object({
     lng: z.number().min(-180).max(180),
     accuracy: z.number().optional(),
     altitude: z.number().optional(),
-    speed: z.number().optional(),
+    speed: z.number().nullable().optional(),
     heading: z.number().optional(),
     batteryLevel: z.number().int().min(0).max(100).optional(),
     timestamp: z.string().datetime(),

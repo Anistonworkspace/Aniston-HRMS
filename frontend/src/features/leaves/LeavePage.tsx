@@ -40,7 +40,6 @@ import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from '../policies/p
 import LeaveApplyWizard from './components/LeaveApplyWizard';
 import ManagerReviewPanel from './components/ManagerReviewPanel';
 import HRReviewPanel from './components/HRReviewPanel';
-import RegularizationTab from '../attendance/components/RegularizationTab';
 import toast from 'react-hot-toast';
 import { useEmpPerms } from '../../hooks/useEmpPerms';
 import PermDenied from '../../components/PermDenied';
@@ -89,7 +88,7 @@ export default function LeavePage() {
 
 function LeaveManagementView() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations' | 'employee-leaves' | 'policy'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'employee-leaves' | 'policy'>('approvals');
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -348,18 +347,6 @@ function LeaveManagementView() {
               {holidays.length}
             </span>
           )}
-        </button>
-        <button
-          role="tab" aria-selected={activeTab === 'regularizations'}
-          onClick={() => setActiveTab('regularizations')}
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-            activeTab === 'regularizations'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          )}
-        >
-          Regularizations
         </button>
         <button
           role="tab" aria-selected={activeTab === 'employee-leaves'}
@@ -767,9 +754,6 @@ function LeaveManagementView() {
       {/* Holidays & Events Tab */}
       {activeTab === 'holidays' && <HolidayManagementTab />}
 
-      {/* Regularizations Tab */}
-      {activeTab === 'regularizations' && <RegularizationTab />}
-
       {/* Employee Leaves Tab */}
       {activeTab === 'employee-leaves' && <EmployeeOverviewTab />}
 
@@ -1109,6 +1093,7 @@ function EmployeeOverviewTab() {
               <tr className="bg-gray-50 text-gray-500 text-left">
                 <th className="px-4 py-3 font-medium">Employee</th>
                 <th className="px-4 py-3 font-medium">Department</th>
+                <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium text-center">Allocated</th>
                 <th className="px-4 py-3 font-medium text-center">Used</th>
                 <th className="px-4 py-3 font-medium text-center">Pending</th>
@@ -1158,6 +1143,22 @@ function EmployeeOverviewTab() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500">{emp.department}</td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const s = emp.status || (emp.userRole === 'INTERN' ? 'INTERN' : 'ACTIVE');
+                      const map: Record<string, string> = {
+                        ACTIVE: 'bg-emerald-100 text-emerald-700',
+                        PROBATION: 'bg-amber-100 text-amber-700',
+                        INTERN: 'bg-blue-100 text-blue-700',
+                        NOTICE_PERIOD: 'bg-red-100 text-red-600',
+                      };
+                      return (
+                        <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', map[s] || 'bg-gray-100 text-gray-500')}>
+                          {s === 'NOTICE_PERIOD' ? 'Notice' : s === 'ACTIVE' ? 'Active' : s === 'PROBATION' ? 'Probation' : s === 'INTERN' ? 'Intern' : s}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3 text-center font-mono font-medium text-gray-700" data-mono>
                     {emp.totalEffectiveAllocated ?? emp.totalAllocated}
                     {emp.hasManualAdjustments && (
@@ -1345,7 +1346,24 @@ function EmployeeLeaveDetailModal({
               {employeeName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
             </div>
             <div>
-              <h2 className="text-base font-semibold text-gray-900">{employeeName}</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-semibold text-gray-900">{employeeName}</h2>
+                {overview?.employee?.status && (() => {
+                  const s = overview.employee.status || (overview.employee.userRole === 'INTERN' ? 'INTERN' : 'ACTIVE');
+                  const map: Record<string, string> = {
+                    ACTIVE: 'bg-emerald-100 text-emerald-700',
+                    PROBATION: 'bg-amber-100 text-amber-700',
+                    INTERN: 'bg-blue-100 text-blue-700',
+                    NOTICE_PERIOD: 'bg-red-100 text-red-600',
+                  };
+                  const label: Record<string, string> = { ACTIVE: 'Active', PROBATION: 'Probation', INTERN: 'Intern', NOTICE_PERIOD: 'Notice Period' };
+                  return (
+                    <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full', map[s] || 'bg-gray-100 text-gray-500')}>
+                      {label[s] || s}
+                    </span>
+                  );
+                })()}
+              </div>
               {overview?.employee && (
                 <p className="text-xs text-gray-400">
                   {overview.employee.employeeCode} · {overview.employee.department} · {overview.employee.designation}
@@ -2913,6 +2931,15 @@ function PolicySettingsTab() {
             </p>
           )}
         </div>
+      </div>
+
+      {/* Notice Period info */}
+      <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded-xl p-3 border border-amber-100">
+        <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
+        <p>
+          <span className="font-semibold">Notice Period employees</span> receive 0 paid leave allocation by default — only LWP is available to them (if enabled above).
+          If your policy grants notice-period employees paid leave, contact your system administrator to configure a custom policy rule.
+        </p>
       </div>
 
       {/* Info footer */}

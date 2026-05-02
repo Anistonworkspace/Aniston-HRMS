@@ -269,6 +269,24 @@ export class LeaveService {
     if (!leaveType) throw new NotFoundError('Leave type');
     if (!leaveType.isActive) throw new BadRequestError('This leave type is currently inactive');
 
+    // Check policy rule: ensure this leave type is enabled for the employee's category.
+    // This prevents employees from applying for LWP when HR has disabled it in Policy Settings,
+    // and blocks any other leave type that has isAllowed=false for their category.
+    try {
+      const defaultPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
+      const empCategory = leavePolicyService.getEmployeeCategory(employee);
+      const rule = defaultPolicy.rules.find((r: any) =>
+        r.leaveTypeId === data.leaveTypeId &&
+        (r.employeeCategory === empCategory || r.employeeCategory === 'ALL')
+      );
+      if (rule && !rule.isAllowed) {
+        throw new BadRequestError(`${leaveType.name} is not currently available for ${empCategory.toLowerCase()} employees per the current leave policy. Please contact HR.`);
+      }
+    } catch (err: any) {
+      if (err.statusCode === 400) throw err; // re-throw BadRequestError from above
+      // Non-blocking: if policy fetch fails, fall through and let balance check handle it
+    }
+
     // Fetch org working days once — used in multiple checks below
     const workingDays = await this.getWorkingDays(employee.organizationId);
 

@@ -26,6 +26,7 @@ import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
 import CommandCenter from './components/CommandCenter';
+import RegularizationTab from './components/RegularizationTab';
 import SelfServiceReport from './components/SelfServiceReport';
 import { CompOffTab } from './components/CompOffTab';
 import { enqueueAction } from '../../lib/offlineQueue';
@@ -58,8 +59,8 @@ export default function AttendancePage() {
   // Non-management roles go straight to personal view
   if (!isManagement) return <AttendancePersonalView />;
 
-  // System roles (SuperAdmin, Admin, HR): show only team view, no toggle
-  if (isSystemRole) return <CommandCenter />;
+  // System roles (SuperAdmin, Admin, HR): team + regularizations tabs, no personal toggle
+  if (isSystemRole) return <AttendanceHRView />;
 
   return (
     <>
@@ -76,6 +77,39 @@ export default function AttendancePage() {
         )}
       </div>
       {view === 'team' ? <CommandCenter /> : <AttendancePersonalView />}
+    </>
+  );
+}
+
+/* =============================================================================
+   HR / ADMIN ATTENDANCE VIEW — Attendance + Regularizations tabs
+   ============================================================================= */
+
+function AttendanceHRView() {
+  const { t } = useTranslation();
+  const [tab, setTab] = useState<'attendance' | 'regularizations'>('attendance');
+
+  return (
+    <>
+      <div className="px-4 sm:px-6 pt-5 pb-1 flex flex-wrap gap-2">
+        <button
+          onClick={() => setTab('attendance')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === 'attendance' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          {t('attendance.teamAttendance')}
+        </button>
+        <button
+          onClick={() => setTab('regularizations')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === 'regularizations' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Regularizations
+        </button>
+      </div>
+      {tab === 'attendance' ? <CommandCenter /> : <RegularizationTab />}
     </>
   );
 }
@@ -1273,7 +1307,7 @@ function AttendancePersonalView() {
                 {!perms.canMarkAttendance && (
                   <PermDenied action="mark attendance" inline />
                 )}
-                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && (
+                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && (
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
@@ -1290,7 +1324,7 @@ function AttendancePersonalView() {
                   </motion.button>
                 )}
 
-                {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && (
+                {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && (
                   <div className="space-y-1.5">
                     {/* Break controls */}
                     {today?.isOnBreak ? (
