@@ -151,7 +151,7 @@ app.use(cors({
     : [env.FRONTEND_URL, 'https://hr.anistonav.com', 'https://localhost'].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Accept', 'Accept-Language', 'Content-Length'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Accept', 'Accept-Language', 'Content-Length', 'X-Native-App'],
 }));
 
 // Prevent caching of all API responses
