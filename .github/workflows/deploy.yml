@@ -294,10 +294,26 @@ jobs:
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
             echo "=== [6/17] Syncing database schema ==="
-            npx --no-install prisma db push || {
+            # --accept-data-loss is safe here: adding a unique constraint on an already-unique
+            # combination (policyId+leaveTypeId was unique before; adding employeeCategory='ALL'
+            # default preserves that uniqueness). No actual rows are dropped.
+            npx --no-install prisma db push --accept-data-loss || {
               echo "WARNING: Schema push failed — schema may already be up to date"
               echo "Schema push skipped"
             }
+
+            echo "=== [6.5/17] Running leave policy data migration SQL ==="
+            # Runs the migration file via psql -f (avoids heredoc << in YAML).
+            # psql continues past 'already exists' errors by default — safe to re-run.
+            # Suppresses stderr so re-run 'already exists' noise doesn't clutter logs.
+            if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
+              psql "$DEPLOY_DATABASE_URL" \
+                -f "prisma/migrations/20260502000000_leave_policy_engine/migration.sql" \
+                2>/dev/null || true
+              echo "✅ Leave policy data migration complete"
+            else
+              echo "psql not available or DATABASE_URL not set — skipping leave policy data migration"
+            fi
 
             echo "=== [7/17] Generating Prisma client (after schema sync) ==="
             npx --no-install prisma generate

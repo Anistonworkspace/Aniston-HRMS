@@ -82,6 +82,7 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
           {employeeId && (
             <PerformanceSnapshot
               employeeId={employeeId}
+              leaveTypeName={data.leaveType?.name}
               expanded={showPerfSnapshot}
               onToggle={() => setShowPerfSnapshot((v) => !v)}
             />
@@ -266,8 +267,8 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
 
 // ── Performance Snapshot (inside HR Review) ───────────────────────────
 function PerformanceSnapshot({
-  employeeId, expanded, onToggle,
-}: { employeeId: string; expanded: boolean; onToggle: () => void }) {
+  employeeId, leaveTypeName, expanded, onToggle,
+}: { employeeId: string; leaveTypeName?: string; expanded: boolean; onToggle: () => void }) {
   const { data: perfRes, isLoading } = useGetPerformanceSummaryQuery(
     { employeeId },
     { skip: !employeeId }
@@ -277,6 +278,13 @@ function PerformanceSnapshot({
   const scoreColor = !perf ? '' :
     perf.scores.overall >= 75 ? 'text-emerald-600' :
     perf.scores.overall >= 60 ? 'text-amber-600' : 'text-red-500';
+
+  // Find the balance for the specific leave type being requested
+  const requestedBalance = leaveTypeName && perf
+    ? (perf.leaves.byType as any[]).find((b: any) =>
+        b.typeName?.toLowerCase() === leaveTypeName.toLowerCase()
+      )
+    : null;
 
   return (
     <div className="layer-card overflow-hidden">
@@ -313,33 +321,84 @@ function PerformanceSnapshot({
           {/* Score grid */}
           <div className="grid grid-cols-2 gap-2">
             {[
-              { label: 'Goal Completion', value: perf.scores.goalCompletion, color: 'text-brand-600' },
-              { label: 'Leave Discipline', value: perf.scores.leaveDiscipline, color: 'text-emerald-600' },
-              { label: 'Work Continuity', value: perf.scores.workContinuity, color: 'text-blue-600' },
-              { label: 'Task Health', value: perf.scores.taskHealth, color: 'text-amber-600' },
-            ].map(({ label, value, color }) => (
+              { label: 'Goal Completion', sub: `${perf.goals.completed}/${perf.goals.total} goals`, value: perf.scores.goalCompletion, color: 'text-brand-600' },
+              { label: 'Leave Discipline', sub: 'Notice & frequency', value: perf.scores.leaveDiscipline, color: 'text-emerald-600' },
+              { label: 'Work Continuity', sub: 'Attendance consistency', value: perf.scores.workContinuity, color: 'text-blue-600' },
+              { label: 'Task Health', sub: perf.tasks.configured ? `${perf.tasks.overdue} overdue` : 'Integration off', value: perf.scores.taskHealth, color: 'text-amber-600' },
+            ].map(({ label, sub, value, color }) => (
               <div key={label} className="bg-gray-50 rounded-lg p-2">
                 <p className="text-[10px] text-gray-500">{label}</p>
                 <p className={cn('text-base font-bold font-mono', color)} data-mono>{value}</p>
+                <p className="text-[9px] text-gray-400 mt-0.5">{sub}</p>
               </div>
             ))}
           </div>
 
-          {/* Leave stats */}
-          <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-            <span>Leaves taken ({new Date().getFullYear()})</span>
-            <span className="font-bold font-mono text-gray-700" data-mono>
-              {perf.leaves.totalUsed} / {perf.leaves.totalAllocated} days
-            </span>
-          </div>
-
-          {perf.tasks.configured && (
+          {/* Requested leave type balance — highlighted */}
+          {requestedBalance ? (
+            <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="font-medium text-brand-700">{requestedBalance.typeName} balance</span>
+                <span className={cn('font-bold font-mono', requestedBalance.remaining > 0 ? 'text-emerald-600' : 'text-red-500')} data-mono>
+                  {requestedBalance.remaining} days left
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] text-gray-500">
+                <span>Allocated: {requestedBalance.allocated}</span>
+                <span>Used: {requestedBalance.used}</span>
+                {requestedBalance.pending > 0 && <span>Pending: {requestedBalance.pending}</span>}
+                {requestedBalance.carriedForward > 0 && <span>Carried fwd: {requestedBalance.carriedForward}</span>}
+              </div>
+            </div>
+          ) : (
             <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-              <span>Active tasks</span>
+              <span>Leaves taken ({new Date().getFullYear()})</span>
+              <span className="font-bold font-mono text-gray-700" data-mono>
+                {perf.leaves.totalUsed} / {perf.leaves.totalAllocated} days
+              </span>
+            </div>
+          )}
+
+          {/* All leave types compact list */}
+          {(perf.leaves.byType as any[]).length > 0 && (
+            <div className="space-y-1">
+              {(perf.leaves.byType as any[]).map((b: any) => (
+                <div key={b.typeId} className="flex items-center justify-between text-[10px] text-gray-500 px-1">
+                  <span>{b.typeName}</span>
+                  <span className="font-mono" data-mono>
+                    {b.used} used · <span className={b.remaining > 0 ? 'text-emerald-600' : 'text-red-500'}>{b.remaining} left</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Task integration status */}
+          {!perf.tasks.configured ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+              <AlertCircle size={11} />
+              <span>Task integration not configured — set up in Settings</span>
+            </div>
+          ) : perf.tasks.fetchError ? (
+            <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+              <AlertTriangle size={11} />
+              <span>Could not fetch tasks — check integration config in Settings</span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              <span className="flex items-center gap-1">
+                Active tasks
+                {perf.tasks.provider && (
+                  <span className="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono capitalize">{perf.tasks.provider}</span>
+                )}
+              </span>
               <div className="flex items-center gap-2">
                 <span className="font-bold font-mono text-gray-700" data-mono>{perf.tasks.total}</span>
                 {perf.tasks.overdue > 0 && (
                   <span className="text-red-500 text-[10px]">{perf.tasks.overdue} overdue</span>
+                )}
+                {perf.tasks.total === 0 && (
+                  <span className="text-gray-400 text-[10px]">none found for this employee</span>
                 )}
               </div>
             </div>
