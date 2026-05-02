@@ -2421,7 +2421,7 @@ model ShiftAssignment {
   endDate        DateTime? @db.Date
   assignedBy     String
   createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  updatedAt      DateTime  @default(now()) @updatedAt
   deletedAt      DateTime?
 
   employee     Employee        @relation(fields: [employeeId], references: [id])
