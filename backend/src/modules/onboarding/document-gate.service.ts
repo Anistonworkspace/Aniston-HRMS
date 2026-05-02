@@ -114,10 +114,10 @@ export class DocumentGateService {
     fresherOrExperienced: string,
     highestQualification: string
   ) {
+    // Combined PDF upload has been discontinued — always use SEPARATE mode
+    uploadMode = 'SEPARATE';
+
     // Validate inputs
-    if (!['COMBINED', 'SEPARATE'].includes(uploadMode)) {
-      throw new BadRequestError('uploadMode must be COMBINED or SEPARATE');
-    }
     if (!['FRESHER', 'EXPERIENCED'].includes(fresherOrExperienced)) {
       throw new BadRequestError('fresherOrExperienced must be FRESHER or EXPERIENCED');
     }
@@ -275,13 +275,9 @@ export class DocumentGateService {
     const submitted = gate.submittedDocs as string[];
     const fresher = gate.fresherOrExperienced || 'FRESHER';
     const qualification = gate.highestQualification || 'GRADUATION';
-    const uploadMode = gate.uploadMode || 'SEPARATE';
 
-    // Block submission while combined PDF classification is still running.
-    // This is the server-side guard — the frontend also disables the button,
-    // but this prevents a race condition if the UI guard is bypassed.
     if (gate.kycStatus === 'PROCESSING') {
-      throw new BadRequestError('Your documents are still being classified by OCR. Please wait a moment, then try again.');
+      throw new BadRequestError('Your documents are still being processed. Please wait a moment, then try again.');
     }
 
     // Photo is always required
@@ -290,52 +286,7 @@ export class DocumentGateService {
       throw new BadRequestError('Please upload your passport size photograph before submitting.');
     }
 
-    if (uploadMode === 'COMBINED') {
-      // Combined mode: need combined PDF + photo + cancelled cheque
-      if (!gate.combinedPdfUploaded) {
-        throw new BadRequestError('Please upload your combined PDF before submitting.');
-      }
-      if (!submitted.includes('CANCELLED_CHEQUE')) {
-        throw new BadRequestError('Please upload a Cancelled Cheque before submitting. This is required for payroll processing.');
-      }
-
-      // Enforce employment proof for EXPERIENCED employees — same rule as SEPARATE mode.
-      if (fresher === 'EXPERIENCED' && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t))) {
-        throw new BadRequestError(
-          'As an experienced employee, please upload at least one employment proof separately (Experience Letter, Relieving Letter, Offer Letter, or Salary Slips) before submitting.'
-        );
-      }
-
-      // If classification ran but detected 0 document types, add a system note to HR review.
-      // We still allow submission — HR can manually review. But they need a clear warning.
-      const analysis = gate.combinedPdfAnalysis as any;
-      const classificationRan = analysis && !analysis.error && analysis._source !== 'manual_review';
-      const detectedDocsCount = (analysis?.detectedDocs ?? analysis?.detected_docs ?? []).length;
-      const hrSystemNote = classificationRan && detectedDocsCount === 0
-        ? '[System] Combined PDF was processed but 0 document types were detected. ' +
-          'The PDF may be image-only without embedded text, very low quality, or the wrong file. ' +
-          'HR should request re-upload unless documents can be verified by opening the PDF manually.'
-        : null;
-
-      const updateData: any = { kycStatus: 'SUBMITTED', submittedAt: new Date() };
-      if (hrSystemNote) {
-        updateData.hrReviewNotes = (gate.hrReviewNotes ? gate.hrReviewNotes + '\n' : '') + hrSystemNote;
-      }
-
-      const updated = await prisma.onboardingDocumentGate.update({
-        where: { employeeId },
-        data: updateData,
-      });
-      await this.emitKycUpdate(employeeId, 'SUBMITTED');
-      setImmediate(() => {
-        this._notifyHrKycSubmitted(employeeId).catch((err) =>
-          logger.warn('[KYC] HR notification failed:', err),
-        );
-      });
-      return updated;
-    }
-
-    // Separate mode: validate required docs
+    // Validate all required docs (SEPARATE mode only — combined upload has been discontinued)
     const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
     const missing: string[] = [];
 

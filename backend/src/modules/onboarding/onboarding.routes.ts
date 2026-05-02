@@ -372,9 +372,9 @@ router.post('/kyc/:employeeId/config', authenticate,
         res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized' } });
         return;
       }
-      const { uploadMode, fresherOrExperienced, highestQualification } = req.body;
+      const { fresherOrExperienced, highestQualification } = req.body;
       const { documentGateService } = await import('./document-gate.service.js');
-      const gate = await documentGateService.saveKycConfig(employeeId, uploadMode, fresherOrExperienced, highestQualification);
+      const gate = await documentGateService.saveKycConfig(employeeId, 'SEPARATE', fresherOrExperienced, highestQualification);
       res.json({ success: true, data: gate, message: 'KYC configuration saved' });
     } catch (err) { next(err); }
   }
