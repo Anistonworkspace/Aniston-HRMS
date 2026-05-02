@@ -3,7 +3,7 @@ import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
-import { computeRequiredDocs, IDENTITY_PROOF_TYPES, EMPLOYMENT_PROOF_TYPES } from '../onboarding/document-gate.service.js';
+import { IDENTITY_PROOF_TYPES } from '../onboarding/document-gate.service.js';
 
 type Category = 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | 'EPF_DETAILS';
 
@@ -330,35 +330,19 @@ export class ProfileEditRequestService {
     if (!emp) throw new NotFoundError('Employee');
 
     const uploadedDocTypes = emp.documents.map((d: any) => d.type);
-    let missingDocs: string[] = [];
 
-    if (gate) {
-      // Use the employee's gate config to dynamically compute required docs
-      const fresher = gate.fresherOrExperienced || 'FRESHER';
-      const qualification = gate.highestQualification || 'GRADUATION';
-      const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
+    // Portal access only requires core KYC docs — education certs are enforced
+    // by the onboarding gate separately and must not block HR from granting login access.
+    const CORE_KYC_DOCS = ['PAN', 'CANCELLED_CHEQUE', 'RESIDENCE_PROOF'];
+    const missingCoreDocs = CORE_KYC_DOCS.filter(t => !uploadedDocTypes.includes(t));
+    const hasIdentityProof = IDENTITY_PROOF_TYPES.some(t => uploadedDocTypes.includes(t));
+    const hasPhoto = !!(gate?.photoUrl) || uploadedDocTypes.includes('PHOTO');
 
-      // Check specific required doc types (excluding PHOTO — handled separately via photoUrl)
-      missingDocs = requiredDocs.filter(t => t !== 'PHOTO' && !uploadedDocTypes.includes(t));
-
-      // Identity proof: at least one of the allowed types
-      if (needsIdentityProof && !IDENTITY_PROOF_TYPES.some(t => uploadedDocTypes.includes(t))) {
-        missingDocs.push('IDENTITY_PROOF');
-      }
-
-      // Employment proof for experienced hires
-      if (needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => uploadedDocTypes.includes(t))) {
-        missingDocs.push('EMPLOYMENT_PROOF');
-      }
-
-      // Photo: check both photoUrl on gate and uploaded doc types
-      const hasPhoto = !!gate.photoUrl || uploadedDocTypes.includes('PHOTO');
-      if (!hasPhoto) missingDocs.push('PHOTO');
-    } else {
-      // No gate configured yet — use minimal baseline
-      const FALLBACK_REQUIRED = ['PAN', 'PHOTO', 'RESIDENCE_PROOF'];
-      missingDocs = FALLBACK_REQUIRED.filter(t => !uploadedDocTypes.includes(t));
-    }
+    const missingDocs: string[] = [
+      ...missingCoreDocs,
+      ...(!hasIdentityProof ? ['IDENTITY_PROOF'] : []),
+      ...(!hasPhoto ? ['PHOTO'] : []),
+    ];
 
     const addr = emp.address as any;
     const ec = emp.emergencyContact as any;
