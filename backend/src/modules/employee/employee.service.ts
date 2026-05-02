@@ -92,15 +92,18 @@ export class EmployeeService {
       // Filter out soft-deleted manager from response
       const manager = (emp.manager && !emp.manager.deletedAt) ? emp.manager : null;
 
-      // Decrypt sensitive fields (AES-256-GCM; fall back to raw value for legacy plaintext)
+      // Decrypt sensitive fields (AES-256-GCM; fall back for legacy plaintext, null for unreadable ciphertext)
       let panNumber = emp.panNumber ?? null;
       if (panNumber) {
-        try { panNumber = decrypt(panNumber); } catch { /* legacy plaintext — return as-is */ }
+        try { panNumber = decrypt(panNumber); } catch {
+          // Valid PAN looks like ABCDE1234F; anything else is unreadable ciphertext → null
+          if (!/^[A-Z]{5}\d{4}[A-Z]$/i.test(panNumber)) panNumber = null;
+        }
       }
       let bankAccountNumber = emp.bankAccountNumber ?? null;
       if (bankAccountNumber) {
         try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
-          // Legacy plaintext (digits only) — return as-is; unreadable ciphertext → null so UI shows empty
+          // Valid legacy plaintext is digits-only 9-18 chars; anything else is ciphertext → null
           if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = null;
         }
       }
@@ -204,15 +207,18 @@ export class EmployeeService {
     // Filter out soft-deleted manager from response
     const manager = (employee.manager && !(employee.manager as any).deletedAt) ? employee.manager : null;
 
-    // Decrypt sensitive fields (stored as AES-256-GCM ciphertext; fall back to raw value for legacy plaintext)
+    // Decrypt sensitive fields (stored as AES-256-GCM ciphertext; fall back for legacy plaintext, null for unreadable ciphertext)
     let panNumber = (employee as any).panNumber ?? null;
     if (panNumber) {
-      try { panNumber = decrypt(panNumber); } catch { /* legacy plaintext — return as-is */ }
+      try { panNumber = decrypt(panNumber); } catch {
+        // Valid PAN looks like ABCDE1234F; anything else is unreadable ciphertext → null
+        if (!/^[A-Z]{5}\d{4}[A-Z]$/i.test(panNumber)) panNumber = null;
+      }
     }
     let bankAccountNumber = (employee as any).bankAccountNumber ?? null;
     if (bankAccountNumber) {
       try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
-        // Legacy plaintext (digits only) — return as-is; unreadable ciphertext → null so edit form shows empty
+        // Valid legacy plaintext is digits-only 9-18 chars; anything else is ciphertext → null
         if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = null;
       }
     }

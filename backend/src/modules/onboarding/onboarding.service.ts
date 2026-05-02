@@ -401,7 +401,10 @@ export class OnboardingService {
       bankAccountNumber: (() => {
         const raw = employee.bankAccountNumber || '';
         if (!raw) return '';
-        try { return decrypt(raw); } catch { return raw; }
+        try { return decrypt(raw); } catch {
+          // Digits-only 9-18 chars = legacy plaintext; anything else is unreadable ciphertext → empty
+          return /^\d{9,18}$/.test(raw) ? raw : '';
+        }
       })(),
       bankName: employee.bankName || '',
       ifscCode: employee.ifscCode || '',
