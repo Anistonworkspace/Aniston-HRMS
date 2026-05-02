@@ -50,14 +50,14 @@ export function computeRequiredDocs(
 ): { requiredDocs: string[]; needsIdentityProof: boolean; needsEmploymentProof: boolean } {
   const required: string[] = ['PAN', 'PHOTO', 'RESIDENCE_PROOF', 'CANCELLED_CHEQUE'];
 
-  // Education chain — always require all levels up to and including highest
-  const qualIdx = QUALIFICATION_ORDER.indexOf(highestQualification);
-
-  if (qualIdx >= 0) required.push('TENTH_CERTIFICATE');           // Tenth required for all
-  if (qualIdx >= 1) required.push('TWELFTH_CERTIFICATE');          // Twelfth if 12th+
-  if (qualIdx >= 2) required.push('DEGREE_CERTIFICATE');           // Degree if graduation+
-  if (qualIdx >= 3) required.push('POST_GRADUATION_CERTIFICATE');  // PG if PG+
-  // PhD doc not a standard DocumentType enum — falls under DEGREE_CERTIFICATE or OTHER
+  // Education chain — skip entirely when employee has no formal education ('NONE')
+  if (highestQualification !== 'NONE') {
+    const qualIdx = QUALIFICATION_ORDER.indexOf(highestQualification);
+    if (qualIdx >= 0) required.push('TENTH_CERTIFICATE');
+    if (qualIdx >= 1) required.push('TWELFTH_CERTIFICATE');
+    if (qualIdx >= 2) required.push('DEGREE_CERTIFICATE');
+    if (qualIdx >= 3) required.push('POST_GRADUATION_CERTIFICATE');
+  }
 
   const needsEmploymentProof = fresherOrExperienced === 'EXPERIENCED';
   // Employment proof is expected but not hard-blocked (handled as "at least one of" in submission check)
@@ -121,8 +121,8 @@ export class DocumentGateService {
     if (!['FRESHER', 'EXPERIENCED'].includes(fresherOrExperienced)) {
       throw new BadRequestError('fresherOrExperienced must be FRESHER or EXPERIENCED');
     }
-    if (!QUALIFICATION_ORDER.includes(highestQualification)) {
-      throw new BadRequestError(`highestQualification must be one of: ${QUALIFICATION_ORDER.join(', ')}`);
+    if (!['NONE', ...QUALIFICATION_ORDER].includes(highestQualification)) {
+      throw new BadRequestError(`highestQualification must be one of: NONE, ${QUALIFICATION_ORDER.join(', ')}`);
     }
 
     // Compute required docs

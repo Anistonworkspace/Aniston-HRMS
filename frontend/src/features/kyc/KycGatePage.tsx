@@ -26,7 +26,7 @@ import toast from 'react-hot-toast';
 
 type UploadMode = 'SEPARATE' | null;
 type Experience = 'FRESHER' | 'EXPERIENCED' | null;
-type Qualification = 'TENTH' | 'TWELFTH' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD' | null;
+type Qualification = 'NONE' | 'TENTH' | 'TWELFTH' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD' | null;
 
 type FlowStep =
   | 'SEPARATE_UPLOAD' // Step 1: Separate docs
@@ -49,14 +49,16 @@ const EMPLOYMENT_TYPES = ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER
 
 function computeRequiredDocs(experience: Experience, qualification: Qualification): RequiredDoc[] {
   const docs: RequiredDoc[] = [];
-  const qualIdx = qualification ? QUALIFICATION_ORDER.indexOf(qualification) : 2; // default: GRADUATION
 
-  // Education chain
-  if (qualIdx >= 0) docs.push({ type: 'TENTH_CERTIFICATE', label: '10th Marksheet / Certificate', required: true });
-  if (qualIdx >= 1) docs.push({ type: 'TWELFTH_CERTIFICATE', label: '12th Marksheet / Certificate', required: true });
-  if (qualIdx >= 2) docs.push({ type: 'DEGREE_CERTIFICATE', label: 'Graduation / Degree Certificate', required: true });
-  if (qualIdx >= 3) docs.push({ type: 'POST_GRADUATION_CERTIFICATE', label: 'Post-Graduation Certificate', required: true });
-  if (qualIdx >= 4) docs.push({ type: 'POST_GRADUATION_CERTIFICATE', label: 'PhD / Doctorate Certificate', hint: 'Upload your PhD completion certificate', required: true });
+  // Education chain — skip entirely for NONE (no formal education)
+  if (qualification !== 'NONE') {
+    const qualIdx = qualification ? QUALIFICATION_ORDER.indexOf(qualification) : 2; // default GRADUATION when null
+    if (qualIdx >= 0) docs.push({ type: 'TENTH_CERTIFICATE', label: '10th Marksheet / Certificate', required: true });
+    if (qualIdx >= 1) docs.push({ type: 'TWELFTH_CERTIFICATE', label: '12th Marksheet / Certificate', required: true });
+    if (qualIdx >= 2) docs.push({ type: 'DEGREE_CERTIFICATE', label: 'Graduation / Degree Certificate', required: true });
+    if (qualIdx >= 3) docs.push({ type: 'POST_GRADUATION_CERTIFICATE', label: 'Post-Graduation Certificate', required: true });
+    if (qualIdx >= 4) docs.push({ type: 'POST_GRADUATION_CERTIFICATE', label: 'PhD / Doctorate Certificate', hint: 'Upload your PhD completion certificate', required: true });
+  }
 
   // Identity (any one)
   docs.push({
@@ -149,6 +151,7 @@ const KYC_STATUS_CONFIG: Record<string, { icon: any; color: string; bg: string; 
 };
 
 const QUAL_LABELS: Record<string, string> = {
+  NONE: 'None — No formal education',
   TENTH: '10th / SSLC',
   TWELFTH: '12th / Intermediate / PUC',
   GRADUATION: 'Graduation / Bachelor\'s Degree',
@@ -221,6 +224,7 @@ export default function KycGatePage() {
   const [uploading, setUploading] = useState<string | null>(null);
   const [scanningDocs, setScanningDocs] = useState<Set<string>>(new Set());
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [incompleteSubmission, setIncompleteSubmission] = useState(false);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const photoFileRef = useRef<HTMLInputElement | null>(null);
 
@@ -232,15 +236,32 @@ export default function KycGatePage() {
 
   // Restore saved config from gate OR employee profile (for page reload)
   useEffect(() => {
-    // Prefer gate config; fall back to employee profile data returned by backend auto-population
     const exp = (kyc?.fresherOrExperienced || ((kyc as any)?.employeeExperienceLevel === 'EXPERIENCED' ? 'EXPERIENCED' : null)) as Experience;
-    const qual = (kyc?.highestQualification || (kyc as any)?.employeeQualification || 'GRADUATION') as Qualification;
+    const qual = (kyc?.highestQualification || (kyc as any)?.employeeQualification || null) as Qualification;
     if (exp) setExperience(exp);
     if (qual) setQualification(qual);
 
-    if (['SUBMITTED', 'PENDING_HR_REVIEW', 'VERIFIED', 'REJECTED'].includes(kycStatus)) {
+    if (kycStatus === 'SUBMITTED') {
+      // Detect employees who reached SUBMITTED with missing docs (old COMBINED-mode bypass)
+      // and send them back to the upload screen instead of the waiting screen
+      const submitted = (kyc?.submittedDocs || []) as string[];
+      const hasPhoto = !!kyc?.photoUrl || submitted.includes('PHOTO');
+      const reqDocs = computeRequiredDocs(exp, qual);
+      const missingAny = reqDocs.some(d =>
+        d.required && (d.type === 'PHOTO' ? !hasPhoto : !isDocTypeSubmitted(d, submitted))
+      );
+      if (missingAny) {
+        setIncompleteSubmission(true);
+        setFlowStep('SEPARATE_UPLOAD');
+      } else {
+        setIncompleteSubmission(false);
+        setFlowStep('STATUS');
+      }
+    } else if (['PENDING_HR_REVIEW', 'VERIFIED', 'REJECTED'].includes(kycStatus)) {
+      setIncompleteSubmission(false);
       setFlowStep('STATUS');
     } else {
+      setIncompleteSubmission(false);
       setFlowStep('SEPARATE_UPLOAD');
     }
   }, [kyc, kycStatus]);
@@ -249,14 +270,14 @@ export default function KycGatePage() {
   // NOTE: ALL hooks must be declared before any conditional early returns.
   // useCallback is a hook and must be here, not below the isLoading guard.
 
-  const handleSaveConfig = async () => {
+  const handleSaveConfig = async (): Promise<boolean> => {
     if (!experience || !qualification) {
-      toast.error('Please fill in all fields');
-      return;
+      toast.error('Please select your experience level and qualification');
+      return false;
     }
     if (!user?.employeeId) {
       toast.error('Employee profile not linked. Please contact HR.');
-      return;
+      return false;
     }
     try {
       await saveKycConfig({
@@ -266,8 +287,11 @@ export default function KycGatePage() {
         highestQualification: qualification,
       }).unwrap();
       setFlowStep('SEPARATE_UPLOAD');
+      refetch();
+      return true;
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to save configuration');
+      return false;
     }
   };
 
@@ -411,15 +435,20 @@ export default function KycGatePage() {
                 reuploadDocTypes={reuploadDocTypes}
                 documentRejectReasons={documentRejectReasons}
                 openSections={openSections}
+                incompleteSubmission={incompleteSubmission}
                 onToggleSection={(id: string) => setOpenSections(p => ({ ...p, [id]: !p[id] }))}
                 onShowCamera={() => setShowCamera(true)}
                 onHideCamera={() => setShowCamera(false)}
                 onFileChange={(docType: string, file: File, label: string) => handleFileUpload(docType, file, label)}
                 onPhotoFileChange={(file: File) => handlePhotoFileUpload(file)}
                 onPhotoCapture={handlePhotoCapture}
-                onBack={() => {}} // no back step — upload is first step
+                onBack={() => {}}
                 onSubmit={handleSubmitKyc}
                 submitting={submitting}
+                onExperienceChange={setExperience}
+                onQualificationChange={setQualification}
+                onSaveConfig={handleSaveConfig}
+                savingConfig={savingConfig}
               />
             </motion.div>
           )}
@@ -660,12 +689,132 @@ function SubmitConfirmDialog({
   );
 }
 
+// ─── Profile Config Section ────────────────────────────────────────────────────
+
+function ProfileConfigSection({
+  experience, qualification, saving, onExperienceChange, onQualificationChange, onSave,
+}: {
+  experience: Experience; qualification: Qualification; saving: boolean;
+  onExperienceChange: (e: Experience) => void;
+  onQualificationChange: (q: Qualification) => void;
+  onSave: () => Promise<boolean>;
+}) {
+  const needsSetup = !experience || !qualification;
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (needsSetup) setEditing(true);
+  }, [needsSetup]);
+
+  const qualOptions: Array<{ value: Qualification; label: string }> = [
+    { value: 'NONE', label: 'None — No formal education' },
+    { value: 'TENTH', label: '10th / SSLC' },
+    { value: 'TWELFTH', label: '12th / Intermediate / PUC' },
+    { value: 'GRADUATION', label: "Graduation / Bachelor's Degree" },
+    { value: 'POST_GRADUATION', label: "Post-Graduation / Master's Degree" },
+    { value: 'PHD', label: 'PhD / Doctorate' },
+  ];
+
+  if (!editing) {
+    return (
+      <div className="layer-card p-4 border border-gray-100 flex items-center justify-between">
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Your Profile</p>
+          <p className="text-sm font-semibold text-gray-800">
+            {experience === 'EXPERIENCED' ? '💼 Experienced' : '🎓 Fresher'}{' '}·{' '}
+            {QUAL_LABELS[qualification!] || qualification}
+          </p>
+        </div>
+        <button onClick={() => setEditing(true)} className="text-xs text-brand-600 font-medium underline">
+          Change
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="layer-card p-5 border-2 border-brand-200">
+      <p className="text-sm font-bold text-gray-900 mb-4">
+        {needsSetup ? 'Tell us about yourself to continue' : 'Update your profile'}
+      </p>
+
+      <div className="mb-4">
+        <p className="text-xs font-semibold text-gray-600 mb-2">Your work experience</p>
+        <div className="grid grid-cols-2 gap-2">
+          {(['FRESHER', 'EXPERIENCED'] as const).map(opt => (
+            <button key={opt} onClick={() => onExperienceChange(opt)}
+              className={cn('py-2.5 rounded-xl border-2 text-sm font-medium transition-all',
+                experience === opt
+                  ? 'border-brand-500 bg-brand-50 text-brand-700'
+                  : 'border-gray-200 text-gray-600 hover:border-brand-300'
+              )}>
+              {opt === 'FRESHER' ? '🎓 Fresher / First Job' : '💼 Experienced'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-5">
+        <p className="text-xs font-semibold text-gray-600 mb-2">Highest qualification</p>
+        <div className="space-y-1.5">
+          {qualOptions.map(opt => (
+            <button key={String(opt.value)} onClick={() => onQualificationChange(opt.value)}
+              className={cn('w-full text-left py-2.5 px-4 rounded-xl border-2 text-sm transition-all flex items-center justify-between',
+                qualification === opt.value
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 font-medium'
+                  : 'border-gray-200 text-gray-600 hover:border-brand-300'
+              )}>
+              {opt.label}
+              {qualification === opt.value && <CheckCircle2 size={15} className="text-brand-500 shrink-0" />}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {experience && qualification && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+          <p className="text-xs font-semibold text-blue-700 mb-1.5">Documents you'll need to upload:</p>
+          <div className="space-y-0.5">
+            {computeRequiredDocs(experience, qualification).map(doc => (
+              <div key={doc.type} className="flex items-center gap-2 text-xs text-blue-700">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
+                {doc.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        {!needsSetup && (
+          <button onClick={() => setEditing(false)}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+            Cancel
+          </button>
+        )}
+        <button
+          onClick={async () => { const ok = await onSave(); if (ok) setEditing(false); }}
+          disabled={!experience || !qualification || saving}
+          className="flex-1 btn-primary text-sm py-2.5 flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+          {needsSetup ? 'Continue to Upload' : 'Save & Update'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Separate Upload Screen ─────────────────────────────────────────────────────
+
 function SeparateUploadScreen({
   experience, qualification, submittedDocs, photoUrl, uploading, scanningDocs, showCamera,
   fileInputRefs, photoFileRef, reuploadDocTypes, documentRejectReasons,
   openSections, onToggleSection, onShowCamera, onHideCamera,
   onFileChange, onPhotoFileChange, onPhotoCapture,
   onBack, onSubmit, submitting,
+  incompleteSubmission,
+  onExperienceChange, onQualificationChange, onSaveConfig, savingConfig,
 }: any) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const hasPhoto = !!photoUrl || submittedDocs.includes('PHOTO');
@@ -678,6 +827,7 @@ function SeparateUploadScreen({
   const completedCount = requiredDocs.filter(d => d.type === 'PHOTO' ? hasPhoto : isDocTypeSubmitted(d, submittedDocs)).length;
 
   const canSubmit = mandatoryComplete;
+  const needsConfig = !experience || !qualification;
 
   // Group docs into sections
   const sections = [
@@ -729,21 +879,52 @@ function SeparateUploadScreen({
 
   return (
     <div className="space-y-4">
-      {/* Progress */}
-      <div className="layer-card p-4 border border-gray-200">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">{completedCount}/{requiredDocs.length} documents uploaded</span>
-        </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className={cn('h-full rounded-full transition-all duration-500', mandatoryComplete ? 'bg-emerald-500' : 'bg-brand-500')}
-            style={{ width: `${Math.round((completedCount / requiredDocs.length) * 100)}%` }}
-          />
-        </div>
-      </div>
+      {/* Profile config — always shown at top; auto-expands when not yet set */}
+      <ProfileConfigSection
+        experience={experience}
+        qualification={qualification}
+        saving={savingConfig}
+        onExperienceChange={onExperienceChange}
+        onQualificationChange={onQualificationChange}
+        onSave={onSaveConfig}
+      />
 
-      {/* Document sections */}
-      {sections.map(section => {
+      {/* Warning: employee was in SUBMITTED state but with missing docs (old bypass victims) */}
+      {incompleteSubmission && !needsConfig && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <AlertTriangle size={18} className="shrink-0 mt-0.5 text-red-500" />
+          <div>
+            <p className="font-semibold">Your previous submission is incomplete</p>
+            <p className="text-xs mt-0.5 text-red-600">
+              Some required documents are missing. Upload them below, then re-submit for HR review.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Doc sections only shown after profile is configured */}
+      {needsConfig ? (
+        <div className="text-center py-10 text-gray-400">
+          <FileText size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Set your profile above to see your required documents</p>
+        </div>
+      ) : (
+        <>
+          {/* Progress */}
+          <div className="layer-card p-4 border border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">{completedCount}/{requiredDocs.length} documents uploaded</span>
+            </div>
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={cn('h-full rounded-full transition-all duration-500', mandatoryComplete ? 'bg-emerald-500' : 'bg-brand-500')}
+                style={{ width: requiredDocs.length > 0 ? `${Math.round((completedCount / requiredDocs.length) * 100)}%` : '0%' }}
+              />
+            </div>
+          </div>
+
+          {/* Document sections */}
+          {sections.map(section => {
         const isOpen = openSections[section.id] !== false; // default open
         const SectionIcon = section.icon;
         const sectionComplete = section.isPhotoSection
@@ -814,36 +995,35 @@ function SeparateUploadScreen({
         );
       })}
 
-      {/* Actions */}
-      <div className="flex gap-3">
-        <button onClick={onBack} className="btn-secondary flex items-center gap-1.5 text-sm">
-          <ArrowLeft size={15} /> Back
-        </button>
-        <button
-          onClick={() => setShowConfirmDialog(true)}
-          disabled={!canSubmit || submitting || uploading !== null}
-          className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-        >
-          {submitting ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-          Submit for HR Review
-        </button>
-      </div>
-      {!canSubmit && (
-        <p className="text-xs text-center text-amber-600 flex items-center justify-center gap-1">
-          <AlertTriangle size={12} /> Upload all required documents marked with * to submit
-        </p>
-      )}
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowConfirmDialog(true)}
+              disabled={!canSubmit || submitting || uploading !== null}
+              className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+            >
+              {submitting ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+              {incompleteSubmission ? 'Re-submit for HR Review' : 'Submit for HR Review'}
+            </button>
+          </div>
+          {!canSubmit && (
+            <p className="text-xs text-center text-amber-600 flex items-center justify-center gap-1">
+              <AlertTriangle size={12} /> Upload all required documents marked with * to submit
+            </p>
+          )}
 
-      {/* Confirmation dialog — employee reviews document list before final submit */}
-      {showConfirmDialog && (
-        <SubmitConfirmDialog
-          requiredDocs={requiredDocs}
-          submittedDocs={submittedDocs}
-          hasPhoto={hasPhoto}
-          onConfirm={() => { setShowConfirmDialog(false); onSubmit(); }}
-          onCancel={() => setShowConfirmDialog(false)}
-          submitting={submitting}
-        />
+          {/* Confirmation dialog — employee reviews document list before final submit */}
+          {showConfirmDialog && (
+            <SubmitConfirmDialog
+              requiredDocs={requiredDocs}
+              submittedDocs={submittedDocs}
+              hasPhoto={hasPhoto}
+              onConfirm={() => { setShowConfirmDialog(false); onSubmit(); }}
+              onCancel={() => setShowConfirmDialog(false)}
+              submitting={submitting}
+            />
+          )}
+        </>
       )}
     </div>
   );
