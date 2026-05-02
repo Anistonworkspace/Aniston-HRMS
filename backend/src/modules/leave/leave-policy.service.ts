@@ -97,8 +97,6 @@ export class LeavePolicyService {
     const clType = leaveTypes.find(lt => lt.code === 'CL' && !lt.name.toLowerCase().includes('probation'));
     const elType = leaveTypes.find(lt => lt.code === 'EL');
     const lwpType = leaveTypes.find(lt => lt.code === 'LWP');
-    const slType = leaveTypes.find(lt => lt.code === 'SL' && !lt.name.toLowerCase().includes('probation'));
-    const plType = leaveTypes.find(lt => lt.code === 'PL');
 
     const rules: { leaveTypeId: string; employeeCategory: string; yearlyDays: number; monthlyDays: number; accrualType: string; isProrata: boolean; daysAllowed: number; isAllowed: boolean }[] = [];
 
@@ -114,26 +112,16 @@ export class LeavePolicyService {
       rules.push({ leaveTypeId: elType.id, employeeCategory: 'ACTIVE', yearlyDays: 10, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: true, daysAllowed: 10, isAllowed: true });
     }
 
-    // SL: Active 7/year (if exists)
-    if (slType) {
-      rules.push({ leaveTypeId: slType.id, employeeCategory: 'ACTIVE', yearlyDays: Number(slType.defaultBalance) || 7, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: true, daysAllowed: Number(slType.defaultBalance) || 7, isAllowed: true });
-    }
-
-    // PL: Active 3/year carry-forward (if exists)
-    if (plType) {
-      rules.push({ leaveTypeId: plType.id, employeeCategory: 'ACTIVE', yearlyDays: Number(plType.defaultBalance) || 3, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: Number(plType.defaultBalance) || 3, isAllowed: true });
-    }
-
     // LWP: ALL categories, unlimited (0 = allowed, balance not tracked)
     if (lwpType) {
       rules.push({ leaveTypeId: lwpType.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: 0, isAllowed: true });
     }
 
-    // Any remaining leave types not mapped — add as ALL with their defaultBalance
+    // Any remaining leave types (SL, PL, custom) — mapped but disabled so history is preserved
     for (const lt of leaveTypes) {
       const alreadyMapped = rules.some(r => r.leaveTypeId === lt.id);
       if (!alreadyMapped) {
-        rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: Number(lt.defaultBalance) || 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: Number(lt.defaultBalance) || 0, isAllowed: true });
+        rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: 0, isAllowed: false });
       }
     }
 

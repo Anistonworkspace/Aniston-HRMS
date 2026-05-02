@@ -266,13 +266,8 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                         );
                       })}
                   </select>
-                  {selectedType && (
-                    <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-gray-400">
-                      {selectedType.noticeDays > 0 && <span>⏰ {selectedType.noticeDays}d notice required</span>}
-                      {selectedType.allowSameDay && <span>✅ Same-day allowed</span>}
-                      {selectedType.maxDays && <span>📅 Max {selectedType.maxDays}d</span>}
-                      {!selectedType.isPaid && <span className="text-amber-600 font-medium">Unpaid leave</span>}
-                    </div>
+                  {selectedType && !selectedType.isPaid && (
+                    <p className="mt-1.5 text-[11px] text-amber-600 font-medium">Unpaid leave</p>
                   )}
                 </div>
 

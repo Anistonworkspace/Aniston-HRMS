@@ -156,6 +156,31 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     }
   }, [accessToken]);
 
+  // Auto-start GPS when employee checks in on a field shift.
+  // Handles: (1) already checked in on mount, (2) HR changes shift to FIELD mid-day.
+  // startTrackingCore() skips clockIn when isCheckedIn is already true.
+  const autoStartRef = useRef(false);
+  useEffect(() => {
+    if (!isCheckedIn) {
+      autoStartRef.current = false;
+      return;
+    }
+    if (_gpsWatcher.isActive || isTracking) {
+      setIsTracking(true);
+      autoStartRef.current = true;
+      return;
+    }
+    if (autoStartRef.current) return;
+    if (consentData === undefined) return; // consent query still loading
+    autoStartRef.current = true;
+    if (!hasConsented) {
+      setShowConsentDialog(true);
+      return;
+    }
+    startTrackingCore();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCheckedIn, hasConsented, consentData, isTracking]);
+
   // H1: On mount, load any persisted buffer and flush immediately if online.
   // This handles the case where the employee reopens the app while already connected
   // (no offline→online transition fires, so the sync effect never triggers).
@@ -195,7 +220,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           lat: p.lat,
           lng: p.lng,
           accuracy: p.accuracy,
-          speed: p.speed || null,
+          speed: p.speed != null ? p.speed : undefined,
           timestamp: new Date(p.timestamp).toISOString(),
         })),
       }).unwrap();
@@ -660,7 +685,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
                 </p>
                 <p className="flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                  Tracking stops automatically when you click "End Field Day" or clock out.
+                  Tracking stops automatically when you clock out.
                 </p>
                 <p className="flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
@@ -837,7 +862,11 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
             disabled={isClockingIn}
             className="w-full py-4 rounded-xl bg-emerald-600 text-white font-medium text-lg flex items-center justify-center gap-3 hover:bg-emerald-700 transition-colors"
           >
-            <Play className="w-6 h-6" /> Start Field Day
+            {isClockingIn
+              ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Play className="w-6 h-6" />
+            }
+            {isCheckedIn ? 'Start GPS Tracking' : 'Check In'}
           </button>
         ) : (
           <button
@@ -845,7 +874,11 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
             disabled={isClockingOut}
             className="w-full py-4 rounded-xl bg-red-600 text-white font-medium text-lg flex items-center justify-center gap-3 hover:bg-red-700 transition-colors"
           >
-            <Square className="w-6 h-6" /> End Field Day
+            {isClockingOut
+              ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Square className="w-6 h-6" />
+            }
+            Check Out
           </button>
         )}
       </div>
