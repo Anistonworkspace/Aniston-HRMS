@@ -99,7 +99,10 @@ export class EmployeeService {
       }
       let bankAccountNumber = emp.bankAccountNumber ?? null;
       if (bankAccountNumber) {
-        try { bankAccountNumber = decrypt(bankAccountNumber); } catch { /* legacy plaintext — return as-is */ }
+        try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
+          // Legacy plaintext (digits only) — return as-is; unreadable ciphertext → null so UI shows empty
+          if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = null;
+        }
       }
 
       return {
@@ -208,7 +211,10 @@ export class EmployeeService {
     }
     let bankAccountNumber = (employee as any).bankAccountNumber ?? null;
     if (bankAccountNumber) {
-      try { bankAccountNumber = decrypt(bankAccountNumber); } catch { /* legacy plaintext — return as-is */ }
+      try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
+        // Legacy plaintext (digits only) — return as-is; unreadable ciphertext → null so edit form shows empty
+        if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = null;
+      }
     }
 
     return {
