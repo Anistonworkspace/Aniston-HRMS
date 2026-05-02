@@ -1,8 +1,13 @@
 import { createApi, fetchBaseQuery, type BaseQueryFn } from '@reduxjs/toolkit/query/react';
+import { Capacitor } from '@capacitor/core';
 import toast from 'react-hot-toast';
 import type { RootState } from './store';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+// In native Capacitor (Android/iOS), relative URLs resolve to capacitor://localhost
+// which has no backend. Always use the full production URL on native platforms.
+const API_URL = Capacitor.isNativePlatform()
+  ? 'https://hr.anistonav.com/api'
+  : (import.meta.env.VITE_API_URL || 'http://localhost:4000/api');
 
 const baseQuery = fetchBaseQuery({
   baseUrl: API_URL,

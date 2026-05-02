@@ -254,11 +254,11 @@ jobs:
             cd /home/ubuntu/Aniston-HRMS
 
             echo "=== [4/17] Writing .env from GitHub Secrets ==="
-            [ -z "$DEPLOY_DATABASE_URL" ]    && echo "Missing DATABASE_URL secret"    && exit 1
-            [ -z "$DEPLOY_JWT_SECRET" ]      && echo "Missing JWT_SECRET secret"      && exit 1
-            [ -z "$DEPLOY_JWT_REFRESH_SECRET" ] && echo "Missing JWT_REFRESH_SECRET" && exit 1
-            [ -z "$DEPLOY_ENCRYPTION_KEY" ]  && echo "Missing ENCRYPTION_KEY secret"  && exit 1
-            [ -z "$DEPLOY_REDIS_PASSWORD" ]  && echo "Missing REDIS_PASSWORD secret"  && exit 1
+            if [ -z "$DEPLOY_DATABASE_URL" ];       then echo "Missing DATABASE_URL secret";    exit 1; fi
+            if [ -z "$DEPLOY_JWT_SECRET" ];         then echo "Missing JWT_SECRET secret";      exit 1; fi
+            if [ -z "$DEPLOY_JWT_REFRESH_SECRET" ]; then echo "Missing JWT_REFRESH_SECRET";     exit 1; fi
+            if [ -z "$DEPLOY_ENCRYPTION_KEY" ];     then echo "Missing ENCRYPTION_KEY secret";  exit 1; fi
+            if [ -z "$DEPLOY_REDIS_PASSWORD" ];     then echo "Missing REDIS_PASSWORD secret";  exit 1; fi
             {
               echo "NODE_ENV=production"
               echo "PORT=4000"
