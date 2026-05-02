@@ -70,6 +70,15 @@ export function decrypt(ciphertext: string): string {
     // The hardcoded salt value must never be used for new encryptions — encrypt() always uses random salt.
     [ivHex, authTagHex, encryptedHex] = parts;
     salt = Buffer.from('aniston-hrms-salt');
+  } else if (parts.length === 2) {
+    // Oldest legacy format: AES-256-CBC iv:ciphertext (no auth tag).
+    // Key = sha256(secret) — the simplest derivation used before scrypt was added.
+    const ivBuf = Buffer.from(parts[0], 'hex');
+    const cbcKey = crypto.createHash('sha256').update(secret).digest();
+    const dec = crypto.createDecipheriv('aes-256-cbc', cbcKey, ivBuf);
+    let result = dec.update(parts[1], 'hex', 'utf8');
+    result += dec.final('utf8');
+    return result;
   } else {
     throw new Error('Invalid ciphertext format');
   }

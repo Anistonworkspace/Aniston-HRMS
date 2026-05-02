@@ -35,6 +35,12 @@ import toast from 'react-hot-toast';
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 type TabKey = 'overview' | 'attendance' | 'salary' | 'documents' | 'connections' | 'intern' | 'permissions' | 'profile-requests';
 
+// Returns true only if value looks like a real bank account number (not ciphertext garbage)
+function isReadableAccountNumber(val: string | null | undefined): boolean {
+  if (!val) return false;
+  return /^\d{6,20}$/.test(val.replace(/[\s\-]/g, ''));
+}
+
 export default function EmployeeDetailPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
@@ -457,7 +463,7 @@ export default function EmployeeDetailPage() {
                       <dl className="space-y-2.5">
                         <InfoRow label="Account Holder" value={employee.accountHolderName || '—'} />
                         <InfoRow label="Bank" value={employee.bankName || '—'} />
-                        <InfoRow label="Account No." value={employee.bankAccountNumber} mono />
+                        <InfoRow label="Account No." value={isReadableAccountNumber(employee.bankAccountNumber) ? employee.bankAccountNumber : '⚠ Re-entry required'} mono />
                         <InfoRow label="IFSC" value={employee.ifscCode || '—'} mono />
                         <InfoRow label="Account Type" value={employee.accountType || '—'} />
                         {((employee as any).epfUan || (employee as any).epfMemberId) && (
@@ -844,7 +850,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
       relationship: (employee.emergencyContact as any)?.relationship || '',
       email: (employee.emergencyContact as any)?.email || '',
     },
-    bankAccountNumber: employee.bankAccountNumber || '',
+    bankAccountNumber: isReadableAccountNumber(employee.bankAccountNumber) ? employee.bankAccountNumber! : '',
     bankName: employee.bankName || '',
     ifscCode: employee.ifscCode || '',
     accountHolderName: employee.accountHolderName || '',
