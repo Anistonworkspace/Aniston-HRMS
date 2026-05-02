@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle,
   Search, FileText, ThumbsUp, ThumbsDown, Pencil, Trash2, Loader2,
-  Users, ChevronRight, TrendingUp, UserCheck, Info, SlidersHorizontal,
+  Users, ChevronRight, TrendingUp, Info, SlidersHorizontal,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
