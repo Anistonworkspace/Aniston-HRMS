@@ -217,7 +217,7 @@ describe('LeaveService', () => {
   describe('applyLeave — balance check', () => {
     it('throws BadRequestError with insufficient balance message when days > available', async () => {
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce(makeEmployee() as any);
-      vi.mocked(prisma.leaveType.findUnique).mockResolvedValueOnce(makeLeaveType() as any);
+      vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(makeLeaveType() as any);
       vi.mocked(prisma.leaveRequest.count).mockResolvedValueOnce(0);
 
       // Balance: 3 days available but requesting 5
@@ -253,7 +253,7 @@ describe('LeaveService', () => {
 
     it('allows application when balance is sufficient', async () => {
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce(makeEmployee() as any);
-      vi.mocked(prisma.leaveType.findUnique).mockResolvedValueOnce(makeLeaveType() as any);
+      vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(makeLeaveType() as any);
       vi.mocked(prisma.leaveRequest.count).mockResolvedValueOnce(0);
 
       // 10 days available, requesting 2
@@ -292,7 +292,7 @@ describe('LeaveService', () => {
   describe('applyLeave — overlap detection', () => {
     it('throws BadRequestError when an overlapping request exists (G-02 inside transaction)', async () => {
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce(makeEmployee() as any);
-      vi.mocked(prisma.leaveType.findUnique).mockResolvedValueOnce(makeLeaveType() as any);
+      vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(makeLeaveType() as any);
       vi.mocked(prisma.leaveRequest.count).mockResolvedValueOnce(0);
 
       const balance = makeBalance({ allocated: 12, used: 0, pending: 0, carriedForward: 0 });
@@ -524,7 +524,7 @@ describe('LeaveService', () => {
   describe('applyLeave — unpaid leave type', () => {
     it('does not throw balance error for unpaid leave even with 0 balance', async () => {
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce(makeEmployee() as any);
-      vi.mocked(prisma.leaveType.findUnique).mockResolvedValueOnce(
+      vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(
         makeLeaveType({ isPaid: false }) as any
       );
       vi.mocked(prisma.leaveRequest.count).mockResolvedValueOnce(0);
