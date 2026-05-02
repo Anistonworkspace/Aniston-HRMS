@@ -17,14 +17,13 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   const location = useLocation();
   const dispatch = useAppDispatch();
 
-  // While AuthHydrator is restoring session from refresh token cookie, show skeleton
-  if (hydrating) return <AppLoadingSkeleton />;
-
-  // Fetch user info when we have a token but no user (e.g., after hydration succeeds)
+  // All hooks must be called unconditionally before any early return (Rules of Hooks)
   const shouldFetchUser = isAuthenticated && !user && !!accessToken;
   const { data: meData, isLoading, isError } = useGetMeQuery(undefined, {
-    skip: !shouldFetchUser,
+    skip: !shouldFetchUser || hydrating,
   });
+
+  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
     if (meData?.data) {
@@ -39,7 +38,6 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   }, [isError, shouldFetchUser, dispatch]);
 
   // Safety timeout: if token verification takes >10s, force logout (stale token)
-  const [timedOut, setTimedOut] = useState(false);
   useEffect(() => {
     if (!shouldFetchUser) return;
     const t = setTimeout(() => setTimedOut(true), 10000);
@@ -51,6 +49,9 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
       dispatch(logout());
     }
   }, [timedOut, shouldFetchUser, dispatch]);
+
+  // While AuthHydrator is restoring session from refresh token cookie, show skeleton
+  if (hydrating) return <AppLoadingSkeleton />;
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
