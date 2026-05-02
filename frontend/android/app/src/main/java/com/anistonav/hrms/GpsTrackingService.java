@@ -153,7 +153,8 @@ public class GpsTrackingService extends Service {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AnistonHRMS:GpsWakeLock");
-            wakeLock.acquire();
+            // 12-hour timeout prevents indefinite wake lock if onDestroy is never called
+            wakeLock.acquire(12 * 60 * 60 * 1000L);
         }
     }
 
