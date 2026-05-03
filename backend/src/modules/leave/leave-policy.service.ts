@@ -66,7 +66,7 @@ export class LeavePolicyService {
 
   /**
    * Get or create the default leave policy for an org.
-   * On first call, auto-creates a sensible policy with standard rules.
+   * On first call, creates an empty policy — HR configures allocations via Policy Settings.
    */
   async getOrCreateDefaultPolicy(organizationId: string) {
     let policy = await prisma.leavePolicy.findFirst({
@@ -74,7 +74,7 @@ export class LeavePolicyService {
       include: {
         rules: {
           include: {
-            leaveType: { select: { id: true, name: true, code: true, isPaid: true, isActive: true } },
+            leaveType: { select: { id: true, name: true, code: true, isPaid: true, isActive: true, applicableTo: true } },
           },
         },
       },
@@ -88,61 +88,20 @@ export class LeavePolicyService {
   }
 
   private async _bootstrapDefaultPolicy(organizationId: string) {
-    const leaveTypes = await prisma.leaveType.findMany({
-      where: { organizationId, isActive: true },
-      select: { id: true, code: true, name: true, isPaid: true, defaultBalance: true, applicableTo: true },
-    });
-
-    type RuleRow = { leaveTypeId: string; employeeCategory: string; yearlyDays: number; monthlyDays: number; accrualType: string; isProrata: boolean; daysAllowed: number; isAllowed: boolean };
-    const rules: RuleRow[] = [];
-
-    for (const lt of leaveTypes) {
-      const app = lt.applicableTo ?? 'ALL';
-      const yearly = Number(lt.defaultBalance ?? 0);
-
-      if (!lt.isPaid) {
-        // Unpaid leave (LWP, etc.) — allowed for all eligible, no balance tracking
-        rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: 0, isAllowed: true });
-        continue;
-      }
-
-      // Derive which categories this leave type covers from applicableTo
-      const coversActive   = ['ACTIVE_ONLY', 'ALL_ELIGIBLE', 'ALL', 'ACTIVE', 'CONFIRMED'].includes(app);
-      const coversProbation = ['TRAINEE_ONLY', 'ALL_ELIGIBLE', 'ALL', 'PROBATION'].includes(app);
-      const coversIntern   = ['TRAINEE_ONLY', 'ALL_ELIGIBLE', 'ALL', 'INTERN'].includes(app);
-
-      if (coversActive) {
-        rules.push({ leaveTypeId: lt.id, employeeCategory: 'ACTIVE', yearlyDays: yearly, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: true, daysAllowed: yearly, isAllowed: yearly > 0 });
-      }
-      // Trainees get monthly accrual: spread yearly quota across 12 months (min 1 if quota set)
-      const monthlyAccrual = yearly > 0 ? Math.max(1, Math.round(yearly / 12)) : 0;
-      if (coversProbation) {
-        rules.push({ leaveTypeId: lt.id, employeeCategory: 'PROBATION', yearlyDays: 0, monthlyDays: monthlyAccrual, accrualType: 'MONTHLY', isProrata: false, daysAllowed: 0, isAllowed: yearly > 0 });
-      }
-      if (coversIntern) {
-        rules.push({ leaveTypeId: lt.id, employeeCategory: 'INTERN', yearlyDays: 0, monthlyDays: monthlyAccrual, accrualType: 'MONTHLY', isProrata: false, daysAllowed: 0, isAllowed: yearly > 0 });
-      }
-      // If applicableTo is something specific and unrecognized, add as disabled placeholder
-      if (!coversActive && !coversProbation && !coversIntern) {
-        rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: 0, isAllowed: false });
-      }
-    }
-
     return prisma.leavePolicy.create({
       data: {
         name: 'Default Leave Policy',
-        description: 'Auto-generated default policy. Edit allocation rules from Leave Management → Policy Settings.',
+        description: 'Configure leave quotas from Leave Management → Policy Settings.',
         organizationId,
         isDefault: true,
         isActive: true,
         probationDurationMonths: 3,
         internDurationMonths: 3,
-        rules: { createMany: { data: rules } },
       },
       include: {
         rules: {
           include: {
-            leaveType: { select: { id: true, name: true, code: true, isPaid: true, isActive: true } },
+            leaveType: { select: { id: true, name: true, code: true, isPaid: true, isActive: true, applicableTo: true } },
           },
         },
       },
@@ -251,11 +210,14 @@ export class LeavePolicyService {
     const policy = await this.getOrCreateDefaultPolicy(emp.organizationId);
     const category = this.getEmployeeCategory(emp);
 
-    // Rules applicable to this employee's category
+    const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
+
+    // Rules applicable to this employee's category — only policy-managed leave types
     const applicableRules = policy.rules.filter(r =>
       (r.employeeCategory === category || r.employeeCategory === 'ALL') &&
       r.isAllowed &&
-      r.leaveType?.isActive !== false,
+      r.leaveType?.isActive !== false &&
+      POLICY_MANAGED_AUDIENCES.includes(r.leaveType?.applicableTo),
     );
 
     let created = 0; let skipped = 0; let updated = 0;
