@@ -31,7 +31,6 @@ import {
   useUpdateLeavePolicyMutation,
   useRecalculatePolicyAllocationsMutation,
   useCreateEmployeeAdjustmentMutation,
-  useRecalculateEmployeeAllocationMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -142,8 +141,9 @@ function LeaveManagementView() {
   );
 
   // All leaves with status filter — used for approved/rejected/all tabs
+  // "rejected" pill shows both REJECTED and CANCELLED; backend accepts comma-separated values
   const allLeavesStatus = approvalStatusFilter === 'approved' ? 'APPROVED'
-    : approvalStatusFilter === 'rejected' ? 'REJECTED'
+    : approvalStatusFilter === 'rejected' ? 'REJECTED,CANCELLED'
     : undefined;
   const { data: allLeavesRes, isLoading: allLeavesLoading, isError: allLeavesIsError, error: allLeavesErrorData } = useGetAllLeavesQuery(
     { page, limit: 20, status: allLeavesStatus },
@@ -1100,25 +1100,9 @@ function EmployeeOverviewTab() {
   const [search, setSearch] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
-  const [recalculating, setRecalculating] = useState<string | null>(null);
 
   const { data, isLoading } = useGetAllEmployeeLeaveBalancesQuery({ year, search });
-  const [recalculateEmployee] = useRecalculateEmployeeAllocationMutation();
   const employees: any[] = data?.data || [];
-
-  const handleRecalcEmployee = async (e: React.MouseEvent, emp: any) => {
-    e.stopPropagation();
-    if (recalculating) return;
-    setRecalculating(emp.id);
-    try {
-      const result = await recalculateEmployee({ employeeId: emp.id, year }).unwrap();
-      toast.success(`Recalculated for ${emp.firstName} ${emp.lastName}: ${result.data?.created ?? 0} created, ${result.data?.updated ?? 0} updated`);
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to recalculate');
-    } finally {
-      setRecalculating(null);
-    }
-  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -1171,7 +1155,6 @@ function EmployeeOverviewTab() {
                 <th className="px-4 py-3 font-medium text-center">Remaining</th>
                 <th className="px-4 py-3 font-medium text-center">Applied</th>
                 <th className="px-4 py-3 font-medium text-center">Approved</th>
-                <th className="px-4 py-3 font-medium text-center">Actions</th>
                 <th className="px-4 py-3 font-medium w-8" />
               </tr>
             </thead>
@@ -1246,17 +1229,6 @@ function EmployeeOverviewTab() {
                   </td>
                   <td className="px-4 py-3 text-center font-mono text-gray-600" data-mono>{emp.leavesApplied}</td>
                   <td className="px-4 py-3 text-center font-mono text-emerald-600 font-medium" data-mono>{emp.leavesApproved}</td>
-                  <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={(e) => handleRecalcEmployee(e, emp)}
-                      disabled={recalculating === emp.id}
-                      title="Recalculate leave balances for this employee"
-                      className="px-2.5 py-1 text-[11px] font-medium rounded-lg border border-brand-200 text-brand-600 hover:bg-brand-50 transition-colors flex items-center gap-1 mx-auto disabled:opacity-50"
-                    >
-                      {recalculating === emp.id ? <Loader2 size={11} className="animate-spin" /> : <TrendingUp size={11} />}
-                      Recalc
-                    </button>
-                  </td>
                   <td className="px-4 py-3 text-right">
                     <ChevronRight size={14} className="text-gray-300 group-hover:text-brand-500 transition-colors" />
                   </td>

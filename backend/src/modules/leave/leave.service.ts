@@ -755,7 +755,10 @@ export class LeaveService {
       where.employee = { organizationId };
     }
 
-    if (status) where.status = status;
+    if (status) {
+      const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
+      where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
+    }
     if (year) {
       where.startDate = {
         gte: new Date(year, 0, 1),
