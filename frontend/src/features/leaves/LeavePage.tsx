@@ -31,6 +31,7 @@ import {
   useUpdateLeavePolicyMutation,
   useRecalculatePolicyAllocationsMutation,
   useCreateEmployeeAdjustmentMutation,
+  useRecalculateEmployeeAllocationMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -639,63 +640,74 @@ function LeaveManagementView() {
           {/* Org Working Days Settings */}
           <OrgWorkingDaysCard />
 
-          {/* Split canonical (CL/EL/LWP) from legacy types (SL/PL/etc.) */}
+          {/* Audience-based grouping: primary (policy-managed) vs legacy */}
           {(() => {
-            const allVisible = leaveTypes.filter((lt: any) => !lt.name.toLowerCase().includes('probation'));
-            const CANONICAL_CODES = ['CL', 'EL', 'LWP'];
-            const canonicalTypes = allVisible.filter((lt: any) => CANONICAL_CODES.includes(lt.code));
-            const legacyTypes = allVisible.filter((lt: any) => !CANONICAL_CODES.includes(lt.code));
+            const NEW_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
+            const AUDIENCE_BADGE: Record<string, { label: string; cls: string }> = {
+              ACTIVE_ONLY:  { label: 'Active only',   cls: 'bg-blue-100 text-blue-700' },
+              TRAINEE_ONLY: { label: 'Trainees',      cls: 'bg-amber-100 text-amber-700' },
+              ALL_ELIGIBLE: { label: 'All eligible',  cls: 'bg-purple-100 text-purple-700' },
+            };
 
-            const renderRow = (lt: any, idx: number) => (
-              <motion.div
-                key={lt.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.03 }}
-                className="layer-card px-4 py-3 flex items-center gap-3"
-              >
-                <span className="text-xl flex-shrink-0">{LEAVE_ICONS[lt.code] || '📅'}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800">{lt.name}</p>
-                  <p className="text-xs text-gray-400 font-mono">{lt.code}</p>
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {lt.isPaid ? <span className="badge badge-success text-xs">Paid</span> : <span className="badge badge-neutral text-xs">Unpaid</span>}
-                  {!lt.isActive && <span className="badge badge-neutral text-xs">Inactive</span>}
-                  {lt.carryForward && <span className="badge badge-info text-xs">Carry Forward</span>}
-                  {lt.requiresApproval !== false && <span className="badge badge-warning text-xs">Approval</span>}
-                </div>
-                <div className="flex items-center gap-1 ml-1 flex-shrink-0">
-                  <button
-                    onClick={() => setActiveTab('policy')}
-                    className="px-2 py-1 text-xs text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-medium whitespace-nowrap"
-                    title="Configure allocation & behaviour in Policy Settings"
-                  >
-                    Configure →
-                  </button>
-                  <button
-                    onClick={() => handleEditLeaveType(lt)}
-                    className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors text-gray-400 hover:text-brand-600"
-                    title="Rename"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteLeaveType(lt.id, lt.name)}
-                    className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-gray-400 hover:text-red-600"
-                    title="Delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </motion.div>
-            );
+            const primaryTypes = leaveTypes.filter((lt: any) => NEW_AUDIENCES.includes(lt.applicableTo));
+            const legacyTypes  = leaveTypes.filter((lt: any) => !NEW_AUDIENCES.includes(lt.applicableTo));
+
+            const renderRow = (lt: any, idx: number) => {
+              const audience = AUDIENCE_BADGE[lt.applicableTo];
+              return (
+                <motion.div
+                  key={lt.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.03 }}
+                  className="layer-card px-4 py-3 flex items-center gap-3"
+                >
+                  <span className="text-xl flex-shrink-0">{LEAVE_ICONS[lt.code] || '📅'}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800">{lt.name}</p>
+                    <p className="text-xs text-gray-400 font-mono">{lt.code}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
+                    {audience && (
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${audience.cls}`}>{audience.label}</span>
+                    )}
+                    {lt.isPaid ? <span className="badge badge-success text-xs">Paid</span> : <span className="badge badge-neutral text-xs">Unpaid</span>}
+                    {!lt.isActive && <span className="badge badge-neutral text-xs">Inactive</span>}
+                    {lt.carryForward && <span className="badge badge-info text-xs">Carry Forward</span>}
+                    {lt.requiresApproval !== false && <span className="badge badge-warning text-xs">Approval</span>}
+                  </div>
+                  <div className="flex items-center gap-1 ml-1 flex-shrink-0">
+                    <button
+                      onClick={() => setActiveTab('policy')}
+                      className="px-2 py-1 text-xs text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-medium whitespace-nowrap"
+                      title="Configure allocation & behaviour in Policy Settings"
+                    >
+                      Configure →
+                    </button>
+                    <button
+                      onClick={() => handleEditLeaveType(lt)}
+                      className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors text-gray-400 hover:text-brand-600"
+                      title="Edit audience / rename"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteLeaveType(lt.id, lt.name)}
+                      className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-gray-400 hover:text-red-600"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            };
 
             return (
               <>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                   <div>
-                    <p className="text-sm text-gray-500">{canonicalTypes.length} active leave types</p>
+                    <p className="text-sm text-gray-500">{primaryTypes.length} policy-managed leave type{primaryTypes.length !== 1 ? 's' : ''}</p>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-xs text-indigo-500 bg-indigo-50 px-2 py-1 rounded-lg flex items-center gap-1">
                         <Info size={11} /> Allocation rules managed in Policy Settings
@@ -716,12 +728,18 @@ function LeaveManagementView() {
                   </motion.button>
                 </div>
 
-                {/* Canonical types */}
-                <div className="space-y-2">
-                  {canonicalTypes.map((lt: any, idx: number) => renderRow(lt, idx))}
-                </div>
+                {/* Policy-managed types */}
+                {primaryTypes.length === 0 ? (
+                  <div className="layer-card p-6 text-center text-gray-400 text-sm border border-dashed border-gray-200">
+                    No policy-managed leave types yet. Create a type and set its Audience to get started.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {primaryTypes.map((lt: any, idx: number) => renderRow(lt, idx))}
+                  </div>
+                )}
 
-                {/* Legacy types collapsible */}
+                {/* Legacy types — collapsible */}
                 {legacyTypes.length > 0 && (
                   <div className="mt-4">
                     <button
@@ -729,7 +747,7 @@ function LeaveManagementView() {
                       className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors mb-2"
                     >
                       <ChevronRight size={13} className={cn('transition-transform', showLegacyTypes && 'rotate-90')} />
-                      Legacy Types ({legacyTypes.length}) — not managed by policy
+                      Legacy Types ({legacyTypes.length}) — not managed by new policy engine
                     </button>
                     <AnimatePresence>
                       {showLegacyTypes && (
@@ -1045,9 +1063,25 @@ function EmployeeOverviewTab() {
   const [search, setSearch] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+  const [recalculating, setRecalculating] = useState<string | null>(null);
 
   const { data, isLoading } = useGetAllEmployeeLeaveBalancesQuery({ year, search });
+  const [recalculateEmployee] = useRecalculateEmployeeAllocationMutation();
   const employees: any[] = data?.data || [];
+
+  const handleRecalcEmployee = async (e: React.MouseEvent, emp: any) => {
+    e.stopPropagation();
+    if (recalculating) return;
+    setRecalculating(emp.id);
+    try {
+      const result = await recalculateEmployee({ employeeId: emp.id, year }).unwrap();
+      toast.success(`Recalculated for ${emp.firstName} ${emp.lastName}: ${result.data?.created ?? 0} created, ${result.data?.updated ?? 0} updated`);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to recalculate');
+    } finally {
+      setRecalculating(null);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -1100,6 +1134,7 @@ function EmployeeOverviewTab() {
                 <th className="px-4 py-3 font-medium text-center">Remaining</th>
                 <th className="px-4 py-3 font-medium text-center">Applied</th>
                 <th className="px-4 py-3 font-medium text-center">Approved</th>
+                <th className="px-4 py-3 font-medium text-center">Actions</th>
                 <th className="px-4 py-3 font-medium w-8" />
               </tr>
             </thead>
@@ -1174,6 +1209,17 @@ function EmployeeOverviewTab() {
                   </td>
                   <td className="px-4 py-3 text-center font-mono text-gray-600" data-mono>{emp.leavesApplied}</td>
                   <td className="px-4 py-3 text-center font-mono text-emerald-600 font-medium" data-mono>{emp.leavesApproved}</td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={(e) => handleRecalcEmployee(e, emp)}
+                      disabled={recalculating === emp.id}
+                      title="Recalculate leave balances for this employee"
+                      className="px-2.5 py-1 text-[11px] font-medium rounded-lg border border-brand-200 text-brand-600 hover:bg-brand-50 transition-colors flex items-center gap-1 mx-auto disabled:opacity-50"
+                    >
+                      {recalculating === emp.id ? <Loader2 size={11} className="animate-spin" /> : <TrendingUp size={11} />}
+                      Recalc
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <ChevronRight size={14} className="text-gray-300 group-hover:text-brand-500 transition-colors" />
                   </td>
@@ -1981,7 +2027,7 @@ const LEAVE_TYPE_DEFAULTS = {
   name: '', code: '', defaultDays: 0, maxDays: 0, minDays: 0.5,
   isPaid: true, isCarryForward: false, maxCarryForward: 0,
   isActive: true,
-  applicableTo: 'ALL',
+  applicableTo: 'ACTIVE_ONLY',
   noticeDays: 0, maxPerMonth: 0, probationMonths: 0,
   allowSameDay: false, allowWeekendAdjacent: true, requiresApproval: true,
   allowPastDates: false, maxAdvanceDays: 0,
@@ -2053,6 +2099,8 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
       name: formData.name.trim(),
       code: formData.code.trim().toUpperCase(),
       gender: formData.genderRestriction || undefined,
+      applicableTo: formData.applicableTo,
+      defaultBalance: 0,
     };
     try {
       if (isEditing) {
@@ -2126,6 +2174,18 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
                   onChange={(e) => set('code', e.target.value.toUpperCase())}
                   className="input-glass w-full font-mono" placeholder="CL" required maxLength={10} />
               </div>
+            </div>
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-600 mb-1">
+                Audience
+                <span className="ml-1 text-[11px] text-gray-400 font-normal">Who this leave type applies to</span>
+              </label>
+              <select value={formData.applicableTo} onChange={(e) => set('applicableTo', e.target.value)}
+                className="input-glass w-full">
+                <option value="ACTIVE_ONLY">Active Employees only</option>
+                <option value="TRAINEE_ONLY">Trainees only (Probation + Intern)</option>
+                <option value="ALL_ELIGIBLE">All Eligible (Active + Probation + Intern)</option>
+              </select>
             </div>
             <div className="mt-3">
               <label className="block text-sm font-medium text-gray-600 mb-1">Gender Restriction</label>
@@ -2229,7 +2289,11 @@ function LeavePersonalView() {
     return () => offSocketEvent('leave:balance-adjusted', handler);
   }, [dispatch]);
 
-  const balances = balancesRes?.data || [];
+  // getBalances now returns { employeeStatus, balances } — support both old array shape and new object shape for safety
+  const balancesPayload = balancesRes?.data;
+  const employeeStatus: string | null = balancesPayload && !Array.isArray(balancesPayload) ? (balancesPayload.employeeStatus ?? null) : null;
+  const balances: any[] = Array.isArray(balancesPayload) ? balancesPayload : (balancesPayload?.balances ?? []);
+
   const allLeaveTypes = typesRes?.data || [];
   // Only show leave types the employee has a balance for (backend filters by employee status)
   const balanceLeaveTypeIds = new Set(balances.map((b: any) => b.leaveTypeId));
@@ -2239,6 +2303,29 @@ function LeavePersonalView() {
 
   // Employee-level permission gate
   if (!perms.canViewLeaveBalance) return <PermDenied action="view leave balance" />;
+
+  // Status gate — non-eligible employees cannot access leave management
+  const NON_ELIGIBLE_STATUSES = ['ONBOARDING', 'NOTICE_PERIOD', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
+  if (!balancesLoading && employeeStatus && NON_ELIGIBLE_STATUSES.includes(employeeStatus)) {
+    const statusMsg: Record<string, string> = {
+      ONBOARDING: 'Complete your onboarding to access leave management.',
+      NOTICE_PERIOD: 'Leave is not available during the notice period.',
+      SUSPENDED: 'Leave access has been suspended. Contact HR.',
+      INACTIVE: 'Your account is currently inactive. Contact HR.',
+      TERMINATED: 'Leave is not available for terminated employees.',
+      ABSCONDED: 'Leave access has been revoked.',
+    };
+    return (
+      <div className="page-container">
+        <div className="layer-card p-8 text-center max-w-md mx-auto">
+          <CalendarDays size={40} className="mx-auto mb-3 text-gray-300" />
+          <h3 className="text-base font-semibold text-gray-600 mb-1">Leave Not Available</h3>
+          <p className="text-sm text-gray-400">{statusMsg[employeeStatus] || 'Leave is not available for your current employment status.'}</p>
+          <p className="text-xs text-gray-300 mt-2 font-mono">{employeeStatus.replace(/_/g, ' ')}</p>
+        </div>
+      </div>
+    );
+  }
 
   // Check if employee has accepted the leave policy
   const leavePolicy = (policiesRes?.data || []).find((p: any) => p.category === 'LEAVE' && p.isActive);
@@ -2666,72 +2753,97 @@ function PolicySettingsTab() {
   const { data: leaveTypesData } = useGetLeaveTypesQuery();
 
   const policies: any[] = policiesData?.data ?? [];
-  const leaveTypes: any[] = leaveTypesData?.data ?? [];
+  const allLeaveTypes: any[] = leaveTypesData?.data ?? [];
   const policy = policies.find((p: any) => p.isDefault) ?? policies[0];
+
+  // Leave types grouped by audience
+  const NEW_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
+  const activeLeaveTypes = allLeaveTypes.filter((lt: any) =>
+    lt.isPaid && (lt.applicableTo === 'ACTIVE_ONLY' || lt.applicableTo === 'ALL_ELIGIBLE')
+  );
+  const traineeLeaveTypes = allLeaveTypes.filter((lt: any) =>
+    lt.isPaid && (lt.applicableTo === 'TRAINEE_ONLY' || lt.applicableTo === 'ALL_ELIGIBLE')
+  );
+  const lwpTypes = allLeaveTypes.filter((lt: any) => !lt.isPaid);
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
 
-  const [config, setConfig] = useState({
-    activeCL: 10,
-    activeEL: 10,
-    probationDurationMonths: 3,
-    probationLeavePerMonth: 1,
-    internDurationMonths: 3,
-    internLeavePerMonth: 1,
-    lwpEnabled: true,
-  });
+  // Dynamic config: keyed by leaveTypeId
+  const [activeQuotas, setActiveQuotas] = useState<Record<string, number>>({});
+  const [traineeMonthly, setTraineeMonthly] = useState<Record<string, { probation: number; intern: number }>>({});
+  const [durations, setDurations] = useState({ probationMonths: 3, internMonths: 3 });
+  const [maxPaidPerMonth, setMaxPaidPerMonth] = useState(0);
+  const [lwpEnabled, setLwpEnabled] = useState(true);
 
-  // Derive config values from existing policy rules when policy + types load
-  useEffect(() => {
-    if (!policy || !leaveTypes.length) return;
-    const clType = leaveTypes.find((lt: any) => lt.code === 'CL' && !lt.name.toLowerCase().includes('probation'));
-    const elType = leaveTypes.find((lt: any) => lt.code === 'EL');
-    const lwpType = leaveTypes.find((lt: any) => lt.code === 'LWP');
-    const findRule = (typeId: string | undefined, cat: string) =>
+  const deriveConfig = () => {
+    if (!policy) return;
+    const findRule = (typeId: string, cat: string) =>
       policy.rules?.find((r: any) => r.leaveTypeId === typeId && r.employeeCategory === cat);
 
-    setConfig({
-      activeCL: findRule(clType?.id, 'ACTIVE')?.yearlyDays ?? 10,
-      activeEL: findRule(elType?.id, 'ACTIVE')?.yearlyDays ?? 10,
-      probationDurationMonths: policy.probationDurationMonths ?? 3,
-      probationLeavePerMonth: findRule(clType?.id, 'PROBATION')?.monthlyDays ?? 1,
-      internDurationMonths: policy.internDurationMonths ?? 3,
-      internLeavePerMonth: findRule(clType?.id, 'INTERN')?.monthlyDays ?? 1,
-      lwpEnabled: findRule(lwpType?.id, 'ALL')?.isAllowed !== false,
+    // Active quotas
+    const aq: Record<string, number> = {};
+    activeLeaveTypes.forEach((lt: any) => {
+      aq[lt.id] = findRule(lt.id, 'ACTIVE')?.yearlyDays ?? 10;
     });
-  }, [policy, leaveTypes]);
+    setActiveQuotas(aq);
+
+    // Trainee monthly
+    const tm: Record<string, { probation: number; intern: number }> = {};
+    traineeLeaveTypes.forEach((lt: any) => {
+      tm[lt.id] = {
+        probation: findRule(lt.id, 'PROBATION')?.monthlyDays ?? 1,
+        intern: findRule(lt.id, 'INTERN')?.monthlyDays ?? 1,
+      };
+    });
+    setTraineeMonthly(tm);
+
+    setDurations({
+      probationMonths: policy.probationDurationMonths ?? 3,
+      internMonths: policy.internDurationMonths ?? 3,
+    });
+    setMaxPaidPerMonth(policy.maxPaidLeavesPerMonth ?? 0);
+
+    const lwpType = allLeaveTypes.find((lt: any) => !lt.isPaid);
+    const lwpRule = lwpType ? findRule(lwpType.id, 'ALL') : null;
+    setLwpEnabled(lwpRule ? lwpRule.isAllowed !== false : true);
+  };
+
+  useEffect(() => {
+    if (policy && allLeaveTypes.length) deriveConfig();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [policy?.id, allLeaveTypes.length]);
 
   const handleSave = async () => {
     if (!policy) return;
-    const clType = leaveTypes.find((lt: any) => lt.code === 'CL' && !lt.name.toLowerCase().includes('probation'));
-    const elType = leaveTypes.find((lt: any) => lt.code === 'EL');
-    const lwpType = leaveTypes.find((lt: any) => lt.code === 'LWP');
 
-    if (!clType || !elType) {
-      toast.error('CL and EL leave types are required. Create them in the Types tab first.');
-      return;
-    }
+    const rules: any[] = [];
 
-    const rules: any[] = [
-      { leaveTypeId: clType.id, employeeCategory: 'ACTIVE', yearlyDays: config.activeCL, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true },
-      { leaveTypeId: elType.id, employeeCategory: 'ACTIVE', yearlyDays: config.activeEL, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true },
-      { leaveTypeId: clType.id, employeeCategory: 'PROBATION', yearlyDays: 0, monthlyDays: config.probationLeavePerMonth, accrualType: 'MONTHLY', isProrata: false, isAllowed: true },
-      { leaveTypeId: clType.id, employeeCategory: 'INTERN', yearlyDays: 0, monthlyDays: config.internLeavePerMonth, accrualType: 'MONTHLY', isProrata: false, isAllowed: true },
-    ];
+    // Active employee rules
+    Object.entries(activeQuotas).forEach(([leaveTypeId, yearlyDays]) => {
+      rules.push({ leaveTypeId, employeeCategory: 'ACTIVE', yearlyDays, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true });
+    });
 
-    if (lwpType) {
-      rules.push({ leaveTypeId: lwpType.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: config.lwpEnabled });
-    }
+    // Trainee (probation + intern) rules
+    Object.entries(traineeMonthly).forEach(([leaveTypeId, { probation, intern }]) => {
+      rules.push({ leaveTypeId, employeeCategory: 'PROBATION', yearlyDays: 0, monthlyDays: probation, accrualType: 'MONTHLY', isProrata: false, isAllowed: true });
+      rules.push({ leaveTypeId, employeeCategory: 'INTERN', yearlyDays: 0, monthlyDays: intern, accrualType: 'MONTHLY', isProrata: false, isAllowed: true });
+    });
+
+    // LWP rules (one per unpaid type, for ALL)
+    lwpTypes.forEach((lt: any) => {
+      rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: lwpEnabled });
+    });
 
     setSaving(true);
     try {
       await updatePolicy({
         id: policy.id,
         data: {
-          probationDurationMonths: config.probationDurationMonths,
-          internDurationMonths: config.internDurationMonths,
+          probationDurationMonths: durations.probationMonths,
+          internDurationMonths: durations.internMonths,
+          maxPaidLeavesPerMonth: maxPaidPerMonth,
           rules,
         },
       }).unwrap();
@@ -2761,36 +2873,23 @@ function PolicySettingsTab() {
 
   const cancelEdit = () => {
     setEditing(false);
-    // Re-derive config from policy to discard unsaved changes
-    if (policy && leaveTypes.length) {
-      const clType = leaveTypes.find((lt: any) => lt.code === 'CL' && !lt.name.toLowerCase().includes('probation'));
-      const elType = leaveTypes.find((lt: any) => lt.code === 'EL');
-      const lwpType = leaveTypes.find((lt: any) => lt.code === 'LWP');
-      const findRule = (typeId: string | undefined, cat: string) =>
-        policy.rules?.find((r: any) => r.leaveTypeId === typeId && r.employeeCategory === cat);
-      setConfig({
-        activeCL: findRule(clType?.id, 'ACTIVE')?.yearlyDays ?? 10,
-        activeEL: findRule(elType?.id, 'ACTIVE')?.yearlyDays ?? 10,
-        probationDurationMonths: policy.probationDurationMonths ?? 3,
-        probationLeavePerMonth: findRule(clType?.id, 'PROBATION')?.monthlyDays ?? 1,
-        internDurationMonths: policy.internDurationMonths ?? 3,
-        internLeavePerMonth: findRule(clType?.id, 'INTERN')?.monthlyDays ?? 1,
-        lwpEnabled: findRule(lwpType?.id, 'ALL')?.isAllowed !== false,
-      });
-    }
+    deriveConfig();
   };
 
-  const field = (key: keyof typeof config, label: string, hint: string, min = 1, max = 365) => (
+  const numField = (
+    label: string, hint: string, value: number,
+    onChange: (n: number) => void, min = 0, max = 365
+  ) => (
     <div>
       <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
       <input
         type="number" min={min} max={max}
-        value={config[key] as number}
+        value={value}
         disabled={!editing}
-        onChange={(e) => setConfig((c) => ({ ...c, [key]: Number(e.target.value) }))}
+        onChange={(e) => onChange(Number(e.target.value))}
         className="input-glass w-full text-sm disabled:opacity-60"
       />
-      <p className="text-[11px] text-gray-400 mt-1">{hint}</p>
+      {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
     </div>
   );
 
@@ -2852,67 +2951,99 @@ function PolicySettingsTab() {
         </div>
       </div>
 
-      {/* 4 policy cards */}
+      {/* Warn if no policy-managed types exist */}
+      {NEW_AUDIENCES.every((a) => !allLeaveTypes.some((lt: any) => lt.applicableTo === a)) && (
+        <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded-xl p-3 border border-amber-100">
+          <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
+          <p>
+            No leave types have a new Audience value (Active only / Trainees / All eligible) yet.
+            Go to <strong>Types</strong> tab → edit each type → set its Audience.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-        {/* Card 1 — Active Employee */}
+        {/* Card 1 — Active Employee (dynamic) */}
         <div className="layer-card p-5 space-y-4">
           <div className="flex items-center gap-2">
             <span className="text-xl">✨</span>
             <div>
-              <p className="text-sm font-semibold text-gray-800">Active Employee</p>
-              <p className="text-[11px] text-gray-400">Confirmed / permanent staff</p>
+              <p className="text-sm font-semibold text-gray-800">Active Employees</p>
+              <p className="text-[11px] text-gray-400">Upfront annual allocation per leave type</p>
             </div>
           </div>
-          <div className="space-y-3">
-            {field('activeCL', 'Casual Leave (CL) — days / year', 'e.g. 10 days per year')}
-            {field('activeEL', 'Earned Leave (EL) — days / year', 'e.g. 10 days per year')}
+          {activeLeaveTypes.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No leave types with "Active only" or "All eligible" audience. Edit types to configure.</p>
+          ) : (
+            <div className="space-y-3">
+              {activeLeaveTypes.map((lt: any) =>
+                numField(
+                  `${lt.name} (${lt.code}) — days / year`,
+                  '',
+                  activeQuotas[lt.id] ?? 0,
+                  (n) => setActiveQuotas((q) => ({ ...q, [lt.id]: n })),
+                  0, 365
+                )
+              )}
+            </div>
+          )}
+          <div className="border-t border-gray-100 pt-3">
+            {numField(
+              'Max Paid Leaves / Month',
+              '0 = unlimited. Cross-type monthly cap for paid leaves (Active employees).',
+              maxPaidPerMonth,
+              setMaxPaidPerMonth,
+              0, 31
+            )}
           </div>
         </div>
 
-        {/* Card 2 — Probation */}
+        {/* Card 2 — Trainees (Probation + Intern merged) */}
         <div className="layer-card p-5 space-y-4">
           <div className="flex items-center gap-2">
             <span className="text-xl">🕐</span>
             <div>
-              <p className="text-sm font-semibold text-gray-800">Probation</p>
-              <p className="text-[11px] text-gray-400">Accrues CL monthly during probation period</p>
+              <p className="text-sm font-semibold text-gray-800">Trainees</p>
+              <p className="text-[11px] text-gray-400">Probation & Intern — monthly accrual</p>
             </div>
           </div>
           <div className="space-y-3">
-            {field('probationDurationMonths', 'Probation Duration (months)', 'Total probation period length', 1, 24)}
-            {field('probationLeavePerMonth', 'CL accrued per month', 'e.g. 1 day/month → 3 days in 3-month probation', 0, 5)}
+            {numField('Probation Duration (months)', 'Total probation period length', durations.probationMonths,
+              (n) => setDurations((d) => ({ ...d, probationMonths: n })), 1, 24)}
+            {numField('Internship Duration (months)', 'Total internship period length', durations.internMonths,
+              (n) => setDurations((d) => ({ ...d, internMonths: n })), 1, 24)}
           </div>
-          <div className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-            Total CL during probation: <strong className="text-gray-700">{config.probationLeavePerMonth * config.probationDurationMonths} days</strong>
-          </div>
-        </div>
-
-        {/* Card 3 — Intern */}
-        <div className="layer-card p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🎓</span>
-            <div>
-              <p className="text-sm font-semibold text-gray-800">Intern</p>
-              <p className="text-[11px] text-gray-400">Accrues CL monthly during internship</p>
+          {traineeLeaveTypes.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No trainee leave types. Edit types with "Trainees" or "All eligible" audience.</p>
+          ) : (
+            <div className="space-y-4 border-t border-gray-100 pt-3">
+              {traineeLeaveTypes.map((lt: any) => (
+                <div key={lt.id} className="space-y-2">
+                  <p className="text-xs font-medium text-gray-600">{lt.name} ({lt.code})</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {numField('Probation / month', '', traineeMonthly[lt.id]?.probation ?? 1,
+                      (n) => setTraineeMonthly((m) => ({ ...m, [lt.id]: { ...(m[lt.id] ?? { probation: 1, intern: 1 }), probation: n } })), 0, 5)}
+                    {numField('Intern / month', '', traineeMonthly[lt.id]?.intern ?? 1,
+                      (n) => setTraineeMonthly((m) => ({ ...m, [lt.id]: { ...(m[lt.id] ?? { probation: 1, intern: 1 }), intern: n } })), 0, 5)}
+                  </div>
+                  <div className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-3 py-2 grid grid-cols-2 gap-2">
+                    <span>Probation total: <strong className="text-gray-700">{(traineeMonthly[lt.id]?.probation ?? 1) * durations.probationMonths}d</strong></span>
+                    <span>Intern total: <strong className="text-gray-700">{(traineeMonthly[lt.id]?.intern ?? 1) * durations.internMonths}d</strong></span>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-          <div className="space-y-3">
-            {field('internDurationMonths', 'Internship Duration (months)', 'Total internship period length', 1, 24)}
-            {field('internLeavePerMonth', 'CL accrued per month', 'e.g. 1 day/month → 3 days in 3-month internship', 0, 5)}
-          </div>
-          <div className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-            Total CL during internship: <strong className="text-gray-700">{config.internLeavePerMonth * config.internDurationMonths} days</strong>
-          </div>
+          )}
         </div>
 
-        {/* Card 4 — LWP */}
+        {/* Card 3 — LWP */}
         <div className="layer-card p-5 space-y-4">
           <div className="flex items-center gap-2">
             <span className="text-xl">📋</span>
             <div>
               <p className="text-sm font-semibold text-gray-800">Leave Without Pay (LWP)</p>
-              <p className="text-[11px] text-gray-400">Allowed for all employee categories</p>
+              <p className="text-[11px] text-gray-400">Allowed for all eligible employees</p>
             </div>
           </div>
           <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
@@ -2921,11 +3052,11 @@ function PolicySettingsTab() {
               <p className="text-[11px] text-gray-400">Employees can apply for unpaid leave when balance is 0</p>
             </div>
             <Toggle
-              checked={config.lwpEnabled}
-              onChange={(v) => editing && setConfig((c) => ({ ...c, lwpEnabled: v }))}
+              checked={lwpEnabled}
+              onChange={(v) => editing && setLwpEnabled(v)}
             />
           </div>
-          {!config.lwpEnabled && (
+          {!lwpEnabled && (
             <p className="text-[11px] text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
               LWP disabled — employees with zero balance will not be able to apply for leave.
             </p>
@@ -2937,8 +3068,8 @@ function PolicySettingsTab() {
       <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded-xl p-3 border border-amber-100">
         <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
         <p>
-          <span className="font-semibold">Notice Period employees</span> receive 0 paid leave allocation by default — only LWP is available to them (if enabled above).
-          If your policy grants notice-period employees paid leave, contact your system administrator to configure a custom policy rule.
+          <span className="font-semibold">Notice Period, Suspended, and Onboarding employees</span> receive no leave allocation — leave management is not available to them.
+          Only Active, Probation, and Intern employees can apply for leave.
         </p>
       </div>
 
@@ -2946,8 +3077,8 @@ function PolicySettingsTab() {
       <div className="flex items-start gap-2 text-xs text-gray-400 bg-blue-50 rounded-xl p-3 border border-blue-100">
         <Info size={14} className="text-blue-400 mt-0.5 shrink-0" />
         <p>
-          Active employees get CL + EL upfront each year.{' '}
-          Probation and intern employees accrue CL monthly for the duration of their period.{' '}
+          Active employees receive annual leave upfront. Trainees accrue leave monthly during their period.
+          The <strong>Max Paid / Month</strong> cap applies across all paid leave types for Active employees.{' '}
           <span className="font-medium text-blue-600">Recalculate All</span> updates existing balances immediately — manual adjustments and used days are never overwritten.
         </p>
       </div>

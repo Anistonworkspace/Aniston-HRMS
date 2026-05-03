@@ -31,6 +31,10 @@ import org.json.JSONObject;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -45,6 +49,11 @@ import java.util.concurrent.Executors;
 public class GpsTrackingService extends Service {
 
     private static final String TAG = "GpsTrackingService";
+    private static final SimpleDateFormat ISO_FORMAT;
+    static {
+        ISO_FORMAT = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+        ISO_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
+    }
     public static final String CHANNEL_ID = "aniston_gps_tracking";
     private static final int NOTIFICATION_ID = 1001;
     public static final String PREFS_NAME = "GpsTrackingPrefs";
@@ -219,8 +228,9 @@ public class GpsTrackingService extends Service {
                 pt.put("lat", lat);
                 pt.put("lng", lng);
                 pt.put("accuracy", accuracy);
-                pt.put("speed", speed);
-                pt.put("timestamp", System.currentTimeMillis());
+                // Send speed only when device reports a non-negative value; omit when unknown (speed=0 from loc.getSpeed() when unavailable)
+                if (speed >= 0) pt.put("speed", speed);
+                pt.put("timestamp", ISO_FORMAT.format(new Date()));
 
                 JSONObject body = new JSONObject();
                 body.put("points", new JSONArray().put(pt));

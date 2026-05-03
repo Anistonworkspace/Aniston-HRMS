@@ -3225,6 +3225,7 @@ model LeavePolicy {
   isActive                Boolean           @default(true)
   probationDurationMonths Int               @default(3)
   internDurationMonths    Int               @default(3)
+  maxPaidLeavesPerMonth   Int               @default(0)  // 0 = unlimited; >0 = combined daily cap across all paid ACTIVE leave types per calendar month
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   deletedAt               DateTime?

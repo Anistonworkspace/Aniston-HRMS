@@ -13,7 +13,7 @@ export const kycApi = api.injectEndpoints({
       employeeId: string;
       uploadMode: 'COMBINED' | 'SEPARATE';
       fresherOrExperienced: 'FRESHER' | 'EXPERIENCED';
-      highestQualification: 'TENTH' | 'TWELFTH' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD';
+      highestQualification: 'TENTH' | 'TWELFTH' | 'DIPLOMA' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD' | 'NONE';
     }>({
       query: ({ employeeId, ...body }) => ({
         url: `/onboarding/kyc/${employeeId}/config`,

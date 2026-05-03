@@ -16,12 +16,15 @@ android {
     }
     signingConfigs {
         release {
-            // Use env vars so the keystore path/password never lives in source.
-            // Set KEYSTORE_PATH to the absolute path of signing.keystore from PWABuilder.
-            storeFile file(System.getenv("KEYSTORE_PATH") ?: "signing.keystore")
-            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
-            keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "key0"
-            keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: ""
+            // Priority: keystore.properties file (local dev) → env vars (CI/CD) → fallback defaults
+            def ksProps = new Properties()
+            def ksPropFile = rootProject.file("app/keystore.properties")
+            if (ksPropFile.exists()) { ksProps.load(new FileInputStream(ksPropFile)) }
+
+            storeFile file(ksProps['storeFile'] ?: System.getenv("KEYSTORE_PATH") ?: "signing.keystore")
+            storePassword ksProps['storePassword'] ?: System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
+            keyAlias     ksProps['keyAlias']      ?: System.getenv("ANDROID_KEY_ALIAS")          ?: "key0"
+            keyPassword  ksProps['keyPassword']   ?: System.getenv("ANDROID_KEY_PASSWORD")       ?: ""
         }
     }
     buildTypes {

@@ -27,7 +27,7 @@ export const leaveQuerySchema = z.object({
 export const createLeaveTypeSchema = z.object({
   name: z.string().min(2).max(100),
   code: z.string().min(1).max(10).toUpperCase(),
-  defaultBalance: z.number().min(0).max(365),
+  defaultBalance: z.number().min(0).max(365).default(0),
   carryForward: z.boolean().default(false),
   maxCarryForward: z.number().min(0).optional(),
   isPaid: z.boolean().default(true),
@@ -35,7 +35,7 @@ export const createLeaveTypeSchema = z.object({
   maxDays: z.number().min(0.5).optional(),
   noticeDays: z.number().int().min(0).default(0),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']).optional(),
-  applicableTo: z.enum(['ALL', 'PROBATION', 'ACTIVE', 'CONFIRMED', 'NOTICE_PERIOD', 'ONBOARDING', 'INTERN', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED']).default('ALL'),
+  applicableTo: z.enum(['ALL', 'ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE', 'PROBATION', 'ACTIVE', 'CONFIRMED', 'NOTICE_PERIOD', 'ONBOARDING', 'INTERN', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED']).default('ACTIVE_ONLY'),
   applicableToRole: z.enum(['EMPLOYEE', 'MANAGER', 'HR', 'ADMIN', 'INTERN', 'SUPER_ADMIN']).optional().nullable(),
   applicableToEmployeeIds: z.array(z.string().uuid()).optional().nullable(),
   maxPerMonth: z.number().int().min(1).optional(),

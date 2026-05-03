@@ -241,6 +241,10 @@ export class LeavePolicyService {
     });
     if (!emp) return { created: 0, skipped: 0, updated: 0 };
 
+    // Only eligible statuses should receive leave allocations
+    const NON_ELIGIBLE = ['ONBOARDING', 'NOTICE_PERIOD', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
+    if (NON_ELIGIBLE.includes(emp.status)) return { created: 0, skipped: 0, updated: 0 };
+
     const policy = await this.getOrCreateDefaultPolicy(emp.organizationId);
     const category = this.getEmployeeCategory(emp);
 

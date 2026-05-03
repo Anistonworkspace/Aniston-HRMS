@@ -219,17 +219,22 @@ router.get(
         }
 
         const app = lt.applicableTo;
-        if (app === 'ALL') return emp.status !== 'ONBOARDING';
-        if (app === 'PROBATION') return emp.status === 'PROBATION';
-        if (app === 'ACTIVE' || app === 'CONFIRMED') return emp.status === 'ACTIVE';
-        if (app === 'NOTICE_PERIOD') return emp.status === 'NOTICE_PERIOD';
-        if (app === 'ONBOARDING') return emp.status === 'ONBOARDING';
-        if (app === 'INTERN') return emp.status === 'INTERN' || userRole === 'INTERN';
-        if (app === 'SUSPENDED') return emp.status === 'SUSPENDED';
-        if (app === 'INACTIVE') return emp.status === 'INACTIVE';
-        if (app === 'TERMINATED') return emp.status === 'TERMINATED';
-        if (app === 'ABSCONDED') return emp.status === 'ABSCONDED';
-        return true;
+        const status = emp.status;
+        const isTrainee = status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
+        const isEligible = status === 'ACTIVE' || isTrainee;
+        // New simplified audience values
+        if (app === 'ACTIVE_ONLY') return status === 'ACTIVE';
+        if (app === 'TRAINEE_ONLY') return isTrainee;
+        if (app === 'ALL_ELIGIBLE') return isEligible;
+        // Legacy values
+        if (app === 'ALL') return isEligible;
+        if (app === 'PROBATION') return status === 'PROBATION';
+        if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
+        if (app === 'NOTICE_PERIOD') return false;
+        if (app === 'ONBOARDING') return false;
+        if (app === 'INTERN') return status === 'INTERN' || userRole === 'INTERN';
+        if (app === 'SUSPENDED' || app === 'INACTIVE' || app === 'TERMINATED' || app === 'ABSCONDED') return false;
+        return isEligible;
       };
 
       const data = employees.map((emp) => {
@@ -509,7 +514,7 @@ router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
 router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const { name, description, isDefault, probationDurationMonths, internDurationMonths, rules } = req.body;
+    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
         where: { organizationId: req.user!.organizationId, isDefault: true, id: { not: req.params.id } },
@@ -522,6 +527,7 @@ router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
     if (isDefault !== undefined) updateData.isDefault = isDefault;
     if (probationDurationMonths !== undefined) updateData.probationDurationMonths = probationDurationMonths;
     if (internDurationMonths !== undefined) updateData.internDurationMonths = internDurationMonths;
+    if (maxPaidLeavesPerMonth !== undefined) updateData.maxPaidLeavesPerMonth = maxPaidLeavesPerMonth;
 
     const policy = await prisma.leavePolicy.update({
       where: { id: req.params.id },
@@ -952,6 +958,32 @@ router.post(
 
         return res.status(201).json({ success: true, data: { log, balance } });
       }
+    } catch (err) { next(err); }
+  }
+);
+
+// Per-employee recalculate: refreshes leave balances for a single employee using the current policy
+router.post(
+  '/recalculate-employee/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { leavePolicyService } = await import('./leave-policy.service.js');
+      const { prisma: db } = await import('../../lib/prisma.js');
+      const orgId = req.user!.organizationId;
+      const { employeeId } = req.params;
+      const year = req.body.year ?? new Date().getFullYear();
+
+      const employee = await db.employee.findFirst({
+        where: { id: employeeId, organizationId: orgId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!employee) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+      }
+
+      const result = await leavePolicyService.allocateForEmployee(employeeId, year, { force: true, triggeredBy: req.user!.userId });
+      res.json({ success: true, data: { ...result, year, employeeId } });
     } catch (err) { next(err); }
   }
 );

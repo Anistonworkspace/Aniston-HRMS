@@ -1075,7 +1075,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               <select value={form.shiftId} onChange={e => setForm({ ...form, shiftId: e.target.value })} className="input-glass w-full text-sm">
                 <option value="">No shift assigned</option>
                 {shifts.map((s: any) => (
-                  <option key={s.id} value={s.id}>{s.name} ({s.type})</option>
+                  <option key={s.id} value={s.id}>{s.name} ({s.shiftType === 'FIELD' ? 'Live GPS' : s.shiftType === 'OFFICE' ? 'Office' : s.shiftType})</option>
                 ))}
               </select>
             </div>
@@ -1104,11 +1104,21 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               </select></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="block text-xs text-gray-500 mb-1">Work Mode</label>
-              <select value={form.workMode} onChange={(e) => setForm({ ...form, workMode: e.target.value })} className="input-glass w-full text-sm">
-                <option value="OFFICE">Office</option>
-                <option value="FIELD_SALES">Field Sales</option>
-              </select></div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Work Mode <span className="text-[9px] text-indigo-400">(set via Shift)</span>
+              </label>
+              <div className="input-glass w-full text-sm flex items-center text-gray-500 bg-gray-50 cursor-not-allowed select-none">
+                {(() => {
+                  const selectedShift = shifts.find((s: any) => s.id === form.shiftId);
+                  const type = selectedShift?.shiftType || selectedShift?.type;
+                  if (type === 'FIELD') return 'Field Sales (Live GPS)';
+                  if (type === 'OFFICE') return 'Office (Geofence)';
+                  return form.workMode === 'FIELD_SALES' ? 'Field Sales (Live GPS)' : 'Office (Geofence)';
+                })()}
+              </div>
+              <p className="text-[9px] text-gray-400 mt-0.5">Change via Shift dropdown above</p>
+            </div>
             <div><label className="block text-xs text-gray-500 mb-1">Joining Date <span className="text-gray-400 font-normal">(Contractual)</span></label>
               <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className="input-glass w-full text-sm" /></div>
           </div>

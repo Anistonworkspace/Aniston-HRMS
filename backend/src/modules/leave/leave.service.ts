@@ -89,6 +89,12 @@ export class LeaveService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
+    // Non-eligible statuses → return empty balances; frontend hides leave UI entirely
+    const NON_ELIGIBLE_STATUSES = ['ONBOARDING', 'NOTICE_PERIOD', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
+    if (NON_ELIGIBLE_STATUSES.includes(employee.status)) {
+      return { employeeStatus: employee.status, balances: [] };
+    }
+
     const userRole = employee.user?.role;
 
     // ── Policy-engine path ───────────────────────────────────────────────────
@@ -169,7 +175,7 @@ export class LeaveService {
       });
       allBalances.forEach(b => balanceMap.set(b.leaveTypeId, b));
 
-      return filteredRules
+      const balances = filteredRules
         .filter((r: any) => balanceMap.has(r.leaveTypeId))
         .map((r: any) => {
           const lt = leaveTypeMap.get(r.leaveTypeId)!;
@@ -187,6 +193,7 @@ export class LeaveService {
             allocationCategory: allocation?.category,
           };
         });
+      return { employeeStatus: employee.status, balances };
     }
 
     // ── Legacy path (no default policy) ─────────────────────────────────────
@@ -209,17 +216,21 @@ export class LeaveService {
         if (monthsWorked < probationMonths) return false;
       }
       const app = lt.applicableTo;
-      if (app === 'ALL') return employee.status !== 'ONBOARDING';
-      if (app === 'PROBATION') return employee.status === 'PROBATION';
-      if (app === 'ACTIVE' || app === 'CONFIRMED') return employee.status === 'ACTIVE';
-      if (app === 'NOTICE_PERIOD') return employee.status === 'NOTICE_PERIOD';
-      if (app === 'ONBOARDING') return employee.status === 'ONBOARDING';
-      if (app === 'INTERN') return employee.status === 'INTERN' || userRole === 'INTERN';
-      if (app === 'SUSPENDED') return employee.status === 'SUSPENDED';
-      if (app === 'INACTIVE') return employee.status === 'INACTIVE';
-      if (app === 'TERMINATED') return employee.status === 'TERMINATED';
-      if (app === 'ABSCONDED') return employee.status === 'ABSCONDED';
-      return true;
+      const status = employee.status;
+      const isEligible = ['ACTIVE', 'PROBATION', 'INTERN'].includes(status) || userRole === 'INTERN';
+      // New simplified audience values
+      if (app === 'ACTIVE_ONLY') return status === 'ACTIVE';
+      if (app === 'TRAINEE_ONLY') return status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
+      if (app === 'ALL_ELIGIBLE') return isEligible;
+      // Legacy values — kept for backward compat
+      if (app === 'ALL') return isEligible; // ALL now scoped to eligible statuses only
+      if (app === 'PROBATION') return status === 'PROBATION';
+      if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
+      if (app === 'NOTICE_PERIOD') return false; // non-eligible
+      if (app === 'ONBOARDING') return false;    // non-eligible
+      if (app === 'INTERN') return status === 'INTERN' || userRole === 'INTERN';
+      if (app === 'SUSPENDED' || app === 'INACTIVE' || app === 'TERMINATED' || app === 'ABSCONDED') return false;
+      return isEligible;
     });
 
     const existingBalances = await prisma.leaveBalance.findMany({
@@ -245,7 +256,7 @@ export class LeaveService {
       newBalances.forEach(b => balanceMap.set(b.leaveTypeId, b));
     }
 
-    return leaveTypes.map(lt => {
+    const legacyBalances = leaveTypes.map(lt => {
       const balance = balanceMap.get(lt.id)!;
       return {
         ...balance,
@@ -253,6 +264,7 @@ export class LeaveService {
         remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
       };
     });
+    return { employeeStatus: employee.status, balances: legacyBalances };
   }
 
   /**
@@ -378,6 +390,44 @@ export class LeaveService {
       }
     }
 
+    // 7b. Global monthly paid-leave limit for ACTIVE employees (cross-type)
+    // The limit is stored on the default policy as maxPaidLeavesPerMonth (0 = unlimited).
+    if (leaveType.isPaid && employee.status === 'ACTIVE') {
+      try {
+        const globalPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
+        const maxPaidPerMonth = (globalPolicy as any).maxPaidLeavesPerMonth ?? 0;
+        if (maxPaidPerMonth > 0) {
+          // Collect all paid leave type IDs that are ACTIVE-assigned
+          const activePaidTypeIds = (globalPolicy.rules as any[])
+            .filter((r: any) => r.employeeCategory === 'ACTIVE' && r.isAllowed && r.leaveType?.isPaid !== false)
+            .map((r: any) => r.leaveTypeId);
+
+          if (activePaidTypeIds.length > 0) {
+            const monthStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+            const monthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+            const monthUsed = await prisma.leaveRequest.aggregate({
+              where: {
+                employeeId,
+                leaveTypeId: { in: activePaidTypeIds },
+                status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
+                startDate: { gte: monthStart, lte: monthEnd },
+              },
+              _sum: { days: true },
+            });
+            const alreadyUsed = Number(monthUsed._sum.days ?? 0);
+            if (alreadyUsed + days > maxPaidPerMonth) {
+              throw new BadRequestError(
+                `Monthly paid leave limit exceeded. Policy allows ${maxPaidPerMonth} paid leave day(s) per month for active employees. Already taken this month: ${alreadyUsed}d, Requested: ${days}d. Apply for Leave Without Pay (LWP) for the remaining days.`
+              );
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.statusCode === 400) throw err;
+        // Non-blocking: if policy fetch fails, fall through
+      }
+    }
+
     // 8. Gender restriction
     if (leaveType.gender && employee.gender !== leaveType.gender) {
       throw new BadRequestError(`${leaveType.name} is available for ${leaveType.gender.toLowerCase()} employees only.`);
@@ -393,39 +443,48 @@ export class LeaveService {
         throw new BadRequestError(`${leaveType.name} is restricted to specific employees only. You are not eligible for this leave type. Contact HR if you believe this is an error.`);
       }
     } else {
-      // 9b. Applicability check (status-based) — driven entirely by leave type settings
-      if (employee.status === 'ONBOARDING') {
-        throw new BadRequestError('Employees in onboarding cannot apply for leave. Complete your onboarding first.');
+      // 9b. Status eligibility gate — only ACTIVE, PROBATION, INTERN are leave-eligible
+      const STATUS_BLOCK_MAP: Record<string, string> = {
+        ONBOARDING: 'Employees in onboarding cannot apply for leave. Complete your onboarding process first.',
+        NOTICE_PERIOD: 'Employees serving their notice period cannot apply for new paid or unpaid leave.',
+        SUSPENDED: 'Your account is suspended. Please contact HR.',
+        INACTIVE: 'Your account is inactive. Please contact HR.',
+        TERMINATED: 'Terminated employees cannot apply for leave.',
+        ABSCONDED: 'Your account has been marked as absconded. Please contact HR.',
+      };
+      if (STATUS_BLOCK_MAP[employee.status]) {
+        throw new BadRequestError(STATUS_BLOCK_MAP[employee.status]);
       }
       if (leaveType.applicableTo !== 'ALL') {
         const app = leaveType.applicableTo;
         const status = employee.status;
 
+        const isTrainee = status === 'PROBATION' || status === 'INTERN' || empUserRole === 'INTERN';
+        const isEligible = status === 'ACTIVE' || isTrainee;
+
         const allowed = (() => {
+          // New simplified audience values
+          if (app === 'ACTIVE_ONLY') return status === 'ACTIVE';
+          if (app === 'TRAINEE_ONLY') return isTrainee;
+          if (app === 'ALL_ELIGIBLE') return isEligible;
+          // Legacy values
           if (app === 'PROBATION') return status === 'PROBATION';
           if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
-          if (app === 'NOTICE_PERIOD') return status === 'NOTICE_PERIOD';
-          if (app === 'ONBOARDING') return false; // ONBOARDING employees blocked above; no other status matches
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
-          if (app === 'SUSPENDED') return status === 'SUSPENDED';
-          if (app === 'INACTIVE') return status === 'INACTIVE';
-          if (app === 'TERMINATED') return status === 'TERMINATED';
-          if (app === 'ABSCONDED') return status === 'ABSCONDED';
-          return true;
+          if (app === 'ALL') return isEligible; // now scoped to eligible statuses only
+          // Any other explicit value (NOTICE_PERIOD, ONBOARDING, SUSPENDED, etc.) is non-eligible
+          return false;
         })();
 
         if (!allowed) {
           const labels: Record<string, string> = {
+            ACTIVE_ONLY: 'active/confirmed employees',
+            TRAINEE_ONLY: 'employees on probation or internship',
+            ALL_ELIGIBLE: 'active, probation, or intern employees',
             PROBATION: 'employees in probation period',
             ACTIVE: 'active/full-time employees',
             CONFIRMED: 'active/full-time employees',
-            NOTICE_PERIOD: 'employees serving notice period',
-            ONBOARDING: 'employees in onboarding',
             INTERN: 'interns',
-            SUSPENDED: 'suspended employees',
-            INACTIVE: 'inactive employees',
-            TERMINATED: 'terminated employees',
-            ABSCONDED: 'absconded employees',
           };
           throw new BadRequestError(`${leaveType.name} is available for ${labels[app] || app} only. Your current status does not qualify. Contact HR to check your eligibility.`);
         }

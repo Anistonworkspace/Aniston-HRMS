@@ -9,7 +9,11 @@ export interface Shift {
   startTime: string;
   endTime: string;
   shiftType: string;
-  gracePeriodMinutes: number;
+  gracePeriodMinutes?: number;
+  graceMinutes?: number;
+  fullDayHours?: number;
+  halfDayHours?: number;
+  trackingIntervalMinutes?: number | null;
   isDefault: boolean;
   organizationId: string;
   createdAt: string;
@@ -52,7 +56,7 @@ export interface ShiftAssignment {
   endDate?: string | null;
   assignedBy: string;
   shift: Shift;
-  location?: { id: string; name: string } | null;
+  location?: { id: string; name: string; geofence?: { coordinates: { lat: number; lng: number } | null; radiusMeters: number } | null } | null;
   employee?: {
     id: string;
     firstName: string;
@@ -70,29 +74,39 @@ export interface OfficeLocation {
   name: string;
   address: string;
   city: string;
-  state: string;
-  country: string;
+  state?: string;
+  country?: string;
   pincode?: string;
   latitude?: number | null;
   longitude?: number | null;
   geofenceRadius?: number | null;
-  isHeadOffice: boolean;
+  isHeadOffice?: boolean;
   organizationId: string;
   createdAt: string;
   updatedAt: string;
+  geofence?: {
+    id: string;
+    coordinates: { lat: number; lng: number } | null;
+    radiusMeters: number;
+    strictMode?: boolean;
+  } | null;
 }
 
 export interface CreateLocationRequest {
   name: string;
   address: string;
   city: string;
-  state: string;
-  country: string;
+  state?: string;
+  country?: string;
   pincode?: string;
   latitude?: number;
   longitude?: number;
+  radiusMeters?: number;
   geofenceRadius?: number;
+  strictMode?: boolean;
   isHeadOffice?: boolean;
+  autoCheckIn?: boolean;
+  autoCheckOut?: boolean;
 }
 
 export interface UpdateLocationRequest {
@@ -131,7 +145,7 @@ export const workforceApi = api.injectEndpoints({
       query: (body) => ({ url: '/workforce/shifts/assign', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
-    autoAssignDefault: builder.mutation<ApiResponse<{ assigned: number }>, void>({
+    autoAssignDefault: builder.mutation<ApiResponse<{ assigned: number; message?: string }>, void>({
       query: () => ({ url: '/workforce/shifts/auto-assign', method: 'POST' }),
       invalidatesTags: ['Attendance'],
     }),
