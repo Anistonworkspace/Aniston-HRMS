@@ -17,6 +17,34 @@ router.get('/stats', requirePermission('employee', 'read'), (req, res, next) =>
   employeeController.stats(req, res, next)
 );
 
+// Lightweight peer list — all authenticated employees can fetch this for handover/backup selection
+router.get('/peers', authenticate, async (req, res, next) => {
+  try {
+    const { prisma } = await import('../../lib/prisma.js');
+    const orgId = req.user!.organizationId;
+    const myId = req.user!.employeeId;
+    const peers = await prisma.employee.findMany({
+      where: {
+        organizationId: orgId,
+        deletedAt: null,
+        isSystemAccount: false,
+        status: { in: ['ACTIVE', 'PROBATION'] },
+        ...(myId ? { id: { not: myId } } : {}),
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeCode: true,
+        department: { select: { name: true } },
+        designation: { select: { name: true } },
+      },
+      orderBy: [{ department: { name: 'asc' } }, { firstName: 'asc' }],
+    });
+    res.json({ success: true, data: peers });
+  } catch (err) { next(err); }
+});
+
 // Exit / Offboarding (must be before /:id to avoid param capture)
 router.get('/exit-requests', requirePermission('employee', 'manage'), (req, res, next) =>
   employeeController.getExitRequests(req, res, next)

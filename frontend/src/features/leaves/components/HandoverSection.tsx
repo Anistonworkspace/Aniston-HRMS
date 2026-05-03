@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Users, Plus, Trash2 } from 'lucide-react';
-import { useGetEmployeesQuery } from '../../employee/employeeApi';
+import { Users } from 'lucide-react';
+import { useGetEmployeePeersQuery } from '../../employee/employeeApi';
 
 interface HandoverSectionProps {
   handovers: any[];
@@ -22,8 +22,8 @@ export default function HandoverSection({
   const [selectedBackup, setSelectedBackup] = useState(backupEmployeeId || '');
   const [notes, setNotes] = useState(handoverNotes || '');
   const [taskHandovers, setTaskHandovers] = useState<Array<{ taskExternalId?: string; taskTitle?: string; handoverNote: string; backupEmployeeId: string }>>([]);
-  const { data: empRes } = useGetEmployeesQuery({ limit: 100 }, { skip: !editable });
-  const employees = empRes?.data || [];
+  const { data: peersRes } = useGetEmployeePeersQuery(undefined, { skip: !editable });
+  const employees = peersRes?.data || [];
 
   const handleSave = () => {
     if (!onUpdate) return;
@@ -88,7 +88,7 @@ export default function HandoverSection({
           <option value="">Select backup... (optional)</option>
           {employees.map((emp: any) => (
             <option key={emp.id} value={emp.id}>
-              {emp.firstName} {emp.lastName} ({emp.employeeCode})
+              {emp.firstName} {emp.lastName} ({emp.employeeCode}){emp.department?.name ? ` · ${emp.department.name}` : ''}
             </option>
           ))}
         </select>

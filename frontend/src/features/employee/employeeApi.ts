@@ -192,6 +192,12 @@ export const employeeApi = api.injectEndpoints({
       query: () => '/employees/org-chart',
       providesTags: ['EmployeeList'],
     }),
+
+    // Lightweight peer list — accessible by all authenticated employees (for handover/backup selection)
+    getEmployeePeers: builder.query<{ success: boolean; data: any[] }, void>({
+      query: () => '/employees/peers',
+      providesTags: ['EmployeeList'],
+    }),
   }),
 });
 
@@ -213,4 +219,5 @@ export const {
   useGetBulkEmailPreviewQuery,
   useSendUnifiedBulkEmailMutation,
   useGetOrgChartQuery,
+  useGetEmployeePeersQuery,
 } = employeeApi;
