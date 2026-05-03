@@ -321,7 +321,15 @@ export default defineConfig({
       // not present in the web/PWA bundle. Externalizing prevents Rolldown
       // from failing the build when it can't resolve the package at build time.
       // At runtime the dynamic import is guarded by isNativeAndroid checks.
-      external: ['@capacitor-community/background-geolocation'],
+      //
+      // onnxruntime-web (and its /webgpu sub-path) is imported by
+      // @imgly/background-removal for WebGPU feature detection at runtime.
+      // Rolldown (Vite 8) cannot statically resolve the sub-path export;
+      // externalizing is safe because the library loads ONNX from CDN dynamically.
+      external: [
+        '@capacitor-community/background-geolocation',
+        /^onnxruntime-web/,
+      ],
     },
   },
 
