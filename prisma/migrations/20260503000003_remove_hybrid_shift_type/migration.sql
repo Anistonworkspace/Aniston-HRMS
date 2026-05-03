@@ -1,6 +1,8 @@
 -- Migration: Remove HYBRID from ShiftType enum
 -- Safe to re-run: guarded by IF EXISTS check.
--- Uses DROP DEFAULT before ALTER TYPE to avoid "cannot be cast automatically" error.
+-- Timeouts prevent hanging if another session holds a lock.
+SET lock_timeout = '10s';
+SET statement_timeout = '25s';
 
 DO $$
 BEGIN
