@@ -169,20 +169,21 @@ describe('AttendanceService', () => {
     vi.mocked(prisma.holiday.findMany).mockResolvedValue([]);
     vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.shiftAssignment.findFirst).mockResolvedValue(null);
-    // Return a default shift so clockIn doesn't fail with "No shift assigned"
+    // Return a default shift so clockIn doesn't fail with "No shift assigned".
+    // weekOffDays: [] so tests pass on any day of the week (including Sunday).
     vi.mocked(prisma.shift.findFirst).mockResolvedValue({
       id: 'shift-default-001',
       name: 'Default Shift',
       isDefault: true,
       isActive: true,
-      weekOffDays: [0],
+      weekOffDays: [],
       sundayWorkEnabled: false,
       sundayPayMultiplier: 2.0,
       startTime: '09:00',
       endTime: '18:00',
     } as any);
     vi.mocked(prisma.attendancePolicy.findUnique).mockResolvedValue({
-      weekOffDays: [0],
+      weekOffDays: [],
       sundayWorkEnabled: false,
       lateGraceMinutes: 15,
       lateHalfDayAfterMins: 60,
@@ -321,6 +322,78 @@ describe('AttendanceService', () => {
       await expect(
         service.clockOut(EMP_ID, makeClockOutData() as any)
       ).rejects.toThrow(/No clock-in found/i);
+    });
+  });
+
+  // ── clockIn — shift snapshot ──────────────────────────────────────────────
+
+  describe('clockIn — shift snapshot', () => {
+    it('stores shiftId and shiftAssignmentId when active assignment exists', async () => {
+      const SNAP_SHIFT_ID = 'shift-snap-001';
+      const SNAP_ASSIGN_ID = 'sa-snap-001';
+
+      vi.mocked(prisma.employee.findFirst).mockResolvedValueOnce(makeEmployee() as any);
+
+      // Active assignment overrides the default shift
+      vi.mocked(prisma.shiftAssignment.findFirst).mockResolvedValueOnce({
+        id: SNAP_ASSIGN_ID,
+        shiftId: SNAP_SHIFT_ID,
+        employeeId: EMP_ID,
+        startDate: new Date('2026-01-01'),
+        endDate: null,
+        shift: {
+          id: SNAP_SHIFT_ID,
+          name: 'General Shift',
+          shiftType: 'OFFICE',
+          isDefault: false,
+          isActive: true,
+          weekOffDays: [],
+          sundayWorkEnabled: false,
+          sundayPayMultiplier: 2.0,
+          startTime: '09:00',
+          endTime: '18:00',
+          graceMinutes: 15,
+          trackingIntervalMinutes: 60,
+        },
+        location: null,
+      } as any);
+
+      vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
+        return fn({ attendanceRecord: { findUnique: vi.fn().mockResolvedValue(null) } });
+      });
+
+      const snapRecord = { ...makeAttendanceRecord(), shiftId: SNAP_SHIFT_ID, shiftAssignmentId: SNAP_ASSIGN_ID };
+      vi.mocked(prisma.attendanceRecord.upsert).mockResolvedValueOnce(snapRecord as any);
+      vi.mocked(prisma.attendanceLog.create).mockResolvedValueOnce({ id: 'log-001' } as any);
+
+      await service.clockIn(EMP_ID, makeClockInData({ isPwa: true }) as any, ORG_ID);
+
+      const upsertCall = vi.mocked(prisma.attendanceRecord.upsert).mock.calls[0][0];
+      expect((upsertCall.create as any).shiftId).toBe(SNAP_SHIFT_ID);
+      expect((upsertCall.create as any).shiftAssignmentId).toBe(SNAP_ASSIGN_ID);
+    });
+
+    it('sets shiftAssignmentId to null and uses default shiftId when no active assignment exists', async () => {
+      const DEFAULT_SHIFT_ID = 'shift-default-001'; // matches shift.findFirst mock in beforeEach
+
+      vi.mocked(prisma.employee.findFirst).mockResolvedValueOnce(makeEmployee() as any);
+      // shiftAssignment.findFirst returns null (already set in beforeEach)
+
+      vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
+        return fn({ attendanceRecord: { findUnique: vi.fn().mockResolvedValue(null) } });
+      });
+
+      const noAssignRecord = { ...makeAttendanceRecord(), shiftId: DEFAULT_SHIFT_ID, shiftAssignmentId: null };
+      vi.mocked(prisma.attendanceRecord.upsert).mockResolvedValueOnce(noAssignRecord as any);
+      vi.mocked(prisma.attendanceLog.create).mockResolvedValueOnce({ id: 'log-002' } as any);
+
+      await service.clockIn(EMP_ID, makeClockInData({ isPwa: true }) as any, ORG_ID);
+
+      const upsertCall = vi.mocked(prisma.attendanceRecord.upsert).mock.calls[0][0];
+      // No assignment → shiftAssignmentId must be null
+      expect((upsertCall.create as any).shiftAssignmentId).toBeNull();
+      // shiftId must be the fallback default shift id
+      expect((upsertCall.create as any).shiftId).toBe(DEFAULT_SHIFT_ID);
     });
   });
 
