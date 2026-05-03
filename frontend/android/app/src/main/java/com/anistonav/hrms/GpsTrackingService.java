@@ -91,10 +91,13 @@ public class GpsTrackingService extends Service {
     private String orgId;
     private long gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
 
-    // Visible across all threads and to GpsTrackingPlugin without needing a Context.
     // Set true once the foreground service is fully started; false at the top of onDestroy
     // so that an OOM kill (which skips onDestroy) returns false — safer than prefs alone.
     public static volatile boolean sIsRunning = false;
+
+    // True only when the employee explicitly taps "Stop Tracking" (ACTION_STOP).
+    // Used in onDestroy to decide whether to wipe SharedPreferences credentials.
+    private boolean stoppedByEmployee = false;
 
     // Last known location — kept for notification updates
     private double lastLat = 0;
@@ -118,6 +121,7 @@ public class GpsTrackingService extends Service {
             // Restarted by OS after being killed (START_STICKY) — restore from prefs
             restoreFromPrefs();
         } else if (ACTION_STOP.equals(intent.getAction())) {
+            stoppedByEmployee = true; // allow onDestroy to wipe prefs
             postTrackingStop(); // tell backend tracking ended
             stopSelf();
             return START_NOT_STICKY;
@@ -402,6 +406,19 @@ public class GpsTrackingService extends Service {
 
     // ── Lifecycle ────────────────────────────────────────────────────────────────
 
+    /**
+     * Called when the user swipes this app off the recents screen.
+     * android:stopWithTask="false" means the SERVICE does NOT stop here — but we
+     * schedule an AlarmManager restart 3 s out as a safety net for OEM launchers
+     * that ignore stopWithTask and kill the service anyway.
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        Log.i(TAG, "onTaskRemoved — scheduling AlarmManager restart in 3s");
+        GpsRestartReceiver.scheduleRestart(this);
+    }
+
     @Override
     public void onDestroy() {
         super.onDestroy();
@@ -417,10 +434,14 @@ public class GpsTrackingService extends Service {
         if (networkExecutor != null && !networkExecutor.isShutdown()) {
             networkExecutor.shutdown();
         }
-        // Mark stopped before clearing prefs — if OOM killed us without calling onDestroy,
-        // the static field is already false in the new process, so isRunning() returns false.
         sIsRunning = false;
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
+        // Only wipe credentials on an explicit employee-initiated stop (ACTION_STOP).
+        // OS kills (OOM, task-removal restart) must NOT clear prefs — GpsRestartReceiver
+        // reads them to know whether to restart the service after process death.
+        // lastStoppedByEmployee is set to true only in the ACTION_STOP handler above.
+        if (stoppedByEmployee) {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
+        }
     }
 
     @Nullable

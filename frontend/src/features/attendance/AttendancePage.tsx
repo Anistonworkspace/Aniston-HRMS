@@ -25,6 +25,7 @@ import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
+import { startNativeGpsService, stopNativeGpsService, isNativeAndroid, isNativeGpsRunning } from '../../lib/capacitorGPS';
 import CommandCenter from './components/CommandCenter';
 import RegularizationTab from './components/RegularizationTab';
 import SelfServiceReport from './components/SelfServiceReport';
@@ -496,6 +497,10 @@ function AttendancePersonalView() {
   const { perms } = useEmpPerms();
   const { t, i18n } = useTranslation();
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
+  const authUser = useAppSelector((state) => state.auth.user);
+  const accessToken = useAppSelector((state) => state.auth.accessToken);
+  const [fieldGpsTracking, setFieldGpsTracking] = useState(false);
+  const [startingFieldGps, setStartingFieldGps] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
 
@@ -951,6 +956,47 @@ function AttendancePersonalView() {
   // Detect work mode from today's status
   const workMode = today?.workMode || 'OFFICE';
 
+  // True when the employee is assigned to a FIELD shift (GPS-based live tracking)
+  const isFieldShift = (today?.shift as any)?.shiftType === 'FIELD';
+
+  // On mount, sync fieldGpsTracking state with the native service (handles boot-restart case)
+  useEffect(() => {
+    if (!isNativeAndroid || !isFieldShift) return;
+    isNativeGpsRunning().then((running) => setFieldGpsTracking(running));
+  }, [isFieldShift]);
+
+  const handleFieldGpsCheckIn = async () => {
+    if (startingFieldGps) return;
+    setStartingFieldGps(true);
+    try {
+      const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
+      const intervalMins = (today?.shift as any)?.trackingIntervalMinutes;
+      await startNativeGpsService({
+        backendUrl: backendBase,
+        authToken: accessToken || '',
+        employeeId: authUser?.employeeId || '',
+        orgId: authUser?.organizationId || '',
+        ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
+      });
+      setFieldGpsTracking(true);
+      toast.success('GPS tracking started — your location is being recorded');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to start GPS tracking');
+    } finally {
+      setStartingFieldGps(false);
+    }
+  };
+
+  const handleFieldGpsCheckOut = async () => {
+    try {
+      await stopNativeGpsService();
+      setFieldGpsTracking(false);
+      toast.success('GPS tracking stopped');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to stop GPS tracking');
+    }
+  };
+
   // Desktop users skip all location gates — they see status-only UI
   // Employee-level permission gate (canViewAttendanceHistory)
   if (!perms.canViewAttendanceHistory) return <PermDenied action="view attendance history" />;
@@ -1307,7 +1353,47 @@ function AttendancePersonalView() {
                 {!perms.canMarkAttendance && (
                   <PermDenied action="mark attendance" inline />
                 )}
-                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && (
+
+                {/* FIELD shift: single GPS Check In / Stop Tracking button */}
+                {perms.canMarkAttendance && isFieldShift && (
+                  <div className="space-y-2">
+                    {!fieldGpsTracking ? (
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={handleFieldGpsCheckIn}
+                        disabled={startingFieldGps}
+                        className="w-full bg-orange-600 hover:bg-orange-500 text-white py-3 md:py-4 rounded-xl font-semibold text-sm md:text-lg flex items-center justify-center gap-2 md:gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-orange-200"
+                      >
+                        {startingFieldGps ? (
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Navigation size={20} />
+                        )}
+                        Start GPS Tracking
+                      </motion.button>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-orange-50 border border-orange-200 rounded-xl">
+                          <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                          <span className="text-sm font-medium text-orange-700">GPS Tracking Active</span>
+                        </div>
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={handleFieldGpsCheckOut}
+                          className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <LogOut size={16} />
+                          Stop Tracking
+                        </motion.button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Normal office check-in — hidden for FIELD shifts */}
+                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && !isFieldShift && (
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
@@ -1324,7 +1410,7 @@ function AttendancePersonalView() {
                   </motion.button>
                 )}
 
-                {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && (
+                {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && !isFieldShift && (
                   <div className="space-y-1.5">
                     {/* Break controls */}
                     {today?.isOnBreak ? (

@@ -21,6 +21,11 @@
     <!-- Wake lock — keeps CPU alive during offline GPS buffering -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Allow GpsRestartReceiver to restart the service after device reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Allow AlarmManager exact alarm (Android 12+) for service restart after task removal -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <application
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -55,6 +60,24 @@
             android:exported="false"
             android:foregroundServiceType="location"
             android:stopWithTask="false" />
+
+        <!--
+          GpsRestartReceiver — handles:
+            1. BOOT_COMPLETED / LOCKED_BOOT_COMPLETED  → restart service after device reboot
+            2. Custom ACTION_RESTART_GPS               → restart service after task-removal AlarmManager fires
+          android:exported="true" is required for BOOT_COMPLETED receivers (system sends the broadcast).
+          android:directBootAware="true" lets it receive LOCKED_BOOT_COMPLETED before user unlocks.
+        -->
+        <receiver
+            android:name=".GpsRestartReceiver"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="com.anistonav.hrms.RESTART_GPS" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"
