@@ -1,5 +1,5 @@
 <#
-  Build Aniston HRMS -> signed .aab (Android App Bundle)
+  Build Aniston HRMS -> signed .aab (Android App Bundle) + signed .apk
   Run from ANY directory - script locates everything itself.
 
   Prerequisites:
@@ -7,7 +7,9 @@
     2. Copy signing.keystore into this folder
     3. Copy .keystore-env.template -> .keystore-env and fill in passwords
 
-  Output:  store-releases/android/app-release.aab
+  Output:
+    store-releases/android/app-release.aab   (Play Store upload)
+    store-releases/android/aniston-hrms.apk  (direct install / sideload)
 #>
 
 $ErrorActionPreference = "Stop"
@@ -16,11 +18,13 @@ $SCRIPT_DIR  = $PSScriptRoot
 $ROOT        = Resolve-Path (Join-Path $SCRIPT_DIR "..\..")
 $ANDROID_DIR = Join-Path $ROOT "frontend\android"
 $OUTPUT_AAB  = Join-Path $ANDROID_DIR "app\build\outputs\bundle\release\app-release.aab"
+$OUTPUT_APK  = Join-Path $ANDROID_DIR "app\build\outputs\apk\release\app-release.apk"
 $DEST_AAB    = Join-Path $SCRIPT_DIR "app-release.aab"
+$DEST_APK    = Join-Path $SCRIPT_DIR "aniston-hrms.apk"
 
 Write-Host ""
 Write-Host "=================================================" -ForegroundColor DarkCyan
-Write-Host "  Aniston HRMS  --  Android AAB Build" -ForegroundColor Cyan
+Write-Host "  Aniston HRMS  --  Android AAB + APK Build" -ForegroundColor Cyan
 Write-Host "=================================================" -ForegroundColor DarkCyan
 
 # -- Step 1: Set JAVA_HOME from Android Studio bundled JDK --
@@ -65,7 +69,7 @@ if (Test-Path $KS_IN_SCRIPT) {
 
 # -- Step 3: Build frontend --
 Write-Host ""
-Write-Host "[1/4] Building frontend..." -ForegroundColor Cyan
+Write-Host "[1/5] Building frontend..." -ForegroundColor Cyan
 Push-Location $ROOT
 npm run build --workspace=frontend
 if ($LASTEXITCODE -ne 0) { Write-Error "Frontend build failed"; exit 1 }
@@ -73,39 +77,52 @@ Pop-Location
 
 # -- Step 4: Sync Capacitor assets --
 Write-Host ""
-Write-Host "[2/4] Syncing Capacitor assets to android..." -ForegroundColor Cyan
+Write-Host "[2/5] Syncing Capacitor assets to android..." -ForegroundColor Cyan
 Push-Location (Join-Path $ROOT "frontend")
 npx cap sync android
 if ($LASTEXITCODE -ne 0) { Write-Error "Capacitor sync failed"; exit 1 }
 Pop-Location
 
-# -- Step 5: Gradle bundleRelease --
+# -- Step 5: Gradle bundleRelease + assembleRelease --
 Write-Host ""
-Write-Host "[3/4] Running Gradle bundleRelease (first run downloads Gradle ~200MB, takes a few minutes)..." -ForegroundColor Cyan
+Write-Host "[3/5] Running Gradle bundleRelease + assembleRelease..." -ForegroundColor Cyan
+Write-Host "      (first run downloads Gradle ~200MB, takes a few minutes)" -ForegroundColor Gray
 Push-Location $ANDROID_DIR
-.\gradlew.bat bundleRelease
+.\gradlew.bat bundleRelease assembleRelease
 if ($LASTEXITCODE -ne 0) { Write-Error "Gradle build failed"; exit 1 }
 Pop-Location
 
-# -- Step 6: Copy output .aab to store-releases/android/ --
+# -- Step 6: Copy AAB --
 Write-Host ""
-Write-Host "[4/4] Copying signed AAB to store-releases/android/..." -ForegroundColor Cyan
+Write-Host "[4/5] Copying signed AAB to store-releases/android/..." -ForegroundColor Cyan
 if (-not (Test-Path $OUTPUT_AAB)) {
     Write-Error ("Expected AAB not found at: " + $OUTPUT_AAB)
     exit 1
 }
 Copy-Item -Force $OUTPUT_AAB $DEST_AAB
+$AAB_SIZE = [math]::Round((Get-Item $DEST_AAB).Length / 1MB, 1)
+Write-Host ("  AAB: " + $DEST_AAB + " (" + $AAB_SIZE + " MB)") -ForegroundColor Green
+
+# -- Step 7: Copy APK --
+Write-Host ""
+Write-Host "[5/5] Copying signed APK to store-releases/android/..." -ForegroundColor Cyan
+if (-not (Test-Path $OUTPUT_APK)) {
+    Write-Error ("Expected APK not found at: " + $OUTPUT_APK)
+    exit 1
+}
+Copy-Item -Force $OUTPUT_APK $DEST_APK
+$APK_SIZE = [math]::Round((Get-Item $DEST_APK).Length / 1MB, 1)
+Write-Host ("  APK: " + $DEST_APK + " (" + $APK_SIZE + " MB)") -ForegroundColor Green
 
 # -- Done --
-$FILE_SIZE = [math]::Round((Get-Item $DEST_AAB).Length / 1MB, 1)
 Write-Host ""
 Write-Host "=================================================" -ForegroundColor Green
-Write-Host "  BUILD SUCCESSFUL" -ForegroundColor Green
+Write-Host "  BUILD SUCCESSFUL  --  v1.0.7 (versionCode 8)" -ForegroundColor Green
 Write-Host "=================================================" -ForegroundColor Green
-Write-Host ("  File : " + $DEST_AAB) -ForegroundColor Green
-Write-Host ("  Size : " + $FILE_SIZE + " MB") -ForegroundColor Green
 Write-Host ""
-Write-Host "  Next: Upload to Play Console" -ForegroundColor Yellow
-Write-Host "  https://play.google.com/console" -ForegroundColor Yellow
-Write-Host "  Production > Releases > Create new release > Upload AAB" -ForegroundColor Yellow
+Write-Host "  AAB  -> Upload to Play Console for production release" -ForegroundColor Yellow
+Write-Host "  APK  -> Direct install / sideload / EC2 download" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Play Console: https://play.google.com/console" -ForegroundColor Gray
+Write-Host "  Production > Releases > Create new release > Upload AAB" -ForegroundColor Gray
 Write-Host ""
