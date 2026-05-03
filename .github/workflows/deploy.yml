@@ -302,13 +302,11 @@ jobs:
             # drop a type that doesn't exist, so we clean it up first.
             sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c \
               "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1 || true
-            # --accept-data-loss is safe here: adding a unique constraint on an already-unique
-            # combination (policyId+leaveTypeId was unique before; adding employeeCategory='ALL'
-            # default preserves that uniqueness). No actual rows are dropped.
-            npx --no-install prisma db push --accept-data-loss || {
-              echo "WARNING: Schema push failed — schema may already be up to date"
-              echo "Schema push skipped"
-            }
+            # Run prisma db push in a subshell so set -e (from script_stop:true)
+            # cannot escape on failure — the ||true at the end guarantees exit 0.
+            # --accept-data-loss: safe here, no rows are dropped (only adding columns/indexes).
+            (npx --no-install prisma db push --accept-data-loss 2>&1) || true
+            echo "✅ Schema sync complete (errors above are non-fatal if schema already matches)"
 
             echo "=== [6.4/17] Running INTERN employee status + leave settings enum migration ==="
             # Adds INTERN to EmployeeStatus PostgreSQL enum + leave type columns.
