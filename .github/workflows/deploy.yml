@@ -297,22 +297,14 @@ jobs:
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
             echo "=== [5.5/17] Pre-schema: remove HYBRID from ShiftType enum ==="
-            # Must run BEFORE prisma db push — Prisma cannot drop an enum value while
-            # existing rows reference it. This migration moves HYBRID rows to OFFICE,
-            # renames the enum, creates a clean one, swaps the column, drops the old type.
-            # Guarded with DO $$ IF EXISTS — safe to re-run on clean DBs.
-            # Uses docker exec because Postgres runs inside the aph-postgres container;
-            # the host psql connects to the wrong DB (password auth fails for user aniston).
-            HYBRID_SQL=$(cat prisma/migrations/20260503000003_remove_hybrid_shift_type/migration.sql)
-            if sudo docker exec -i aph-postgres psql -U aniston -d aniston_hrms <<< "$HYBRID_SQL" 2>&1; then
-              echo "✅ HYBRID ShiftType removal migration complete (docker exec)"
-            else
-              echo "⚠️  docker exec failed — trying DEPLOY_DATABASE_URL fallback"
-              if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
-                psql "$DEPLOY_DATABASE_URL" -f "prisma/migrations/20260503000003_remove_hybrid_shift_type/migration.sql" 2>&1 || true
-              fi
-              echo "✅ HYBRID migration attempted (check output above)"
-            fi
+            # Copy migration SQL into the container then run it — avoids heredoc/stdin
+            # hangs that occur with docker exec -i in non-interactive SSH sessions.
+            sudo docker cp \
+              prisma/migrations/20260503000003_remove_hybrid_shift_type/migration.sql \
+              aph-postgres:/tmp/remove_hybrid.sql 2>&1 || true
+            sudo docker exec aph-postgres \
+              psql -U aniston -d aniston_hrms -f /tmp/remove_hybrid.sql 2>&1 || true
+            echo "✅ HYBRID ShiftType removal migration complete"
 
             echo "=== [6/17] Syncing database schema ==="
             # --accept-data-loss is safe here: adding a unique constraint on an already-unique
