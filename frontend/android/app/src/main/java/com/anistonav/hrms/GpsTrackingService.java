@@ -416,7 +416,11 @@ public class GpsTrackingService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
         Log.i(TAG, "onTaskRemoved — scheduling AlarmManager restart in 3s");
-        GpsRestartReceiver.scheduleRestart(this);
+        try {
+            GpsRestartReceiver.scheduleRestart(this);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to schedule GPS restart: " + e.getMessage());
+        }
     }
 
     @Override

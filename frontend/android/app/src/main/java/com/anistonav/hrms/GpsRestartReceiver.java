@@ -82,10 +82,27 @@ public class GpsRestartReceiver extends BroadcastReceiver {
         if (am == null) return;
 
         long triggerAt = System.currentTimeMillis() + 3_000L; // 3 seconds after removal
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
-        } else {
-            am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+: SCHEDULE_EXACT_ALARM requires runtime permission grant
+                if (am.canScheduleExactAlarms()) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                } else {
+                    // Permission not granted — fall back to inexact (fires within ~15s)
+                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            } else {
+                am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            }
+        } catch (SecurityException e) {
+            Log.w(TAG, "Exact alarm permission denied, falling back to inexact: " + e.getMessage());
+            try {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            } catch (Exception ex) {
+                Log.e(TAG, "Failed to schedule inexact alarm: " + ex.getMessage());
+            }
         }
         Log.d(TAG, "Scheduled GPS restart in 3s via AlarmManager");
     }

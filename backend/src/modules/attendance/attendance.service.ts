@@ -324,13 +324,19 @@ export class AttendanceService {
       const graceEnd = new Date(shiftStart);
       graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
 
-      // ===== PHASE 3: Early clock-in warning =====
+      // ===== PHASE 3: Early clock-in — hard block if more than 30 min before shift start =====
       if (!isReClockIn) {
-        const earlyThreshold = new Date(shiftStart);
-        earlyThreshold.setMinutes(earlyThreshold.getMinutes() - this.EARLY_CLOCKIN_WARNING_MINUTES);
-        if (istNow < earlyThreshold) {
-          const earlyMin = Math.round((shiftStart.getTime() - istNow.getTime()) / 60000);
-          data.notes = `${data.notes || ''} [Early clock-in: ${earlyMin} min before shift start ${shift.startTime}]`.trim();
+        const earlyMin = Math.round((shiftStart.getTime() - istNow.getTime()) / 60000);
+        if (earlyMin > 30) {
+          // Format shift start as 12-hour time for the error message
+          const fmtShift = (() => {
+            const h = shiftHour; const m = shiftMin;
+            return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+          })();
+          throw new BadRequestError(
+            `Check-in not allowed yet. Your shift (${shift.name}) starts at ${fmtShift}. ` +
+            `You can check in up to 30 minutes before your shift starts.`
+          );
         }
       }
 
@@ -563,7 +569,7 @@ export class AttendanceService {
     }
 
     const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
-    if (!isWfhShiftCheckout && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
+    if (!isWfhShiftCheckout && clockOutShiftType === 'OFFICE' && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
       if (!(data.accuracy && data.accuracy > 150)) {
         const gfCoords = geofenceForCheckout.coordinates as any;
         if (gfCoords?.lat && gfCoords?.lng) {
