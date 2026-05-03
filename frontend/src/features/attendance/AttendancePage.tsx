@@ -20,6 +20,7 @@ import {
   useGetAllAttendanceQuery,
   useSubmitRegularizationMutation,
   useGetMyShiftHistoryQuery,
+  useGetGPSConsentStatusQuery,
 } from './attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -499,6 +500,8 @@ function AttendancePersonalView() {
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const authUser = useAppSelector((state) => state.auth.user);
   const accessToken = useAppSelector((state) => state.auth.accessToken);
+  const { data: consentRes } = useGetGPSConsentStatusQuery();
+  const hasGpsConsent = consentRes?.data?.consented && consentRes?.data?.consentVersion === 'v1';
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
 
@@ -817,8 +820,10 @@ function AttendancePersonalView() {
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
       toast.success(t('attendance.checkedIn'));
-      // FIELD shift: start native background GPS service immediately after successful clock-in
-      if (isFieldShift && isNativeAndroid) {
+      // FIELD shift: start native background GPS service only when consent is already granted.
+      // If consent is missing, FieldSalesView (rendered below) will show the consent modal
+      // and start tracking after the employee accepts — no double-prompt needed here.
+      if (isFieldShift && isNativeAndroid && hasGpsConsent) {
         const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
         const intervalMins = (today?.shift as any)?.trackingIntervalMinutes;
         startNativeGpsService({

@@ -1,7 +1,8 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { MapPin, Clock, Edit2, Check, X, Navigation, AlertTriangle, Search, ChevronLeft, ChevronRight, Map } from 'lucide-react';
 import { useGetGeoLocationsQuery, useUpdateLocationVisitNameMutation } from '../attendanceApi';
 import { cn, formatDate } from '../../../lib/utils';
+import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 import toast from 'react-hot-toast';
 
 const MiniMap = lazy(() => import('./GeoLocationMiniMap'));
@@ -26,8 +27,18 @@ export default function GeoLocationsTab() {
   const [editValue, setEditValue] = useState('');
   const [mapPreview, setMapPreview] = useState<{ lat: number; lng: number; name: string } | null>(null);
 
-  const { data, isLoading } = useGetGeoLocationsQuery({ startDate, endDate, page, limit: 30 });
+  const { data, isLoading, refetch } = useGetGeoLocationsQuery({ startDate, endDate, page, limit: 30 });
   const [updateName] = useUpdateLocationVisitNameMutation();
+
+  // Live refresh: when a field employee uploads a GPS batch the backend emits
+  // gps:trail-updated via Socket.io — refetch so the table updates in real-time
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    onSocketEvent('gps:trail-updated', handler);
+    return () => offSocketEvent('gps:trail-updated', handler);
+  }, []);
 
   const visits: any[] = data?.data || [];
   const meta = data?.meta;

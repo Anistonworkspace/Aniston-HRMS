@@ -1662,16 +1662,29 @@ export class AttendanceService {
    * Get GPS consent status for an employee.
    */
   async getGPSConsentStatus(employeeId: string, organizationId: string) {
+    const today = getISTToday();
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
-      select: { locationTrackingConsented: true, locationTrackingConsentAt: true, locationTrackingConsentVersion: true, workMode: true },
+      select: {
+        locationTrackingConsented: true,
+        locationTrackingConsentAt: true,
+        locationTrackingConsentVersion: true,
+        workMode: true,
+        shiftAssignments: {
+          where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+          take: 1,
+          include: { shift: { select: { shiftType: true } } },
+          orderBy: { startDate: 'desc' },
+        },
+      },
     });
     if (!employee) throw new NotFoundError('Employee');
+    const shiftType = employee.shiftAssignments?.[0]?.shift?.shiftType;
     return {
       consented: employee.locationTrackingConsented,
       consentAt: employee.locationTrackingConsentAt,
       consentVersion: employee.locationTrackingConsentVersion,
-      isFieldEmployee: employee.workMode === 'FIELD_SALES',
+      isFieldEmployee: employee.workMode === 'FIELD_SALES' || shiftType === 'FIELD',
     };
   }
 
@@ -1752,35 +1765,38 @@ export class AttendanceService {
     const result: any[] = [];
 
     for (const v of rawVisits) {
-      if (v.durationMinutes >= SIGNIFICANT_MINUTES) {
-        // Check if already saved
-        const existing = await prisma.locationVisit.findFirst({
-          where: { attendanceId, latitude: v.lat, longitude: v.lng },
-        });
-        if (existing) {
-          result.push({ ...v, id: existing.id, locationName: existing.locationName, customName: existing.customName, isSignificant: true });
-          continue;
-        }
-        // Reverse geocode
-        const locationName = await this.reverseGeocode(v.lat, v.lng);
-        const saved = await prisma.locationVisit.create({
-          data: {
-            attendanceId,
-            organizationId: organizationId ?? null,
-            latitude: v.lat,
-            longitude: v.lng,
-            arrivalTime: new Date(v.startTime),
-            departureTime: new Date(v.endTime),
-            durationMinutes: v.durationMinutes,
-            pointCount: v.pointCount,
-            locationName,
-            isSignificant: true,
-          },
-        });
-        result.push({ ...v, id: saved.id, locationName: saved.locationName, customName: null, isSignificant: true });
-      } else {
-        result.push({ ...v, isSignificant: false });
+      const isSignificant = v.durationMinutes >= SIGNIFICANT_MINUTES;
+
+      // Check if already saved (match on attendanceId + arrival time to allow multiple stops per day)
+      const existing = await prisma.locationVisit.findFirst({
+        where: {
+          attendanceId,
+          arrivalTime: new Date(v.startTime),
+        },
+      });
+      if (existing) {
+        result.push({ ...v, id: existing.id, locationName: existing.locationName, customName: existing.customName, isSignificant: existing.isSignificant });
+        continue;
       }
+
+      // Reverse geocode only for significant stops (saves Nominatim quota)
+      const locationName = isSignificant ? await this.reverseGeocode(v.lat, v.lng) : null;
+
+      const saved = await prisma.locationVisit.create({
+        data: {
+          attendanceId,
+          organizationId: organizationId ?? null,
+          latitude: v.lat,
+          longitude: v.lng,
+          arrivalTime: new Date(v.startTime),
+          departureTime: new Date(v.endTime),
+          durationMinutes: v.durationMinutes,
+          pointCount: v.pointCount,
+          locationName,
+          isSignificant,
+        },
+      });
+      result.push({ ...v, id: saved.id, locationName: saved.locationName, customName: null, isSignificant });
     }
     return result;
   }
@@ -1811,17 +1827,14 @@ export class AttendanceService {
     const { startDate, endDate, employeeId, page = 1, limit = 50 } = params;
     const skip = (page - 1) * limit;
 
-    const start = startDate ? new Date(startDate + 'T00:00:00.000Z') : new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z');
-    const end = endDate ? new Date(endDate + 'T00:00:00.000Z') : start;
+    // Use IST offset (+05:30) so "2026-05-04" means IST midnight, not UTC midnight
+    const start = startDate ? new Date(startDate + 'T00:00:00+05:30') : new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) + 'T00:00:00+05:30');
+    const end = endDate ? new Date(endDate + 'T23:59:59+05:30') : new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
 
-    const where: any = {
-      organizationId,
-      attendance: {
-        date: { gte: start, lte: end },
-        workMode: 'FIELD_SALES',
-      },
-    };
-    if (employeeId) where.attendance = { ...where.attendance, employeeId };
+    const attendanceWhere: any = { date: { gte: start, lte: end } };
+    if (employeeId) attendanceWhere.employeeId = employeeId;
+
+    const where: any = { organizationId, attendance: attendanceWhere };
 
     const [visits, total] = await Promise.all([
       prisma.locationVisit.findMany({
