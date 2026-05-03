@@ -297,6 +297,11 @@ jobs:
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
             echo "=== [6/17] Syncing database schema ==="
+            # Drop ShiftType_old if it exists as a leftover from a previously
+            # interrupted ALTER TYPE migration — Prisma errors if it tries to
+            # drop a type that doesn't exist, so we clean it up first.
+            sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c \
+              "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1 || true
             # --accept-data-loss is safe here: adding a unique constraint on an already-unique
             # combination (policyId+leaveTypeId was unique before; adding employeeCategory='ALL'
             # default preserves that uniqueness). No actual rows are dropped.
