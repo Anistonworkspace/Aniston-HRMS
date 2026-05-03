@@ -25,7 +25,7 @@ import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
-import { startNativeGpsService, stopNativeGpsService, isNativeAndroid, isNativeGpsRunning } from '../../lib/capacitorGPS';
+import { startNativeGpsService, stopNativeGpsService, isNativeAndroid } from '../../lib/capacitorGPS';
 import CommandCenter from './components/CommandCenter';
 import RegularizationTab from './components/RegularizationTab';
 import SelfServiceReport from './components/SelfServiceReport';
@@ -499,8 +499,6 @@ function AttendancePersonalView() {
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const authUser = useAppSelector((state) => state.auth.user);
   const accessToken = useAppSelector((state) => state.auth.accessToken);
-  const [fieldGpsTracking, setFieldGpsTracking] = useState(false);
-  const [startingFieldGps, setStartingFieldGps] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
 
@@ -812,16 +810,26 @@ function AttendancePersonalView() {
   const doClockIn = async () => {
     if (actionLockRef.current) return;
     actionLockRef.current = true;
-    // Declare coords outside try so the catch block can include them in the offline queue
     let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
       coords = await getGPS();
-      if (coords === null) return; // location denied/off — toast already shown, never queue
+      if (coords === null) return;
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
       toast.success(t('attendance.checkedIn'));
+      // FIELD shift: start native background GPS service immediately after successful clock-in
+      if (isFieldShift && isNativeAndroid) {
+        const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
+        const intervalMins = (today?.shift as any)?.trackingIntervalMinutes;
+        startNativeGpsService({
+          backendUrl: backendBase,
+          authToken: accessToken || '',
+          employeeId: authUser?.employeeId || '',
+          orgId: authUser?.organizationId || '',
+          ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
+        }).catch((e: any) => console.warn('Native GPS service start failed:', e?.message));
+      }
     } catch (err: any) {
-      // Only queue offline if GPS was successfully obtained — never queue without location
       if (!navigator.onLine && coords) {
         const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
         enqueueAction('CLOCK_IN', { ...coords, source: 'MANUAL_APP', deviceType });
@@ -830,7 +838,7 @@ function AttendancePersonalView() {
       }
       toast.error(err?.data?.error?.message || t('attendance.failedClockIn'));
     } finally {
-      setTimeout(() => { actionLockRef.current = false; }, 2000); // 2s cooldown
+      setTimeout(() => { actionLockRef.current = false; }, 2000);
     }
   };
 
@@ -860,17 +868,20 @@ function AttendancePersonalView() {
   };
 
   const handleClockOut = async () => {
-    if (actionLockRef.current) return; // prevent double-tap
+    if (actionLockRef.current) return;
     actionLockRef.current = true;
     let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
       coords = await getGPS();
-      if (coords === null) return; // location denied/off — toast already shown, never queue
+      if (coords === null) return;
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockOut({ ...coords, deviceType }).unwrap();
       toast.success(t('attendance.checkedOut'));
+      // FIELD shift: stop native background GPS service after successful clock-out
+      if (isFieldShift && isNativeAndroid) {
+        stopNativeGpsService().catch((e: any) => console.warn('Native GPS service stop failed:', e?.message));
+      }
     } catch (err: any) {
-      // Only queue offline if GPS was successfully obtained — never queue without location
       if (!navigator.onLine && coords) {
         const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
         enqueueAction('CLOCK_OUT', { ...coords, deviceType });
@@ -879,7 +890,7 @@ function AttendancePersonalView() {
       }
       toast.error(err?.data?.error?.message || t('attendance.failedClockOut'));
     } finally {
-      setTimeout(() => { actionLockRef.current = false; }, 2000); // 2s cooldown
+      setTimeout(() => { actionLockRef.current = false; }, 2000);
     }
   };
 
@@ -958,44 +969,6 @@ function AttendancePersonalView() {
 
   // True when the employee is assigned to a FIELD shift (GPS-based live tracking)
   const isFieldShift = (today?.shift as any)?.shiftType === 'FIELD';
-
-  // On mount, sync fieldGpsTracking state with the native service (handles boot-restart case)
-  useEffect(() => {
-    if (!isNativeAndroid || !isFieldShift) return;
-    isNativeGpsRunning().then((running) => setFieldGpsTracking(running));
-  }, [isFieldShift]);
-
-  const handleFieldGpsCheckIn = async () => {
-    if (startingFieldGps) return;
-    setStartingFieldGps(true);
-    try {
-      const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
-      const intervalMins = (today?.shift as any)?.trackingIntervalMinutes;
-      await startNativeGpsService({
-        backendUrl: backendBase,
-        authToken: accessToken || '',
-        employeeId: authUser?.employeeId || '',
-        orgId: authUser?.organizationId || '',
-        ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
-      });
-      setFieldGpsTracking(true);
-      toast.success('GPS tracking started — your location is being recorded');
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to start GPS tracking');
-    } finally {
-      setStartingFieldGps(false);
-    }
-  };
-
-  const handleFieldGpsCheckOut = async () => {
-    try {
-      await stopNativeGpsService();
-      setFieldGpsTracking(false);
-      toast.success('GPS tracking stopped');
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to stop GPS tracking');
-    }
-  };
 
   // Desktop users skip all location gates — they see status-only UI
   // Employee-level permission gate (canViewAttendanceHistory)
@@ -1156,8 +1129,8 @@ function AttendancePersonalView() {
       )}
       <h1 className="text-xl font-display font-bold text-gray-900 mb-3">{t('nav.attendance')}</h1>
 
-      {/* Field Sales: Live Tracking View */}
-      {workMode === 'FIELD_SALES' && (
+      {/* Field Sales: Live Tracking View — shown for FIELD shift employees regardless of today's recorded workMode */}
+      {(workMode === 'FIELD_SALES' || isFieldShift) && (
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="badge badge-info text-xs">Field Sales</span>
@@ -1291,7 +1264,7 @@ function AttendancePersonalView() {
 
             {/* Desktop: no marking allowed — show app download prompt */}
             {isDesktop ? (
-              workMode === 'FIELD_SALES' ? (
+              (workMode === 'FIELD_SALES' || isFieldShift) ? (
                 <div className="mt-2 p-3 bg-orange-50 rounded-xl border border-orange-200 text-left">
                   <p className="text-xs font-semibold text-orange-800 mb-1 flex items-center gap-1.5">
                     <MapPin size={11} /> Field GPS requires the mobile app
@@ -1331,8 +1304,9 @@ function AttendancePersonalView() {
               )
             ) : (
               <>
-                {/* GPS readiness badge — shown above action buttons so employee knows signal quality */}
-                {(() => {
+                {/* GPS readiness badge — only for OFFICE shifts (geofence required).
+                    FIELD shift employees can check in from anywhere, no radius to show. */}
+                {!isFieldShift && (() => {
                   const readiness = gpsReadinessFrom(gpsAccuracy);
                   const badge: Record<GpsReadiness, { dot: string; label: string; text: string }> = {
                     acquiring: { dot: 'bg-gray-400 animate-pulse', label: 'Acquiring GPS…',   text: 'text-gray-500' },
@@ -1349,51 +1323,21 @@ function AttendancePersonalView() {
                   );
                 })()}
 
-                {/* Main CTA button */}
+                {/* For FIELD shift: show a small "live tracking" indicator above buttons */}
+                {isFieldShift && (
+                  <div className="flex items-center justify-center gap-1.5 text-xs font-medium mb-3 text-orange-500">
+                    <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                    Live GPS Tracking shift
+                  </div>
+                )}
+
+                {/* Permission gate */}
                 {!perms.canMarkAttendance && (
                   <PermDenied action="mark attendance" inline />
                 )}
 
-                {/* FIELD shift: single GPS Check In / Stop Tracking button */}
-                {perms.canMarkAttendance && isFieldShift && (
-                  <div className="space-y-2">
-                    {!fieldGpsTracking ? (
-                      <motion.button
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.97 }}
-                        onClick={handleFieldGpsCheckIn}
-                        disabled={startingFieldGps}
-                        className="w-full bg-orange-600 hover:bg-orange-500 text-white py-3 md:py-4 rounded-xl font-semibold text-sm md:text-lg flex items-center justify-center gap-2 md:gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-orange-200"
-                      >
-                        {startingFieldGps ? (
-                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <Navigation size={20} />
-                        )}
-                        Start GPS Tracking
-                      </motion.button>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-orange-50 border border-orange-200 rounded-xl">
-                          <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                          <span className="text-sm font-medium text-orange-700">GPS Tracking Active</span>
-                        </div>
-                        <motion.button
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={handleFieldGpsCheckOut}
-                          className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <LogOut size={16} />
-                          Stop Tracking
-                        </motion.button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Normal office check-in — hidden for FIELD shifts */}
-                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && !isFieldShift && (
+                {/* Check In button — same for all shift types */}
+                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && (
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
@@ -1410,7 +1354,8 @@ function AttendancePersonalView() {
                   </motion.button>
                 )}
 
-                {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && !isFieldShift && (
+                {/* Break + Check Out block — same for all shift types */}
+                {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && workMode !== 'FIELD_SALES' && (
                   <div className="space-y-1.5">
                     {/* Break controls */}
                     {today?.isOnBreak ? (
