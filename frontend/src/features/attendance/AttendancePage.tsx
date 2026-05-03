@@ -1602,21 +1602,11 @@ function AttendancePersonalView() {
         <SelfServiceReport />
       </motion.div>
 
-      {/* Comp-Off Credits */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25 }}
-        className="mt-4"
-      >
-        <CompOffTab />
-      </motion.div>
-
       {/* My Shifts History */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: 0.25 }}
         className="mt-4"
       >
         <MyShiftsSection />
@@ -1733,7 +1723,7 @@ function AttendancePersonalView() {
    MY SHIFTS HISTORY SECTION
    ============================================================================= */
 function MyShiftsSection() {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const { data, isLoading } = useGetMyShiftHistoryQuery();
   const shifts: any[] = data?.data || [];
 
