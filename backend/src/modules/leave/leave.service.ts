@@ -1420,7 +1420,17 @@ export class LeaveService {
       },
     });
     if (!request) throw new NotFoundError('Leave request');
-    return request;
+
+    // Resolve backup employee name if set
+    let backupEmployee: { id: string; firstName: string; lastName: string; employeeCode: string } | null = null;
+    if (request.backupEmployeeId) {
+      backupEmployee = await prisma.employee.findFirst({
+        where: { id: request.backupEmployeeId },
+        select: { id: true, firstName: true, lastName: true, employeeCode: true },
+      });
+    }
+
+    return { ...request, backupEmployee };
   }
 
   /**

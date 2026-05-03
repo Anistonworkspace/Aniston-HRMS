@@ -6,7 +6,6 @@ import {
   Search, FileText, ThumbsUp, ThumbsDown, Pencil, Trash2, Loader2,
   Users, ChevronRight, TrendingUp, Info, SlidersHorizontal,
 } from 'lucide-react';
-import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
   useGetLeaveBalancesQuery,
   useGetLeaveTypesQuery,

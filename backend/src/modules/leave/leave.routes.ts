@@ -456,7 +456,7 @@ router.get(
 );
 
 // Leave policies CRUD
-router.get('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/policies', async (req, res, next) => {
   try {
     const { leavePolicyService } = await import('./leave-policy.service.js');
     const policy = await leavePolicyService.getOrCreateDefaultPolicy(req.user!.organizationId);

@@ -49,6 +49,14 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
   const audit = data.taskAudits?.[0] || null;
   const isHighRisk = data.riskLevel === 'HIGH' || data.riskLevel === 'CRITICAL';
 
+  // Backup employee display name from joined data
+  const backupEmployee = (data as any).backupEmployee;
+  const backupDisplayName = backupEmployee
+    ? `${backupEmployee.firstName} ${backupEmployee.lastName} (${backupEmployee.employeeCode})`
+    : data.backupEmployeeId
+      ? data.backupEmployeeId
+      : undefined;
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl" style={{ maxHeight: 'min(90dvh, calc(100dvh - 1rem))' }}>
@@ -146,7 +154,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
             <HandoverSection
               handovers={data.handovers || []}
               editable={false}
-              backupEmployeeId={data.backupEmployeeId}
+              backupEmployeeId={backupDisplayName}
               handoverNotes={data.handoverNotes}
             />
           </div>

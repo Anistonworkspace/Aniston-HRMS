@@ -697,23 +697,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* MFA setup reminder for employees who skipped during onboarding */}
-            {!mfaStatus?.data?.isEnabled && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-3">
-                <ShieldOff size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-amber-800">Two-Factor Authentication not set up</p>
-                  <p className="text-xs text-amber-700 mt-0.5">Enable MFA to protect your account with an extra layer of security. Use the "Set Up" button below.</p>
-                </div>
-                <button
-                  onClick={() => setShowMfaSetup(true)}
-                  className="text-xs text-amber-700 font-semibold border border-amber-300 bg-amber-100 hover:bg-amber-200 px-2.5 py-1.5 rounded-lg transition-colors shrink-0"
-                >
-                  Set Up Now
-                </button>
-              </div>
-            )}
-
             {/* MFA Row */}
             <div className="flex items-center justify-between gap-3 py-3 px-4 bg-surface-2 rounded-lg">
               <div className="flex items-center gap-3 min-w-0 flex-1">

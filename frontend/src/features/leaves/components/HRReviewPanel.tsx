@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield, AlertCircle, Star, BarChart2, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield, AlertCircle, BarChart2, ChevronDown, ChevronUp, ListTodo, Zap } from 'lucide-react';
 import { useGetHrReviewQuery, useHandleLeaveActionMutation } from '../leaveApi';
 import { useGetPerformanceSummaryQuery } from '../../performance/performanceApi';
 import TaskAuditPanel from './TaskAuditPanel';
@@ -18,7 +18,7 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
   const [remarks, setRemarks] = useState('');
   const [conditionNote, setConditionNote] = useState('');
   const [showCondition, setShowCondition] = useState(false);
-  const [showPerfSnapshot, setShowPerfSnapshot] = useState(true);
+  const [showTaskPanel, setShowTaskPanel] = useState(true);
 
   const data = res?.data;
 
@@ -54,6 +54,14 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
   const { compliance } = data;
   const employeeId = data.employeeId as string | undefined;
 
+  // Backup employee display name from joined data
+  const backupEmployee = (data as any).backupEmployee;
+  const backupDisplayName = backupEmployee
+    ? `${backupEmployee.firstName} ${backupEmployee.lastName} (${backupEmployee.employeeCode})`
+    : data.backupEmployeeId
+      ? data.backupEmployeeId
+      : undefined;
+
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl" style={{ maxHeight: 'min(90dvh, calc(100dvh - 1rem))' }}>
@@ -64,10 +72,10 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
         </div>
 
         {/* Content */}
-        <div className="px-6 py-4 overflow-y-auto flex-1 space-y-5">
+        <div className="px-6 py-4 overflow-y-auto flex-1 space-y-4">
           {/* Employee Header */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm overflow-hidden">
+            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm overflow-hidden shrink-0">
               {data.employee?.avatar
                 ? <img src={getUploadUrl(data.employee.avatar)} className="w-full h-full object-cover" />
                 : getInitials(data.employee?.firstName, data.employee?.lastName)}
@@ -77,16 +85,6 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
               <p className="text-xs text-gray-400">{data.employee?.employeeCode} · {data.employee?.department?.name || ''}</p>
             </div>
           </div>
-
-          {/* Performance Snapshot */}
-          {employeeId && (
-            <PerformanceSnapshot
-              employeeId={employeeId}
-              leaveTypeName={data.leaveType?.name}
-              expanded={showPerfSnapshot}
-              onToggle={() => setShowPerfSnapshot((v) => !v)}
-            />
-          )}
 
           {/* Leave Summary */}
           <div className="layer-card p-4">
@@ -158,7 +156,17 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
             </div>
           )}
 
-          {/* Task Risk */}
+          {/* Task Health Panel */}
+          {employeeId && (
+            <TaskHealthPanel
+              employeeId={employeeId}
+              leaveTypeName={data.leaveType?.name}
+              expanded={showTaskPanel}
+              onToggle={() => setShowTaskPanel((v) => !v)}
+            />
+          )}
+
+          {/* Task Risk (from leave audit) */}
           {audit && (
             <div className="layer-card p-4">
               <h4 className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
@@ -173,7 +181,7 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
             <HandoverSection
               handovers={data.handovers || []}
               editable={false}
-              backupEmployeeId={data.backupEmployeeId}
+              backupEmployeeId={backupDisplayName}
               handoverNotes={data.handoverNotes}
             />
           </div>
@@ -206,10 +214,9 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
           )}
         </div>
 
-        {/* Actions — status-aware */}
+        {/* Actions */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-2 shrink-0 flex-wrap">
           {(data.status === 'APPROVED' || data.status === 'APPROVED_WITH_CONDITION') ? (
-            /* ── Revoke mode: leave already approved, HR can revoke it ── */
             <>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-emerald-700 flex items-center gap-1.5">
@@ -229,7 +236,6 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
               {acting && <Loader2 size={16} className="animate-spin text-gray-400 ml-2" />}
             </>
           ) : (
-            /* ── Normal mode: PENDING or MANAGER_APPROVED ── */
             <>
               <button
                 onClick={() => onAction('APPROVED')}
@@ -265,8 +271,8 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
   );
 }
 
-// ── Performance Snapshot (inside HR Review) ───────────────────────────
-function PerformanceSnapshot({
+// ── Task Health Panel ─────────────────────────────────────────────────────────
+function TaskHealthPanel({
   employeeId, leaveTypeName, expanded, onToggle,
 }: { employeeId: string; leaveTypeName?: string; expanded: boolean; onToggle: () => void }) {
   const { data: perfRes, isLoading } = useGetPerformanceSummaryQuery(
@@ -275,11 +281,17 @@ function PerformanceSnapshot({
   );
   const perf = perfRes?.data;
 
-  const scoreColor = !perf ? '' :
-    perf.scores.overall >= 75 ? 'text-emerald-600' :
-    perf.scores.overall >= 60 ? 'text-amber-600' : 'text-red-500';
+  const taskScore = perf?.scores?.taskHealth ?? null;
+  const scoreColor =
+    taskScore === null ? 'text-gray-400' :
+    taskScore >= 75 ? 'text-emerald-600' :
+    taskScore >= 50 ? 'text-amber-600' : 'text-red-500';
 
-  // Find the balance for the specific leave type being requested
+  const scoreBg =
+    taskScore === null ? 'bg-gray-100' :
+    taskScore >= 75 ? 'bg-emerald-50 border-emerald-200' :
+    taskScore >= 50 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+
   const requestedBalance = leaveTypeName && perf
     ? (perf.leaves.byType as any[]).find((b: any) =>
         b.typeName?.toLowerCase() === leaveTypeName.toLowerCase()
@@ -293,115 +305,121 @@ function PerformanceSnapshot({
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <BarChart2 size={14} className="text-brand-500" />
-          <span className="text-xs font-semibold text-gray-700">Employee Performance Snapshot</span>
+          <ListTodo size={14} className="text-brand-500" />
+          <span className="text-xs font-semibold text-gray-700">Task Health</span>
           {isLoading && <Loader2 size={12} className="animate-spin text-gray-400" />}
-          {perf && (
+          {taskScore !== null && !isLoading && (
             <span className={cn('text-xs font-bold font-mono ml-1', scoreColor)} data-mono>
-              {perf.scores.overall}/100
+              {taskScore}/100
             </span>
           )}
         </div>
         {expanded ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
       </button>
 
-      {expanded && perf && (
+      {expanded && (
         <div className="px-4 pb-4 space-y-3 border-t border-gray-100">
-          {/* Rating */}
-          <div className="flex items-center gap-3 pt-3">
-            <div className="flex items-center gap-1">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Star key={s} size={14}
-                  className={s <= perf.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-200'} />
-              ))}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 size={18} className="animate-spin text-gray-300" />
             </div>
-            <span className="text-xs font-medium text-gray-600">{perf.ratingLabel}</span>
-          </div>
-
-          {/* Score grid */}
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: 'Goal Completion', sub: `${perf.goals.completed}/${perf.goals.total} goals`, value: perf.scores.goalCompletion, color: 'text-brand-600' },
-              { label: 'Leave Discipline', sub: 'Notice & frequency', value: perf.scores.leaveDiscipline, color: 'text-emerald-600' },
-              { label: 'Work Continuity', sub: 'Attendance consistency', value: perf.scores.workContinuity, color: 'text-blue-600' },
-              { label: 'Task Health', sub: perf.tasks.configured ? `${perf.tasks.overdue} overdue` : 'Integration off', value: perf.scores.taskHealth, color: 'text-amber-600' },
-            ].map(({ label, sub, value, color }) => (
-              <div key={label} className="bg-gray-50 rounded-lg p-2">
-                <p className="text-[10px] text-gray-500">{label}</p>
-                <p className={cn('text-base font-bold font-mono', color)} data-mono>{value}</p>
-                <p className="text-[9px] text-gray-400 mt-0.5">{sub}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Requested leave type balance — highlighted */}
-          {requestedBalance ? (
-            <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2">
-              <div className="flex items-center justify-between text-xs mb-1">
-                <span className="font-medium text-brand-700">{requestedBalance.typeName} balance</span>
-                <span className={cn('font-bold font-mono', requestedBalance.remaining > 0 ? 'text-emerald-600' : 'text-red-500')} data-mono>
-                  {requestedBalance.remaining} days left
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] text-gray-500">
-                <span>Allocated: {requestedBalance.allocated}</span>
-                <span>Used: {requestedBalance.used}</span>
-                {requestedBalance.pending > 0 && <span>Pending: {requestedBalance.pending}</span>}
-                {requestedBalance.carriedForward > 0 && <span>Carried fwd: {requestedBalance.carriedForward}</span>}
-              </div>
+          ) : !perf ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2 mt-3">
+              <AlertCircle size={11} />
+              <span>Performance data unavailable</span>
             </div>
           ) : (
-            <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-              <span>Leaves taken ({new Date().getFullYear()})</span>
-              <span className="font-bold font-mono text-gray-700" data-mono>
-                {perf.leaves.totalUsed} / {perf.leaves.totalAllocated} days
-              </span>
-            </div>
-          )}
+            <>
+              {/* Task Health Score Card */}
+              <div className={cn('mt-3 border rounded-xl p-4 flex items-center gap-4', scoreBg)}>
+                <div className="flex-1">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium mb-1">Task Health Score</p>
+                  <p className={cn('text-3xl font-bold font-mono', scoreColor)} data-mono>
+                    {taskScore ?? '—'}<span className="text-sm text-gray-400 font-normal">/100</span>
+                  </p>
+                </div>
+                <div className="text-right space-y-1">
+                  {perf.tasks.configured ? (
+                    <>
+                      <div className="flex items-center gap-1.5 justify-end">
+                        <span className="text-xs text-gray-500">Total tasks</span>
+                        <span className="text-xs font-bold font-mono text-gray-800" data-mono>{perf.tasks.total}</span>
+                      </div>
+                      {perf.tasks.overdue > 0 && (
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <span className="text-[11px] text-red-500">Overdue</span>
+                          <span className="text-xs font-bold font-mono text-red-600" data-mono>{perf.tasks.overdue}</span>
+                        </div>
+                      )}
+                      {perf.tasks.provider && (
+                        <span className="text-[10px] bg-white/70 text-gray-500 px-1.5 py-0.5 rounded font-mono capitalize border border-gray-200 inline-block">
+                          {perf.tasks.provider}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-[11px] text-gray-400">Integration off</span>
+                  )}
+                </div>
+              </div>
 
-          {/* All leave types compact list */}
-          {(perf.leaves.byType as any[]).length > 0 && (
-            <div className="space-y-1">
-              {(perf.leaves.byType as any[]).map((b: any) => (
-                <div key={b.typeId} className="flex items-center justify-between text-[10px] text-gray-500 px-1">
-                  <span>{b.typeName}</span>
-                  <span className="font-mono" data-mono>
-                    {b.used} used · <span className={b.remaining > 0 ? 'text-emerald-600' : 'text-red-500'}>{b.remaining} left</span>
+              {/* Task integration status */}
+              {!perf.tasks.configured ? (
+                <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                  <AlertCircle size={11} />
+                  <span>Task integration not configured — ask admin to set up in Settings</span>
+                </div>
+              ) : perf.tasks.fetchError ? (
+                <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                  <AlertTriangle size={11} />
+                  <span>Could not fetch tasks — check integration config in Settings</span>
+                </div>
+              ) : perf.tasks.total === 0 ? (
+                <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                  <Zap size={11} />
+                  <span>No active tasks found for this employee in the connected tool</span>
+                </div>
+              ) : null}
+
+              {/* Leave balance for requested type */}
+              {requestedBalance ? (
+                <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-medium text-brand-700">{requestedBalance.typeName} balance</span>
+                    <span className={cn('font-bold font-mono', requestedBalance.remaining > 0 ? 'text-emerald-600' : 'text-red-500')} data-mono>
+                      {requestedBalance.remaining} days left
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] text-gray-500">
+                    <span>Allocated: {requestedBalance.allocated}</span>
+                    <span>Used: {requestedBalance.used}</span>
+                    {requestedBalance.pending > 0 && <span>Pending: {requestedBalance.pending}</span>}
+                    {requestedBalance.carriedForward > 0 && <span>Carried fwd: {requestedBalance.carriedForward}</span>}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                  <span>Leaves taken ({new Date().getFullYear()})</span>
+                  <span className="font-bold font-mono text-gray-700" data-mono>
+                    {perf.leaves.totalUsed} / {perf.leaves.totalAllocated} days
                   </span>
                 </div>
-              ))}
-            </div>
-          )}
+              )}
 
-          {/* Task integration status */}
-          {!perf.tasks.configured ? (
-            <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-              <AlertCircle size={11} />
-              <span>Task integration not configured — set up in Settings</span>
-            </div>
-          ) : perf.tasks.fetchError ? (
-            <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-              <AlertTriangle size={11} />
-              <span>Could not fetch tasks — check integration config in Settings</span>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-              <span className="flex items-center gap-1">
-                Active tasks
-                {perf.tasks.provider && (
-                  <span className="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono capitalize">{perf.tasks.provider}</span>
-                )}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="font-bold font-mono text-gray-700" data-mono>{perf.tasks.total}</span>
-                {perf.tasks.overdue > 0 && (
-                  <span className="text-red-500 text-[10px]">{perf.tasks.overdue} overdue</span>
-                )}
-                {perf.tasks.total === 0 && (
-                  <span className="text-gray-400 text-[10px]">none found for this employee</span>
-                )}
-              </div>
-            </div>
+              {/* All leave types compact list */}
+              {(perf.leaves.byType as any[]).length > 0 && (
+                <div className="space-y-1">
+                  {(perf.leaves.byType as any[]).map((b: any) => (
+                    <div key={b.typeId} className="flex items-center justify-between text-[10px] text-gray-500 px-1">
+                      <span>{b.typeName}</span>
+                      <span className="font-mono" data-mono>
+                        {b.used} used · <span className={b.remaining > 0 ? 'text-emerald-600' : 'text-red-500'}>{b.remaining} left</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

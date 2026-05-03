@@ -4,7 +4,7 @@ import {
   Target, TrendingUp, Star, Plus, CheckCircle, Clock, AlertCircle,
   X, Loader2, ChevronRight, Zap, AlertTriangle, BarChart2,
   CalendarDays, Award, ShieldCheck, Activity, Users, Briefcase,
-  ArrowUp, ArrowDown, Minus, ExternalLink,
+  ArrowUp, ArrowDown, Minus, ExternalLink, ListTodo,
 } from 'lucide-react';
 import {
   useGetPerformanceSummaryQuery,
@@ -104,9 +104,9 @@ export default function PerformancePage() {
 
   const summaryParams = selectedEmployeeId ? { employeeId: selectedEmployeeId } : undefined;
   const { data: summaryRes, isLoading, isError, refetch } = useGetPerformanceSummaryQuery(summaryParams as any);
-  const { data: goalsRes } = useGetGoalsQuery(summaryParams);
-  const { data: reviewsRes } = useGetReviewsQuery(summaryParams);
-  const { data: cyclesRes } = useGetCyclesQuery();
+  const { data: goalsRes } = useGetGoalsQuery(summaryParams, { skip: !isAdmin });
+  const { data: reviewsRes } = useGetReviewsQuery(summaryParams, { skip: !isAdmin });
+  const { data: cyclesRes } = useGetCyclesQuery(undefined, { skip: !isAdmin });
   const [updateGoal] = useUpdateGoalMutation();
 
   const { data: employeesRes } = useGetEmployeesQuery({ limit: 200 }, { skip: !isAdmin });
@@ -152,13 +152,19 @@ export default function PerformancePage() {
     );
   }
 
-  const tabs = [
-    { key: 'overview', label: 'Overview', icon: BarChart2 },
-    { key: 'tasks', label: `Tasks${summary.tasks.total > 0 ? ` (${summary.tasks.total})` : ''}`, icon: Briefcase },
-    { key: 'leaves', label: 'Leaves', icon: CalendarDays },
-    { key: 'goals', label: `Goals (${summary.goals.total})`, icon: Target },
-    { key: 'reviews', label: 'Reviews', icon: Star },
-  ] as const;
+  // Admin sees all tabs; employees see only task-focused tabs
+  const tabs = isAdmin
+    ? [
+        { key: 'overview', label: 'Overview', icon: BarChart2 },
+        { key: 'tasks', label: `Tasks${summary.tasks.total > 0 ? ` (${summary.tasks.total})` : ''}`, icon: Briefcase },
+        { key: 'leaves', label: 'Leaves', icon: CalendarDays },
+        { key: 'goals', label: `Goals (${summary.goals.total})`, icon: Target },
+        { key: 'reviews', label: 'Reviews', icon: Star },
+      ] as const
+    : [
+        { key: 'overview', label: 'Overview', icon: BarChart2 },
+        { key: 'tasks', label: `Tasks${summary.tasks.total > 0 ? ` (${summary.tasks.total})` : ''}`, icon: Briefcase },
+      ] as const;
 
   return (
     <div className="page-container">
@@ -167,87 +173,76 @@ export default function PerformancePage() {
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Performance</h1>
           <p className="text-gray-500 text-sm mt-0.5">
-            {isAdmin ? `Viewing: ${viewingName}` : 'Your performance dashboard'}
+            {isAdmin ? `Viewing: ${viewingName}` : 'Your task health & performance'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <select
-              value={selectedEmployeeId}
-              onChange={(e) => setSelectedEmployeeId(e.target.value)}
-              className="input-glass text-sm max-w-[200px]"
-            >
-              <option value="">Myself (default)</option>
-              {employees.map((emp: any) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.firstName} {emp.lastName}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                value={selectedEmployeeId}
+                onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                className="input-glass text-sm max-w-[200px]"
+              >
+                <option value="">Myself (default)</option>
+                {employees.map((emp: any) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.firstName} {emp.lastName}
+                  </option>
+                ))}
+              </select>
+              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                onClick={() => setShowCreateGoal(true)}
+                className="btn-primary flex items-center gap-2 text-sm">
+                <Plus size={16} /> Add Goal
+              </motion.button>
+            </>
           )}
-          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-            onClick={() => setShowCreateGoal(true)}
-            className="btn-primary flex items-center gap-2 text-sm">
-            <Plus size={16} /> Add Goal
-          </motion.button>
         </div>
       </div>
 
-      {/* Score Hero Card */}
-      <div className="layer-card p-6 mb-5 bg-gradient-to-br from-indigo-50/60 via-white to-emerald-50/40">
-        <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
-          {/* Gauge */}
-          <div className="relative flex-shrink-0">
-            <ScoreGauge score={summary.scores.overall} size={148} />
-            <div className="absolute inset-0 flex flex-col items-center justify-center rotate-0">
-              <span className="text-3xl font-bold font-mono text-gray-900" data-mono>
-                {summary.scores.overall}
-              </span>
-              <span className="text-xs text-gray-400 font-medium">/100</span>
+      {/* Hero Card — task-focused for employees, full score for admins */}
+      {isAdmin ? (
+        <div className="layer-card p-6 mb-5 bg-gradient-to-br from-indigo-50/60 via-white to-emerald-50/40">
+          <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+            <div className="relative flex-shrink-0">
+              <ScoreGauge score={summary.scores.overall} size={148} />
+              <div className="absolute inset-0 flex flex-col items-center justify-center rotate-0">
+                <span className="text-3xl font-bold font-mono text-gray-900" data-mono>
+                  {summary.scores.overall}
+                </span>
+                <span className="text-xs text-gray-400 font-medium">/100</span>
+              </div>
             </div>
-          </div>
-
-          {/* Rating + Label */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-1">
-              <StarRating rating={summary.rating} size={22} />
-              <span className="text-lg font-semibold text-gray-800">{summary.ratingLabel}</span>
-            </div>
-            <p className="text-sm text-gray-500 mb-4">
-              {summary.employee.designation && `${summary.employee.designation} · `}
-              {summary.employee.department && `${summary.employee.department} · `}
-              {new Date().getFullYear()} performance score
-            </p>
-
-            {/* Score breakdown mini cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <ScoreBreakdownCard
-                label="Goals" score={summary.scores.goalCompletion}
-                icon={<Target size={13} />} color="brand"
-              />
-              <ScoreBreakdownCard
-                label="Leave Discipline" score={summary.scores.leaveDiscipline}
-                icon={<ShieldCheck size={13} />} color="emerald"
-              />
-              <ScoreBreakdownCard
-                label="Work Continuity" score={summary.scores.workContinuity}
-                icon={<Activity size={13} />} color="blue"
-              />
-              <ScoreBreakdownCard
-                label="Task Health" score={summary.scores.taskHealth}
-                icon={<Zap size={13} />} color="amber"
-              />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 mb-1">
+                <StarRating rating={summary.rating} size={22} />
+                <span className="text-lg font-semibold text-gray-800">{summary.ratingLabel}</span>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">
+                {summary.employee.designation && `${summary.employee.designation} · `}
+                {summary.employee.department && `${summary.employee.department} · `}
+                {new Date().getFullYear()} performance score
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <ScoreBreakdownCard label="Goals" score={summary.scores.goalCompletion} icon={<Target size={13} />} color="brand" />
+                <ScoreBreakdownCard label="Leave Discipline" score={summary.scores.leaveDiscipline} icon={<ShieldCheck size={13} />} color="emerald" />
+                <ScoreBreakdownCard label="Work Continuity" score={summary.scores.workContinuity} icon={<Activity size={13} />} color="blue" />
+                <ScoreBreakdownCard label="Task Health" score={summary.scores.taskHealth} icon={<Zap size={13} />} color="amber" />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <EmployeeTaskHeroCard summary={summary} />
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-gray-100 overflow-x-auto no-scrollbar">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
-            onClick={() => setActiveTab(key)}
+            onClick={() => setActiveTab(key as any)}
             className={cn(
               'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
               activeTab === key
@@ -270,26 +265,208 @@ export default function PerformancePage() {
           transition={{ duration: 0.15 }}
         >
           {activeTab === 'overview' && (
-            <OverviewTab summary={summary} goals={goals} reviews={reviews} cycles={cycles} />
+            isAdmin
+              ? <OverviewTab summary={summary} goals={goals} reviews={reviews} cycles={cycles} />
+              : <EmployeeOverviewTab summary={summary} />
           )}
           {activeTab === 'tasks' && <TasksTab tasks={summary.tasks} />}
-          {activeTab === 'leaves' && <LeavesTab leaves={summary.leaves} />}
-          {activeTab === 'goals' && (
+          {activeTab === 'leaves' && isAdmin && <LeavesTab leaves={summary.leaves} />}
+          {activeTab === 'goals' && isAdmin && (
             <GoalsTab goals={goals} summary={summary.goals} onStatusChange={handleGoalStatus} />
           )}
-          {activeTab === 'reviews' && <ReviewsTab reviews={reviews} cycles={cycles} />}
+          {activeTab === 'reviews' && isAdmin && <ReviewsTab reviews={reviews} cycles={cycles} />}
         </motion.div>
       </AnimatePresence>
 
-      {/* Create Goal Modal */}
+      {/* Create Goal Modal — admin only */}
       <AnimatePresence>
-        {showCreateGoal && (
+        {showCreateGoal && isAdmin && (
           <CreateGoalModal
             onClose={() => setShowCreateGoal(false)}
             employeeId={summary?.employee?.id || ''}
           />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Employee Task Hero Card ───────────────────────────────────────────
+function EmployeeTaskHeroCard({ summary }: { summary: any }) {
+  const score = summary.scores.taskHealth;
+  const scoreColor = score >= 75 ? 'text-emerald-600' : score >= 50 ? 'text-amber-600' : 'text-red-500';
+  const scoreBg = score >= 75
+    ? 'from-emerald-50/70 via-white to-emerald-50/30'
+    : score >= 50
+    ? 'from-amber-50/70 via-white to-amber-50/30'
+    : 'from-red-50/70 via-white to-red-50/30';
+  const gaugeColor = score >= 75 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div className={cn('layer-card p-6 mb-5 bg-gradient-to-br', scoreBg)}>
+      <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+        {/* Gauge — task health only */}
+        <div className="relative flex-shrink-0">
+          <ScoreGauge score={score} size={148} />
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className={cn('text-3xl font-bold font-mono', scoreColor)} data-mono>{score}</span>
+            <span className="text-xs text-gray-400 font-medium">/100</span>
+          </div>
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <Zap size={18} className="text-amber-500" />
+            <span className="text-lg font-semibold text-gray-800">Task Health Score</span>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            {summary.employee.designation && `${summary.employee.designation} · `}
+            {summary.employee.department && `${summary.employee.department} · `}
+            {new Date().getFullYear()}
+          </p>
+
+          {/* Task summary stats */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <div className="bg-white/70 rounded-xl p-3 border border-white/80">
+              <p className="text-xs text-gray-500 mb-0.5">Active Tasks</p>
+              <p className="text-xl font-bold font-mono text-blue-600" data-mono>{summary.tasks.total}</p>
+            </div>
+            <div className="bg-white/70 rounded-xl p-3 border border-white/80">
+              <p className="text-xs text-gray-500 mb-0.5">Overdue</p>
+              <p className={cn('text-xl font-bold font-mono', summary.tasks.overdue > 0 ? 'text-red-600' : 'text-emerald-600')} data-mono>
+                {summary.tasks.overdue}
+              </p>
+            </div>
+            <div className="bg-white/70 rounded-xl p-3 border border-white/80">
+              <p className="text-xs text-gray-500 mb-0.5">Critical</p>
+              <p className={cn('text-xl font-bold font-mono', summary.tasks.critical > 0 ? 'text-red-600' : 'text-emerald-600')} data-mono>
+                {summary.tasks.critical}
+              </p>
+            </div>
+          </div>
+
+          {/* Integration badge */}
+          {summary.tasks.configured && summary.tasks.provider && (
+            <div className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-gray-500 bg-white/60 border border-gray-200 px-2.5 py-1 rounded-full">
+              <ExternalLink size={10} />
+              Connected via <span className="font-medium capitalize">{summary.tasks.provider}</span>
+            </div>
+          )}
+          {!summary.tasks.configured && (
+            <div className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full">
+              <AlertCircle size={10} />
+              No task manager connected — ask admin to configure in Settings
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Employee Overview Tab (task-focused only) ─────────────────────────
+function EmployeeOverviewTab({ summary }: { summary: any }) {
+  const tasks = summary.tasks;
+
+  return (
+    <div className="space-y-4">
+      {/* Task stat row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Active Tasks', value: tasks.total, sub: 'in your task manager', color: 'text-blue-600', trend: 'neutral' as const },
+          { label: 'Overdue', value: tasks.overdue, sub: tasks.overdue === 0 ? 'all on track' : 'need attention', color: tasks.overdue > 0 ? 'text-red-600' : 'text-emerald-600', trend: tasks.overdue === 0 ? 'up' as const : 'down' as const },
+          { label: 'Blocked', value: tasks.blocked, sub: tasks.blocked === 0 ? 'none blocked' : 'blockers present', color: tasks.blocked > 0 ? 'text-orange-600' : 'text-emerald-600', trend: tasks.blocked === 0 ? 'up' as const : 'down' as const },
+          { label: 'Critical', value: tasks.critical, sub: tasks.critical === 0 ? 'none critical' : 'high priority', color: tasks.critical > 0 ? 'text-red-600' : 'text-emerald-600', trend: tasks.critical === 0 ? 'up' as const : 'down' as const },
+        ].map(({ label, value, sub, color, trend }) => (
+          <div key={label} className="stat-card">
+            <p className={cn('text-2xl font-bold font-mono mt-1', color)} data-mono>{value}</p>
+            <p className="text-xs text-gray-500">{label}</p>
+            <div className="flex items-center gap-1 mt-0.5">
+              {trend === 'up' ? <ArrowUp size={12} className="text-emerald-500" /> : trend === 'down' ? <ArrowDown size={12} className="text-red-400" /> : <Minus size={12} className="text-gray-400" />}
+              <span className="text-[10px] text-gray-400">{sub}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Task Health breakdown */}
+      <div className="layer-card p-5">
+        <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+          <Zap size={15} className="text-amber-500" /> Task Health Breakdown
+          {tasks.configured && tasks.provider && (
+            <span className="ml-auto text-[10px] text-gray-400 flex items-center gap-1 capitalize">
+              <ExternalLink size={10} /> {tasks.provider}
+            </span>
+          )}
+        </h3>
+        {!tasks.configured ? (
+          <div className="text-center py-6">
+            <Briefcase size={32} className="mx-auto text-gray-200 mb-2" />
+            <p className="text-xs text-gray-400">No task manager connected</p>
+            <p className="text-[10px] text-gray-300 mt-0.5">Ask your admin to configure in Settings → External Integrations</p>
+          </div>
+        ) : tasks.fetchError ? (
+          <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-3">
+            <AlertTriangle size={14} />
+            Could not fetch tasks — check integration config in Settings
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {[
+              { label: 'Active Tasks', value: tasks.total, max: Math.max(tasks.total, 1), color: 'bg-blue-500', textColor: 'text-blue-600' },
+              { label: 'Overdue', value: tasks.overdue, max: Math.max(tasks.total, 1), color: 'bg-red-500', textColor: tasks.overdue > 0 ? 'text-red-600' : 'text-emerald-600' },
+              { label: 'Blocked', value: tasks.blocked, max: Math.max(tasks.total, 1), color: 'bg-orange-500', textColor: tasks.blocked > 0 ? 'text-orange-600' : 'text-emerald-600' },
+              { label: 'Critical', value: tasks.critical, max: Math.max(tasks.total, 1), color: 'bg-red-600', textColor: tasks.critical > 0 ? 'text-red-700' : 'text-emerald-600' },
+            ].map(({ label, value, max, color, textColor }) => (
+              <div key={label} className="flex items-center gap-3">
+                <span className="text-xs text-gray-500 w-24">{label}</span>
+                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className={cn('h-full rounded-full transition-all duration-500', color)}
+                    style={{ width: `${(value / max) * 100}%` }} />
+                </div>
+                <span className={cn('text-xs font-bold font-mono w-6 text-right', textColor)} data-mono>{value}</span>
+              </div>
+            ))}
+
+            {/* Task health score */}
+            <div className="pt-3 mt-1 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-500 font-medium">Task Health Score</span>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-24 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={cn('h-full rounded-full', summary.scores.taskHealth >= 75 ? 'bg-emerald-500' : summary.scores.taskHealth >= 50 ? 'bg-amber-500' : 'bg-red-500')}
+                    style={{ width: `${summary.scores.taskHealth}%` }}
+                  />
+                </div>
+                <span className={cn('text-sm font-bold font-mono', summary.scores.taskHealth >= 75 ? 'text-emerald-600' : summary.scores.taskHealth >= 50 ? 'text-amber-600' : 'text-red-600')} data-mono>
+                  {summary.scores.taskHealth}/100
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Overdue tasks quick list */}
+      {tasks.configured && tasks.overdue > 0 && tasks.items?.length > 0 && (
+        <div className="layer-card p-5">
+          <h3 className="text-sm font-semibold text-red-600 mb-3 flex items-center gap-2">
+            <AlertTriangle size={14} /> Overdue Tasks
+          </h3>
+          <div className="space-y-2">
+            {tasks.items
+              .filter((t: any) => t.dueDate && new Date(t.dueDate) < new Date())
+              .slice(0, 5)
+              .map((t: any) => <TaskRow key={t.externalTaskId} task={t} isOverdue />)}
+          </div>
+          {tasks.overdue > 5 && (
+            <p className="text-[11px] text-gray-400 mt-2 text-center">
+              +{tasks.overdue - 5} more — see Tasks tab for full list
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -322,7 +499,7 @@ function ScoreBreakdownCard({ label, score, icon, color }: {
   );
 }
 
-// ── Overview Tab ──────────────────────────────────────────────────────
+// ── Overview Tab (admin) ──────────────────────────────────────────────
 function OverviewTab({ summary, goals, reviews, cycles }: any) {
   const now = new Date();
   const overdueGoals = goals.filter((g: any) =>
@@ -664,7 +841,6 @@ function TaskRow({ task, isOverdue }: { task: any; isOverdue?: boolean }) {
 function LeavesTab({ leaves }: { leaves: any }) {
   return (
     <div className="space-y-4">
-      {/* Totals */}
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: 'Total Used', value: leaves.totalUsed, sub: `of ${leaves.totalAllocated} days`, color: 'text-gray-900' },
@@ -679,7 +855,6 @@ function LeavesTab({ leaves }: { leaves: any }) {
         ))}
       </div>
 
-      {/* By Type */}
       <div className="layer-card p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
           <CalendarDays size={14} className="text-indigo-500" /> Leave Balance by Type
@@ -722,7 +897,6 @@ function LeavesTab({ leaves }: { leaves: any }) {
         )}
       </div>
 
-      {/* Request Stats */}
       <div className="layer-card p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Leave Requests ({new Date().getFullYear()})</h3>
         <div className="grid grid-cols-3 gap-3 text-center">
@@ -886,7 +1060,6 @@ function ReviewsTab({ reviews, cycles }: { reviews: any[]; cycles: any[] }) {
         </div>
       ))}
 
-      {/* Review Cycles */}
       {cycles.length > 0 && (
         <div className="layer-card p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Review Cycles</h3>
