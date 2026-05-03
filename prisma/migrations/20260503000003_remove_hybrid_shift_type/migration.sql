@@ -1,8 +1,6 @@
 -- Migration: Remove HYBRID from ShiftType enum
 -- Safe to re-run: guarded by IF EXISTS check.
--- Timeouts prevent hanging if another session holds a lock.
-SET lock_timeout = '10s';
-SET statement_timeout = '25s';
+-- No timeouts — this runs with exclusive lock and must not be cancelled mid-flight.
 
 DO $$
 BEGIN

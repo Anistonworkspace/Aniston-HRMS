@@ -296,16 +296,6 @@ jobs:
             npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
-            echo "=== [5.5/17] Pre-schema: remove HYBRID from ShiftType enum ==="
-            sudo docker cp \
-              prisma/migrations/20260503000003_remove_hybrid_shift_type/migration.sql \
-              aph-postgres:/tmp/remove_hybrid.sql 2>&1 || true
-            timeout 30 sudo docker exec aph-postgres \
-              psql -U aniston -d aniston_hrms \
-              -c "SET lock_timeout='10s'; SET statement_timeout='20s';" \
-              -f /tmp/remove_hybrid.sql 2>&1 || true
-            echo "✅ HYBRID ShiftType removal migration complete (or already clean)"
-
             echo "=== [6/17] Syncing database schema ==="
             # --accept-data-loss is safe here: adding a unique constraint on an already-unique
             # combination (policyId+leaveTypeId was unique before; adding employeeCategory='ALL'
