@@ -73,9 +73,9 @@ public class GpsTrackingService extends Service {
     // SharedPreferences key: value is stored in MILLISECONDS for direct use in LocationRequest
     private static final String PREFS_KEY_GPS_INTERVAL_MS = "gps_interval_ms";
 
-    // GPS timing — interval overridable per shift; clamped to [1, 60] minutes
+    // GPS timing — interval overridable per shift; clamped to [1, 240] minutes
     private static final long GPS_INTERVAL_MS_DEFAULT = 60_000L;
-    private static final long GPS_FASTEST_MS = 30_000L;       // never faster than 30 s
+    private static final long GPS_FASTEST_MS = 30_000L;       // fastest delivery hint (30s); actual interval controlled by gpsIntervalMs
     private static final long HEARTBEAT_INTERVAL_MS = 5 * 60_000L; // ping backend every 5 min
 
     private FusedLocationProviderClient fusedLocationClient;
@@ -130,7 +130,7 @@ public class GpsTrackingService extends Service {
             return START_STICKY;
         } else if (ACTION_UPDATE_INTERVAL.equals(intent.getAction())) {
             int minutes = intent.getIntExtra(EXTRA_TRACKING_INTERVAL_MINUTES, 60);
-            minutes = Math.max(1, Math.min(60, minutes));
+            minutes = Math.max(1, Math.min(240, minutes));
             gpsIntervalMs = (long) minutes * 60_000L;
             saveToPrefs();
             if (sIsRunning) restartLocationUpdates();
@@ -143,8 +143,8 @@ public class GpsTrackingService extends Service {
             if (backendUrl == null) backendUrl = "https://hr.anistonav.com";
             int intervalMinutes = intent.getIntExtra(EXTRA_TRACKING_INTERVAL_MINUTES, 0);
             if (intervalMinutes > 0) {
-                // Clamp to [1, 60] minutes to avoid absurd intervals
-                intervalMinutes = Math.max(1, Math.min(60, intervalMinutes));
+                // Clamp to [1, 240] minutes — supports 1min through 4hr intervals
+                intervalMinutes = Math.max(1, Math.min(240, intervalMinutes));
                 gpsIntervalMs = intervalMinutes * 60_000L;
             } else {
                 gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
@@ -205,8 +205,10 @@ public class GpsTrackingService extends Service {
     // ── GPS ──────────────────────────────────────────────────────────────────────
 
     private void startLocationUpdates() {
+        // minUpdateInterval must not exceed the requested interval
+        long fastestMs = Math.min(GPS_FASTEST_MS, gpsIntervalMs);
         LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, gpsIntervalMs)
-            .setMinUpdateIntervalMillis(GPS_FASTEST_MS)
+            .setMinUpdateIntervalMillis(fastestMs)
             .setWaitForAccurateLocation(false)
             .build();
 

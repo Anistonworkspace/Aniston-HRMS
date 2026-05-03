@@ -271,6 +271,8 @@ function ShiftsPanel() {
                     <div><label className="block text-xs text-gray-500 mb-1">GPS Interval</label>
                       <select value={form.trackingIntervalMinutes || 60} onChange={e => setForm({...form, trackingIntervalMinutes: Number(e.target.value)})}
                         className="input-glass w-full text-sm">
+                        <option value={1}>Every 1 min</option>
+                        <option value={5}>Every 5 min</option>
                         <option value={15}>Every 15 min</option>
                         <option value={30}>Every 30 min</option>
                         <option value={60}>Every 1 hr</option>
@@ -492,7 +494,7 @@ function ShiftsPanel() {
                 <span>Grace: <strong>{s.graceMinutes}min</strong></span>
                 <span>Full day: <strong>{Number(s.fullDayHours)}h</strong></span>
                 <span>Half day: <strong>{Number(s.halfDayHours)}h</strong></span>
-                {s.trackingIntervalMinutes && <span>GPS: every <strong>{s.trackingIntervalMinutes}min</strong></span>}
+                {s.trackingIntervalMinutes && <span>GPS: every <strong>{s.trackingIntervalMinutes >= 60 ? `${s.trackingIntervalMinutes / 60}h` : `${s.trackingIntervalMinutes}min`}</strong></span>}
                 <span className="ml-auto"><strong>{s._count?.assignments || 0}</strong> assigned</span>
               </div>
 
@@ -981,7 +983,7 @@ function AssignmentsPanel() {
                             {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Location required for geofencing</p>}
                           </div>
                         )}
-                        {selType === 'FIELD' && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking · {sel?.trackingIntervalMinutes || 60}min interval</span>}
+                        {selType === 'FIELD' && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking · {(sel?.trackingIntervalMinutes || 60) >= 60 ? `${(sel?.trackingIntervalMinutes || 60) / 60}h` : `${sel?.trackingIntervalMinutes || 60}min`} interval</span>}
                         {!selType && <span className="text-[10px] text-gray-300">Select a shift first</span>}
                       </td>
                       <td className="p-3">
