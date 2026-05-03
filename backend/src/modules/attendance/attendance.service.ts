@@ -286,22 +286,32 @@ export class AttendanceService {
         );
       }
       const coords = geofence.coordinates as any;
-      if (coords?.lat && coords?.lng && !(data.accuracy && data.accuracy > 150)) {
-        const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
-        geofenceDistance = Math.round(distance);
-
-        if (distance > geofence.radiusMeters) {
-          geofenceViolation = true;
-          geofenceStatus = 'OUTSIDE';
-
-          // Always reject outside geofence — employee must be within the allowed radius
-          throw new BadRequestError(
-            `You are ${Math.round(distance)}m away from ${employee.officeLocation?.name || 'office'}. ` +
-            `Maximum allowed: ${geofence.radiusMeters}m. Please move closer to the office and try again.`
+      if (!coords?.lat || !coords?.lng) {
+        // Geofence exists with a radius but no map coordinates — misconfigured by HR.
+        // Block check-in and alert HR so the issue is surfaced immediately.
+        setImmediate(() => {
+          this._alertHrNoOfficeLocation(employeeId, organizationId).catch((e) =>
+            logger.warn(`[Attendance] Geofence-misconfigured HR alert failed for ${employeeId}: ${e.message}`)
           );
-        } else {
-          geofenceStatus = 'INSIDE';
-        }
+        });
+        throw new BadRequestError(
+          'Office geofence is not configured correctly (missing map coordinates). ' +
+          'Please contact HR/Admin to set the office location pin on the map.'
+        );
+      }
+      const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+      geofenceDistance = Math.round(distance);
+
+      if (distance > geofence.radiusMeters) {
+        geofenceViolation = true;
+        geofenceStatus = 'OUTSIDE';
+
+        throw new BadRequestError(
+          `You are ${Math.round(distance)}m away from ${employee.officeLocation?.name || 'office'}. ` +
+          `Maximum allowed: ${geofence.radiusMeters}m. Please move closer to the office and try again.`
+        );
+      } else {
+        geofenceStatus = 'INSIDE';
       }
     }
 
@@ -586,11 +596,11 @@ export class AttendanceService {
     const now = new Date();
 
     // ===== MINIMUM CHECKOUT TIME ENFORCEMENT =====
-    // Employee cannot check out before shift end time.
-    // Exception: if they have an approved half-day leave for today, the minimum
-    // becomes shift start + halfDayHours (e.g. 9:30 + 4h = 1:30 PM).
+    // FIELD shift employees can check out at any time — they finish their route whenever
+    // the work is done, not at a fixed office end-time. Skip the entire block for them.
+    // OFFICE shift employees must reach shift end time (or have an approved half-day leave).
     // This only applies to TODAY's checkout — overnight/previous-day checkouts are skipped.
-    const todayRecordForTimeCheck = await prisma.attendanceRecord.findUnique({
+    const todayRecordForTimeCheck = clockOutShiftType === 'FIELD' ? null : await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
       select: { checkIn: true, checkOut: true },
     });

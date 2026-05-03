@@ -26,7 +26,7 @@ import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
-import { startNativeGpsService, stopNativeGpsService, isNativeAndroid } from '../../lib/capacitorGPS';
+import { startNativeGpsService, stopNativeGpsService, isNativeAndroid, getCurrentPosition } from '../../lib/capacitorGPS';
 import CommandCenter from './components/CommandCenter';
 import RegularizationTab from './components/RegularizationTab';
 import SelfServiceReport from './components/SelfServiceReport';
@@ -815,7 +815,18 @@ function AttendancePersonalView() {
     actionLockRef.current = true;
     let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
-      coords = await getGPS();
+      // FIELD shift on native Android: use Capacitor Geolocation plugin — faster lock,
+      // avoids the 30s web geolocation timeout on cold GPS start.
+      if (isFieldShift && isNativeAndroid) {
+        try {
+          const pos = await getCurrentPosition();
+          coords = { latitude: pos.lat, longitude: pos.lng, accuracy: pos.accuracy ?? 0, gpsTimestamp: new Date(pos.timestamp ?? Date.now()).toISOString() };
+        } catch {
+          coords = await getGPS(); // fallback to web geolocation if Capacitor fails
+        }
+      } else {
+        coords = await getGPS();
+      }
       if (coords === null) return;
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
@@ -877,7 +888,17 @@ function AttendancePersonalView() {
     actionLockRef.current = true;
     let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
-      coords = await getGPS();
+      // FIELD shift on native Android: use Capacitor Geolocation plugin for faster, more reliable fix
+      if (isFieldShift && isNativeAndroid) {
+        try {
+          const pos = await getCurrentPosition();
+          coords = { latitude: pos.lat, longitude: pos.lng, accuracy: pos.accuracy ?? 0, gpsTimestamp: new Date(pos.timestamp ?? Date.now()).toISOString() };
+        } catch {
+          coords = await getGPS();
+        }
+      } else {
+        coords = await getGPS();
+      }
       if (coords === null) return;
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockOut({ ...coords, deviceType }).unwrap();
