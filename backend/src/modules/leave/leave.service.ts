@@ -33,6 +33,10 @@ export class LeaveService {
   async createLeaveType(data: CreateLeaveTypeInput, organizationId: string) {
     const { applicableToEmployeeIds, ...rest } = data as any;
 
+    // Leave types with these audiences are policy-managed (shown in the main Types list).
+    // Types with any other applicableTo value are treated as "legacy" by the UI.
+    const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
+
     // Prevent duplicate code or name within the same organization
     const existing = await prisma.leaveType.findFirst({
       where: {
@@ -43,13 +47,31 @@ export class LeaveService {
           { name: { equals: rest.name?.trim(), mode: 'insensitive' } },
         ],
       },
-      select: { code: true, name: true },
+      select: { id: true, code: true, name: true, applicableTo: true },
     });
     if (existing) {
-      if (existing.code === (rest.code?.toUpperCase?.() ?? rest.code)) {
-        throw new BadRequestError(`A leave type with code "${rest.code}" already exists for this organization.`);
+      const isCodeConflict = existing.code === (rest.code?.toUpperCase?.() ?? rest.code);
+      const isPolicyManaged = POLICY_MANAGED_AUDIENCES.includes(existing.applicableTo);
+
+      if (isPolicyManaged) {
+        // Hard block — already a properly configured leave type
+        if (isCodeConflict) throw new BadRequestError(`A leave type with code "${rest.code}" already exists for this organization.`);
+        throw new BadRequestError(`A leave type named "${existing.name}" already exists for this organization. Choose a different name.`);
       }
-      throw new BadRequestError(`A leave type named "${existing.name}" already exists for this organization. Choose a different name.`);
+
+      // Soft conflict — a legacy/unconfigured leave type exists with the same code/name.
+      // Return recovery metadata so the frontend can offer a "Restore" path instead of a dead-end.
+      throw new BadRequestError(
+        isCodeConflict
+          ? `A legacy leave type with code "${rest.code}" already exists. Expand "Legacy Types" and click Restore to convert it to a policy-managed type.`
+          : `A legacy leave type named "${existing.name}" already exists. Expand "Legacy Types" and click Restore to convert it to a policy-managed type.`,
+        {
+          conflictType: 'LEAVE_TYPE_EXISTS_LEGACY',
+          existingLeaveTypeId: existing.id,
+          existingLeaveTypeName: existing.name,
+          existingLeaveTypeCode: existing.code,
+        },
+      );
     }
 
     return prisma.leaveType.create({
@@ -146,30 +168,38 @@ export class LeaveService {
       });
       const leaveTypeMap = new Map(allLeaveTypes.map(lt => [lt.id, lt]));
 
+      // Only leave types with a proper policy-managed audience produce current allocations.
+      // Types with legacy audience (ALL, PROBATION, ACTIVE, etc.) appear in the UI's "Legacy Types"
+      // collapsed section and must NOT create current balance rows or show as active quota.
+      const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
+
       const filteredRules = applicableRules.filter((r: any) => {
         const lt = leaveTypeMap.get(r.leaveTypeId);
         if (!lt) return false;
+
+        // Gate 1 — must be a policy-managed leave type (new audience format)
+        const app = lt.applicableTo as string;
+        if (!POLICY_MANAGED_AUDIENCES.includes(app)) return false;
+
+        // Gate 2 — gender restriction
         if (lt.gender && lt.gender !== employee.gender) return false;
+
+        // Gate 3 — specific employee whitelist
         const specificIds: string[] | null = (lt as any).applicableToEmployeeIds
           ? (() => { try { return JSON.parse((lt as any).applicableToEmployeeIds); } catch { return null; } })()
           : null;
         if (specificIds && specificIds.length > 0) return specificIds.includes(employeeId);
+
+        // Gate 4 — role restriction
         if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
 
-        // Defensive cross-check: LeaveType.applicableTo must be compatible with the employee's category.
-        // This guards against misconfigured policy rules (e.g., ACTIVE policy rule for TRAINEE_ONLY leave type).
-        const app = lt.applicableTo as string | null;
+        // Gate 5 — audience vs employee status cross-check
         const status = employee.status;
         const isTrainee = status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
         const isActive = status === 'ACTIVE';
         if (app === 'ACTIVE_ONLY' && !isActive) return false;
         if (app === 'TRAINEE_ONLY' && !isTrainee) return false;
         if (app === 'ALL_ELIGIBLE' && !isActive && !isTrainee) return false;
-        // Legacy ACTIVE / CONFIRMED — only for active
-        if ((app === 'ACTIVE' || app === 'CONFIRMED') && !isActive) return false;
-        // Legacy PROBATION / INTERN — exact match
-        if (app === 'PROBATION' && status !== 'PROBATION') return false;
-        if (app === 'INTERN' && status !== 'INTERN' && userRole !== 'INTERN') return false;
 
         return true;
       });

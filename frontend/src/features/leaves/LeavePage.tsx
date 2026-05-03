@@ -652,7 +652,7 @@ function LeaveManagementView() {
             const primaryTypes = leaveTypes.filter((lt: any) => NEW_AUDIENCES.includes(lt.applicableTo));
             const legacyTypes  = leaveTypes.filter((lt: any) => !NEW_AUDIENCES.includes(lt.applicableTo));
 
-            const renderRow = (lt: any, idx: number) => {
+            const renderRow = (lt: any, idx: number, isLegacy = false) => {
               const audience = AUDIENCE_BADGE[lt.applicableTo];
               return (
                 <motion.div
@@ -660,12 +660,15 @@ function LeaveManagementView() {
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.03 }}
-                  className="layer-card px-4 py-3 flex items-center gap-3"
+                  className={`layer-card px-4 py-3 flex items-center gap-3 ${isLegacy ? 'opacity-75 border-dashed' : ''}`}
                 >
                   <span className="text-xl flex-shrink-0">{LEAVE_ICONS[lt.code] || '📅'}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800">{lt.name}</p>
                     <p className="text-xs text-gray-400 font-mono">{lt.code}</p>
+                    {isLegacy && (
+                      <p className="text-[10px] text-amber-600 mt-0.5">Legacy — not producing current allocations</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
                     {audience && (
@@ -677,13 +680,23 @@ function LeaveManagementView() {
                     {lt.requiresApproval !== false && <span className="badge badge-warning text-xs">Approval</span>}
                   </div>
                   <div className="flex items-center gap-1 ml-1 flex-shrink-0">
-                    <button
-                      onClick={() => setActiveTab('policy')}
-                      className="px-2 py-1 text-xs text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-medium whitespace-nowrap"
-                      title="Configure allocation & behaviour in Policy Settings"
-                    >
-                      Configure →
-                    </button>
+                    {isLegacy ? (
+                      <button
+                        onClick={() => handleEditLeaveType(lt)}
+                        className="px-2 py-1 text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors font-medium whitespace-nowrap"
+                        title="Convert to policy-managed: update Audience to Active Only, Trainees, or All Eligible"
+                      >
+                        Restore →
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setActiveTab('policy')}
+                        className="px-2 py-1 text-xs text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-medium whitespace-nowrap"
+                        title="Configure allocation & behaviour in Policy Settings"
+                      >
+                        Configure →
+                      </button>
+                    )}
                     <button
                       onClick={() => handleEditLeaveType(lt)}
                       className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors text-gray-400 hover:text-brand-600"
@@ -730,12 +743,31 @@ function LeaveManagementView() {
 
                 {/* Policy-managed types */}
                 {primaryTypes.length === 0 ? (
-                  <div className="layer-card p-6 text-center text-gray-400 text-sm border border-dashed border-gray-200">
-                    No policy-managed leave types yet. Create a type and set its Audience to get started.
+                  <div className="layer-card p-6 text-sm border border-dashed border-gray-200">
+                    {legacyTypes.length > 0 ? (
+                      <div className="flex items-start gap-3">
+                        <span className="text-amber-500 mt-0.5">⚠️</span>
+                        <div>
+                          <p className="font-medium text-gray-700 mb-1">No policy-managed leave types yet</p>
+                          <p className="text-gray-500 text-xs leading-relaxed">
+                            {legacyTypes.length} legacy leave type{legacyTypes.length !== 1 ? 's' : ''} exist{legacyTypes.length === 1 ? 's' : ''} below but {legacyTypes.length === 1 ? 'is' : 'are'} not producing current employee allocations.{' '}
+                            <button
+                              onClick={() => setShowLegacyTypes(true)}
+                              className="text-amber-600 hover:underline font-semibold"
+                            >
+                              Expand Legacy Types
+                            </button>{' '}
+                            and click <strong>Restore</strong> on each type to convert it to a policy-managed type, or create a new leave type above.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-center text-gray-400">No policy-managed leave types yet. Create a type and set its Audience to get started.</p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {primaryTypes.map((lt: any, idx: number) => renderRow(lt, idx))}
+                    {primaryTypes.map((lt: any, idx: number) => renderRow(lt, idx, false))}
                   </div>
                 )}
 
@@ -744,10 +776,10 @@ function LeaveManagementView() {
                   <div className="mt-4">
                     <button
                       onClick={() => setShowLegacyTypes((v) => !v)}
-                      className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors mb-2"
+                      className="flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-700 transition-colors mb-2 font-medium"
                     >
                       <ChevronRight size={13} className={cn('transition-transform', showLegacyTypes && 'rotate-90')} />
-                      Legacy Types ({legacyTypes.length}) — not managed by new policy engine
+                      Legacy Types ({legacyTypes.length}) — click Restore to convert to policy-managed
                     </button>
                     <AnimatePresence>
                       {showLegacyTypes && (
@@ -757,7 +789,7 @@ function LeaveManagementView() {
                           exit={{ height: 0, opacity: 0 }}
                           className="overflow-hidden space-y-2"
                         >
-                          {legacyTypes.map((lt: any, idx: number) => renderRow(lt, idx))}
+                          {legacyTypes.map((lt: any, idx: number) => renderRow(lt, idx, true))}
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -784,6 +816,11 @@ function LeaveManagementView() {
           <LeaveTypeModal
             leaveType={editingLeaveType}
             onClose={() => { setShowLeaveTypeModal(false); setEditingLeaveType(null); }}
+            onLegacyConflict={() => {
+              setShowLeaveTypeModal(false);
+              setEditingLeaveType(null);
+              setShowLegacyTypes(true);
+            }}
           />
         )}
       </AnimatePresence>
@@ -2056,7 +2093,7 @@ function normalizeAudience(raw: string | null | undefined): 'ACTIVE_ONLY' | 'TRA
   return 'ACTIVE_ONLY'; // safe default for any other legacy value
 }
 
-function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose: () => void }) {
+function LeaveTypeModal({ leaveType, onClose, onLegacyConflict }: { leaveType: any | null; onClose: () => void; onLegacyConflict?: () => void }) {
   const { t } = useTranslation();
   const isEditing = !!leaveType;
   const { data: policiesRes } = useGetLeavePoliciesQuery();
@@ -2122,7 +2159,19 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
       }
       onClose();
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || `Failed to ${isEditing ? 'update' : 'create'} leave type`);
+      const errData = err?.data?.error?.data;
+      if (!isEditing && errData?.conflictType === 'LEAVE_TYPE_EXISTS_LEGACY') {
+        // Backend found a legacy leave type with the same code/name.
+        // Close this modal and expand the Legacy Types section so HR can click Restore.
+        toast.error(
+          `"${errData.existingLeaveTypeCode}" exists as a legacy leave type. Expand Legacy Types below and click Restore to convert it.`,
+          { duration: 8000 },
+        );
+        onClose();
+        onLegacyConflict?.();
+      } else {
+        toast.error(err?.data?.error?.message || `Failed to ${isEditing ? 'update' : 'create'} leave type`);
+      }
     }
   };
 

@@ -8,12 +8,14 @@ export class AppError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
   public readonly isOperational: boolean;
+  public readonly data?: Record<string, unknown>;
 
-  constructor(message: string, statusCode: number, code: string = 'INTERNAL_ERROR') {
+  constructor(message: string, statusCode: number, code: string = 'INTERNAL_ERROR', data?: Record<string, unknown>) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;
     this.isOperational = true;
+    this.data = data;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -37,8 +39,8 @@ export class ForbiddenError extends AppError {
 }
 
 export class BadRequestError extends AppError {
-  constructor(message: string = 'Bad request') {
-    super(message, 400, 'BAD_REQUEST');
+  constructor(message: string = 'Bad request', data?: Record<string, unknown>) {
+    super(message, 400, 'BAD_REQUEST', data);
   }
 }
 
@@ -114,6 +116,7 @@ export function errorHandler(
       error: {
         code: err.code,
         message: err.message,
+        ...(err.data && { data: err.data }),
       },
     });
     return;
