@@ -17,6 +17,7 @@ import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import { isNativeGpsRunning, updateNativeGpsInterval } from '../../lib/capacitorGPS';
 
 export default function AppShell() {
   const { t } = useTranslation();
@@ -150,9 +151,20 @@ export default function AppShell() {
 
   // Real-time shift assignment — refetch attendance context so the employee's page
   // reflects the new shift type (OFFICE/FIELD) without a manual refresh.
+  // For FIELD shifts on native Android, also update the GPS interval immediately
+  // so the running service doesn't need to be restarted.
   useEffect(() => {
-    const handleShiftAssigned = () => {
+    const handleShiftAssigned = async (data: any) => {
       dispatch(api.util.invalidateTags(['Attendance', 'Employee'] as any[]));
+      if (data?.shiftType === 'FIELD') {
+        const running = await isNativeGpsRunning();
+        if (running) {
+          const minutes = typeof data.trackingIntervalMinutes === 'number'
+            ? data.trackingIntervalMinutes
+            : 60;
+          await updateNativeGpsInterval(minutes);
+        }
+      }
     };
     onSocketEvent('shift:assigned', handleShiftAssigned);
     return () => { offSocketEvent('shift:assigned', handleShiftAssigned); };

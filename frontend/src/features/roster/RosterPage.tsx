@@ -793,7 +793,6 @@ function LocationsPanel() {
 const SHIFT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   OFFICE: { label: 'General', color: 'text-blue-600' },
   FIELD: { label: 'Live Tracking', color: 'text-green-600' },
-  HYBRID: { label: 'Hybrid', color: 'text-purple-600' },
 };
 function getShiftTypeLabel(shiftType: string, shiftName?: string) {
   return SHIFT_TYPE_LABELS[shiftType] || { label: shiftName || shiftType, color: 'text-purple-600' };

@@ -109,6 +109,7 @@ export class ShiftService {
             name: 'Live Tracking',
             startTime: '09:00',
             endTime: '18:30',
+            trackingIntervalMinutes: 60,
           },
         });
       } else {
@@ -125,6 +126,7 @@ export class ShiftService {
             halfDayHours: 4,
             isDefault: false,
             isActive: true,
+            trackingIntervalMinutes: 60,
           },
         });
       }
@@ -380,6 +382,7 @@ export class ShiftService {
         shiftType: shift.shiftType,
         workMode: newWorkMode,
         startDate: data.startDate,
+        trackingIntervalMinutes: shift.trackingIntervalMinutes ?? 60,
       });
     }
 

@@ -25,6 +25,7 @@ interface GpsTrackingPluginDef {
   start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; trackingIntervalMinutes?: number }): Promise<void>;
   stop(): Promise<void>;
   updateToken(opts: { token: string }): Promise<void>;
+  updateInterval(opts: { minutes: number }): Promise<void>;
   isRunning(): Promise<{ running: boolean }>;
 }
 
@@ -34,6 +35,7 @@ const GpsTrackingPlugin = registerPlugin<GpsTrackingPluginDef>('GpsTracking', {
     start: async () => {},
     stop: async () => {},
     updateToken: async () => {},
+    updateInterval: async () => {},
     isRunning: async () => ({ running: false }),
   },
 });
@@ -179,6 +181,16 @@ export async function stopNativeGpsService(): Promise<void> {
 export async function updateNativeGpsToken(token: string): Promise<void> {
   if (!isNativeAndroid) return;
   await GpsTrackingPlugin.updateToken({ token });
+}
+
+/**
+ * Update the GPS tracking interval in a running native service without restarting it.
+ * Called when HR reassigns an employee to a different FIELD shift mid-day.
+ * No-op on iOS/web.
+ */
+export async function updateNativeGpsInterval(minutes: number): Promise<void> {
+  if (!isNativeAndroid) return;
+  await GpsTrackingPlugin.updateInterval({ minutes });
 }
 
 /** Returns true if the native GPS service is currently running. */

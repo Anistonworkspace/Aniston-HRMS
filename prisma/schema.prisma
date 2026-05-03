@@ -2369,7 +2369,6 @@ model TicketComment {
 enum ShiftType {
   OFFICE
   FIELD
-  HYBRID
 }
 
 model Shift {

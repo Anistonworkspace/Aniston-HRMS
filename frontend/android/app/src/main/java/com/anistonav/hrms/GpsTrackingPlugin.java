@@ -34,7 +34,7 @@ public class GpsTrackingPlugin extends Plugin {
         String authToken   = call.getString("authToken");
         String employeeId  = call.getString("employeeId");
         String orgId       = call.getString("orgId", "");
-        int trackingIntervalMinutes = call.getInt("trackingIntervalMinutes", 0);
+        int trackingIntervalMinutes = call.getInt("trackingIntervalMinutes", 60);
 
         if (authToken == null || authToken.isEmpty()) {
             call.reject("authToken is required");
@@ -51,9 +51,7 @@ public class GpsTrackingPlugin extends Plugin {
         intent.putExtra(GpsTrackingService.EXTRA_TOKEN, authToken);
         intent.putExtra(GpsTrackingService.EXTRA_EMPLOYEE_ID, employeeId);
         intent.putExtra(GpsTrackingService.EXTRA_ORG_ID, orgId);
-        if (trackingIntervalMinutes > 0) {
-            intent.putExtra(GpsTrackingService.EXTRA_TRACKING_INTERVAL_MINUTES, trackingIntervalMinutes);
-        }
+        intent.putExtra(GpsTrackingService.EXTRA_TRACKING_INTERVAL_MINUTES, trackingIntervalMinutes);
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -118,5 +116,26 @@ public class GpsTrackingPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("running", GpsTrackingService.sIsRunning);
         call.resolve(result);
+    }
+
+    /**
+     * Update the GPS tracking interval in a running service without restarting it.
+     * Called when HR reassigns an employee to a different shift mid-day.
+     * No-op if the service is not currently running.
+     */
+    @PluginMethod
+    public void updateInterval(PluginCall call) {
+        int minutes = call.getInt("minutes", 60);
+
+        Context ctx = getContext();
+        Intent intent = new Intent(ctx, GpsTrackingService.class);
+        intent.setAction(GpsTrackingService.ACTION_UPDATE_INTERVAL);
+        intent.putExtra(GpsTrackingService.EXTRA_TRACKING_INTERVAL_MINUTES, minutes);
+        try {
+            ctx.startService(intent);
+        } catch (Exception e) {
+            Log.w(TAG, "updateInterval intent failed (service may not be running): " + e.getMessage());
+        }
+        call.resolve();
     }
 }

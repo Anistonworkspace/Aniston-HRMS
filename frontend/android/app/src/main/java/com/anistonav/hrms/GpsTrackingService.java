@@ -61,6 +61,7 @@ public class GpsTrackingService extends Service {
     // Intent actions
     public static final String ACTION_STOP = "com.anistonav.hrms.STOP_GPS";
     public static final String ACTION_UPDATE_TOKEN = "com.anistonav.hrms.UPDATE_TOKEN";
+    public static final String ACTION_UPDATE_INTERVAL = "com.anistonav.hrms.UPDATE_INTERVAL";
 
     // Intent extras
     public static final String EXTRA_TOKEN = "auth_token";
@@ -126,6 +127,13 @@ public class GpsTrackingService extends Service {
                 authToken = newToken;
                 saveToPrefs();
             }
+            return START_STICKY;
+        } else if (ACTION_UPDATE_INTERVAL.equals(intent.getAction())) {
+            int minutes = intent.getIntExtra(EXTRA_TRACKING_INTERVAL_MINUTES, 60);
+            minutes = Math.max(1, Math.min(60, minutes));
+            gpsIntervalMs = (long) minutes * 60_000L;
+            saveToPrefs();
+            if (sIsRunning) restartLocationUpdates();
             return START_STICKY;
         } else {
             backendUrl = intent.getStringExtra(EXTRA_BACKEND_URL);
@@ -229,6 +237,14 @@ public class GpsTrackingService extends Service {
             Log.e(TAG, "Location permission not available", e);
             stopSelf();
         }
+    }
+
+    /** Remove existing location updates and re-register with the current gpsIntervalMs. */
+    private void restartLocationUpdates() {
+        if (locationCallback != null) {
+            fusedLocationClient.removeLocationUpdates(locationCallback);
+        }
+        startLocationUpdates();
     }
 
     // ── Heartbeat ────────────────────────────────────────────────────────────────
