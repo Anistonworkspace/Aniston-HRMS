@@ -1283,11 +1283,9 @@ function EmployeeLeaveDetailModal({
   const [activeSection, setActiveSection] = useState<'requests' | 'adjustments'>('requests');
   const [showAdjForm, setShowAdjForm] = useState(false);
   const [adjForm, setAdjForm] = useState({
-    adjustmentType: 'PREVIOUS_USED' as 'PREVIOUS_USED' | 'BALANCE_CORRECTION',
     leaveTypeId: '',
     days: '' as string | number,
     reason: '',
-    effectiveDate: new Date().toISOString().slice(0, 10),
   });
 
   const { data, isLoading, isFetching } = useGetEmployeeLeaveOverviewQuery(
@@ -1318,52 +1316,33 @@ function EmployeeLeaveDetailModal({
     const days = Number(adjForm.days);
     if (!adjForm.leaveTypeId) return toast.error('Select a leave type');
     if (!days || days === 0) return toast.error('Days must be non-zero');
-    if (adjForm.adjustmentType === 'PREVIOUS_USED' && days < 0) return toast.error('Days must be positive for Previous Used');
     if (!adjForm.reason.trim() || adjForm.reason.trim().length < 3) return toast.error('Reason required (min 3 chars)');
 
-    // Client-side negative balance guard — mirrors backend validation for instant feedback
+    // Live preview guard
     const selectedBal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
-    if (selectedBal) {
+    if (selectedBal && days < 0) {
       const effectiveAlloc = (selectedBal.policyAllocated ?? selectedBal.allocated) + (selectedBal.manualAdjustment ?? 0);
       const cf = Number(selectedBal.carriedForward ?? 0);
       const used = Number(selectedBal.used ?? 0);
       const pending = Number(selectedBal.pending ?? 0);
-      const remaining = effectiveAlloc + cf - used - pending;
-
-      if (adjForm.adjustmentType === 'PREVIOUS_USED' && remaining - days < 0) {
-        return toast.error(
-          `Previous used (${days}d) exceeds available balance (${remaining}d remaining). Add a Balance Correction first.`,
-          { duration: 6000 }
-        );
-      }
-      if (adjForm.adjustmentType === 'BALANCE_CORRECTION' && days < 0) {
-        const newEffectiveAlloc = Math.max(0, effectiveAlloc + days);
-        const remainingAfter = newEffectiveAlloc + cf - used - pending;
-        if (remainingAfter < 0) {
-          return toast.error(
-            `Correction of ${days}d would make remaining balance negative (${remainingAfter}d). Reduce the amount.`,
-            { duration: 6000 }
-          );
-        }
+      const newEffective = Math.max(0, effectiveAlloc + days);
+      const remainingAfter = newEffective + cf - used - pending;
+      if (remainingAfter < 0) {
+        return toast.error(`Deduction of ${Math.abs(days)}d would make remaining balance negative (${remainingAfter}d). Reduce the amount.`, { duration: 6000 });
       }
     }
 
     try {
       await createAdjustment({
         employeeId,
-        adjustmentType: adjForm.adjustmentType,
+        adjustmentType: 'BALANCE_CORRECTION',
         leaveTypeId: adjForm.leaveTypeId,
         year: modalYear,
         days,
         reason: adjForm.reason.trim(),
-        effectiveDate: adjForm.effectiveDate,
       }).unwrap();
-      toast.success(adjForm.adjustmentType === 'PREVIOUS_USED'
-        ? 'Previous used leave recorded — balance updated'
-        : 'Balance correction applied'
-      );
-      // Keep modal open; reset just the input fields so HR can add more
-      setAdjForm((f) => ({ ...f, days: '', reason: '', effectiveDate: new Date().toISOString().slice(0, 10) }));
+      toast.success(days > 0 ? `+${days} days added to quota` : `${days} days deducted from quota`);
+      setAdjForm({ leaveTypeId: '', days: '', reason: '' });
       setShowAdjForm(false);
     } catch (e: any) {
       toast.error(e?.data?.error?.message || 'Failed to save adjustment');
@@ -1658,45 +1637,12 @@ function EmployeeLeaveDetailModal({
                   {/* Inline Add Adjustment form */}
                   {showAdjForm && (
                     <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4 space-y-3">
-                      <div className="flex items-start gap-2 mb-1">
-                        <SlidersHorizontal size={14} className="text-indigo-500 mt-0.5 shrink-0" />
-                        <div>
-                          <p className="text-xs font-semibold text-indigo-700">Opening Balance / Previous Leave Entry</p>
-                          <p className="text-[10px] text-indigo-500 mt-0.5">
-                            Use <strong>Previous Used</strong> to record leaves taken before this system was active.
-                            Use <strong>Balance Correction</strong> to manually adjust allocated days.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Adjustment type selector — shown as two prominent buttons */}
-                      <div className="grid grid-cols-2 gap-2">
-                        {([
-                          { value: 'PREVIOUS_USED', label: 'Previous Used Leave', sub: 'Leaves taken before onboarding', icon: '📋' },
-                          { value: 'BALANCE_CORRECTION', label: 'Balance Correction', sub: 'Add or deduct allocated days', icon: '⚖️' },
-                        ] as const).map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setAdjForm((f) => ({ ...f, adjustmentType: opt.value }))}
-                            className={cn(
-                              'rounded-xl border-2 p-2.5 text-left transition-all',
-                              adjForm.adjustmentType === opt.value
-                                ? 'border-indigo-500 bg-white shadow-sm'
-                                : 'border-indigo-200 bg-white/50 hover:border-indigo-300'
-                            )}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="text-base">{opt.icon}</span>
-                              <div>
-                                <p className={`text-[11px] font-semibold ${adjForm.adjustmentType === opt.value ? 'text-indigo-700' : 'text-gray-600'}`}>{opt.label}</p>
-                                <p className="text-[10px] text-gray-400">{opt.sub}</p>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-
+                      <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5">
+                        <SlidersHorizontal size={13} /> Adjust Leave Quota
+                      </p>
+                      <p className="text-[10px] text-indigo-500">
+                        Positive days add to quota. Negative days deduct from quota. Does not create a leave request.
+                      </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs text-gray-600 mb-1 font-medium">Leave Type <span className="text-red-400">*</span></label>
@@ -1706,16 +1652,14 @@ function EmployeeLeaveDetailModal({
                             className="input-glass text-xs w-full"
                           >
                             <option value="">— Select Leave Type —</option>
-                            {(overview.balances || [])
-                              .filter((b: any) => !b.leaveTypeName?.toLowerCase().includes('probation'))
-                              .map((b: any) => (
-                                <option key={b.leaveTypeId} value={b.leaveTypeId}>{b.leaveTypeName} ({b.leaveTypeCode})</option>
-                              ))}
+                            {(overview?.balances || []).map((b: any) => (
+                              <option key={b.leaveTypeId} value={b.leaveTypeId}>{b.leaveTypeName} ({b.leaveTypeCode})</option>
+                            ))}
                           </select>
                         </div>
                         <div>
                           <label className="block text-xs text-gray-600 mb-1 font-medium">
-                            {adjForm.adjustmentType === 'BALANCE_CORRECTION' ? 'Days (+ add / − deduct)' : 'Days Taken (positive)'}
+                            Days <span className="text-gray-400 font-normal">(+add / −deduct)</span>
                             <span className="text-red-400"> *</span>
                           </label>
                           <input
@@ -1723,72 +1667,43 @@ function EmployeeLeaveDetailModal({
                             step="0.5"
                             value={adjForm.days}
                             onChange={(e) => setAdjForm((f) => ({ ...f, days: e.target.value }))}
-                            placeholder={adjForm.adjustmentType === 'BALANCE_CORRECTION' ? 'e.g. -2 or +3' : 'e.g. 4'}
+                            placeholder="e.g. +3 or -2"
                             className="input-glass text-xs w-full"
                           />
                         </div>
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1 font-medium">Effective Date</label>
-                          <input
-                            type="date"
-                            value={adjForm.effectiveDate}
-                            onChange={(e) => setAdjForm((f) => ({ ...f, effectiveDate: e.target.value }))}
-                            className="input-glass text-xs w-full"
-                          />
-                          <p className="text-[10px] text-gray-400 mt-0.5">When were these leaves taken/applied?</p>
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1 font-medium">Reason / Note <span className="text-red-400">*</span></label>
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs text-gray-600 mb-1 font-medium">Reason <span className="text-red-400">*</span></label>
                           <input
                             type="text"
                             value={adjForm.reason}
                             onChange={(e) => setAdjForm((f) => ({ ...f, reason: e.target.value }))}
-                            placeholder={adjForm.adjustmentType === 'PREVIOUS_USED' ? 'e.g. Taken before HRMS onboarding' : 'e.g. Opening balance correction'}
+                            placeholder="e.g. Opening balance correction, bonus leave"
                             className="input-glass text-xs w-full"
                           />
                         </div>
                       </div>
-
-                      {/* Contextual help + live remaining preview */}
-                      <div className={cn(
-                        'rounded-lg px-3 py-2 text-[11px]',
-                        adjForm.adjustmentType === 'PREVIOUS_USED'
-                          ? 'bg-orange-50 border border-orange-200 text-orange-700'
-                          : 'bg-blue-50 border border-blue-200 text-blue-700'
-                      )}>
-                        {adjForm.adjustmentType === 'PREVIOUS_USED'
-                          ? '📋 Previous Used: Adds to the employee\'s used count. Reduces remaining balance. Survives Recalculate All. No fake leave request is created.'
-                          : '⚖️ Balance Correction: Adjusts the effective allocated days (+ adds more, − reduces). Stored separately from policy allocation and survives Recalculate All.'}
-                        {/* Live remaining-after preview */}
-                        {(() => {
-                          const daysNum = Number(adjForm.days);
-                          const bal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
-                          if (!bal || !adjForm.leaveTypeId || !daysNum) return null;
-                          const effectiveAlloc = (bal.policyAllocated ?? bal.allocated) + (bal.manualAdjustment ?? 0);
-                          const cf = Number(bal.carriedForward ?? 0);
-                          const used = Number(bal.used ?? 0);
-                          const pending = Number(bal.pending ?? 0);
-                          const currentRemaining = effectiveAlloc + cf - used - pending;
-                          let remainingAfter: number;
-                          if (adjForm.adjustmentType === 'PREVIOUS_USED') {
-                            remainingAfter = currentRemaining - daysNum;
-                          } else {
-                            const newEffective = Math.max(0, effectiveAlloc + daysNum);
-                            remainingAfter = newEffective + cf - used - pending;
-                          }
-                          const isNeg = remainingAfter < 0;
-                          return (
-                            <p className={cn('mt-1.5 font-medium', isNeg ? 'text-red-600' : 'text-current')}>
-                              {isNeg ? '⚠ ' : '→ '}Remaining after: <strong>{remainingAfter}d</strong>
-                              {isNeg ? ' — will be rejected by server' : ''}
-                            </p>
-                          );
-                        })()}
-                      </div>
-
+                      {/* Live preview */}
+                      {(() => {
+                        const daysNum = Number(adjForm.days);
+                        const bal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
+                        if (!bal || !adjForm.leaveTypeId || !daysNum) return null;
+                        const effectiveAlloc = (bal.policyAllocated ?? bal.allocated) + (bal.manualAdjustment ?? 0);
+                        const cf = Number(bal.carriedForward ?? 0);
+                        const used = Number(bal.used ?? 0);
+                        const pending = Number(bal.pending ?? 0);
+                        const newEffective = Math.max(0, effectiveAlloc + daysNum);
+                        const remainingAfter = newEffective + cf - used - pending;
+                        const isNeg = remainingAfter < 0;
+                        return (
+                          <p className={cn('text-[11px] font-medium px-3 py-2 rounded-lg', isNeg ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700')}>
+                            {isNeg ? '⚠ ' : '→ '}Remaining after: <strong>{remainingAfter}d</strong>
+                            {isNeg ? ' — server will reject this' : ''}
+                          </p>
+                        );
+                      })()}
                       <div className="flex gap-2 justify-end">
                         <button
-                          onClick={() => { setShowAdjForm(false); setAdjForm({ adjustmentType: 'PREVIOUS_USED', leaveTypeId: '', days: '', reason: '', effectiveDate: new Date().toISOString().slice(0, 10) }); }}
+                          onClick={() => { setShowAdjForm(false); setAdjForm({ leaveTypeId: '', days: '', reason: '' }); }}
                           className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                         >
                           Cancel
@@ -1799,7 +1714,7 @@ function EmployeeLeaveDetailModal({
                           className="flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
                         >
                           {isCreating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-                          {adjForm.adjustmentType === 'PREVIOUS_USED' ? 'Record Previous Leave' : 'Apply Correction'}
+                          Save Adjustment
                         </button>
                       </div>
                     </div>
@@ -2522,6 +2437,34 @@ function LeavePersonalView() {
         </div>
       )}
 
+      {/* Unpaid Leave — always shown if policy allows it */}
+      {!balancesLoading && (() => {
+        const policy = defaultLeavePolicy;
+        const lwpRule = policy?.rules?.find((r: any) => r.employeeCategory === 'ALL' && r.isAllowed !== false);
+        const lwpEnabled = policy ? (lwpRule !== undefined ? lwpRule.isAllowed !== false : false) : false;
+        const lwpType = allLeaveTypes.find((lt: any) => !lt.isPaid);
+        if (!lwpEnabled || !lwpType) return null;
+        return (
+          <div className="mb-6 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-xl">📋</span>
+              <div>
+                <p className="text-sm font-medium text-gray-700">{lwpType.name}</p>
+                <p className="text-[11px] text-gray-400">Unpaid — apply when paid leaves are exhausted. No balance limit.</p>
+              </div>
+            </div>
+            {perms.canApplyLeaves && (
+              <button
+                onClick={() => setShowApplyModal(true)}
+                className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white transition-colors"
+              >
+                Apply
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="grid lg:grid-cols-3 gap-6">
         {/* My leave requests */}
         <div className="lg:col-span-2 md:layer-card md:p-4 md:p-6">
@@ -2811,11 +2754,12 @@ function PolicySettingsTab() {
 
   // Dynamic config: keyed by leaveTypeId
   const [activeQuotas, setActiveQuotas] = useState<Record<string, number>>({});
-  const [traineeMonthly, setTraineeMonthly] = useState<Record<string, { probation: number; intern: number }>>({});
+  // Trainee quotas — total days (upfront annual allocation)
+  const [traineeQuotas, setTraineeQuotas] = useState<Record<string, number>>({});
   const [durations, setDurations] = useState({ probationMonths: 3, internMonths: 3 });
   const [maxPaidPerMonth, setMaxPaidPerMonth] = useState(0);
-  // Per-type LWP enabled map — keyed by leaveTypeId; handles multiple unpaid types correctly
-  const [lwpEnabledMap, setLwpEnabledMap] = useState<Record<string, boolean>>({});
+  // Single unpaid leave toggle
+  const [unpaidEnabled, setUnpaidEnabled] = useState(true);
 
   const deriveConfig = () => {
     if (!policy) return;
@@ -2829,15 +2773,13 @@ function PolicySettingsTab() {
     });
     setActiveQuotas(aq);
 
-    // Trainee monthly
-    const tm: Record<string, { probation: number; intern: number }> = {};
+    // Trainee quotas — total days (upfront)
+    const tq: Record<string, number> = {};
     traineeLeaveTypes.forEach((lt: any) => {
-      tm[lt.id] = {
-        probation: findRule(lt.id, 'PROBATION')?.monthlyDays ?? 1,
-        intern: findRule(lt.id, 'INTERN')?.monthlyDays ?? 1,
-      };
+      const rule = findRule(lt.id, 'PROBATION');
+      tq[lt.id] = rule?.yearlyDays ?? 5;
     });
-    setTraineeMonthly(tm);
+    setTraineeQuotas(tq);
 
     setDurations({
       probationMonths: policy.probationDurationMonths ?? 3,
@@ -2845,13 +2787,14 @@ function PolicySettingsTab() {
     });
     setMaxPaidPerMonth(policy.maxPaidLeavesPerMonth ?? 0);
 
-    // Per-type LWP enabled map
-    const lwpMap: Record<string, boolean> = {};
-    lwpTypes.forEach((lt: any) => {
-      const rule = findRule(lt.id, 'ALL');
-      lwpMap[lt.id] = rule ? rule.isAllowed !== false : true;
-    });
-    setLwpEnabledMap(lwpMap);
+    // Single unpaid leave toggle — read from first LWP type's ALL rule
+    const firstLwp = lwpTypes[0];
+    if (firstLwp) {
+      const rule = findRule(firstLwp.id, 'ALL');
+      setUnpaidEnabled(rule ? rule.isAllowed !== false : true);
+    } else {
+      setUnpaidEnabled(true);
+    }
   };
 
   useEffect(() => {
@@ -2869,15 +2812,15 @@ function PolicySettingsTab() {
       rules.push({ leaveTypeId, employeeCategory: 'ACTIVE', yearlyDays, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true });
     });
 
-    // Trainee (probation + intern) rules
-    Object.entries(traineeMonthly).forEach(([leaveTypeId, { probation, intern }]) => {
-      rules.push({ leaveTypeId, employeeCategory: 'PROBATION', yearlyDays: 0, monthlyDays: probation, accrualType: 'MONTHLY', isProrata: false, isAllowed: true });
-      rules.push({ leaveTypeId, employeeCategory: 'INTERN', yearlyDays: 0, monthlyDays: intern, accrualType: 'MONTHLY', isProrata: false, isAllowed: true });
+    // Trainee rules (UPFRONT, both PROBATION and INTERN get same total days)
+    Object.entries(traineeQuotas).forEach(([leaveTypeId, yearlyDays]) => {
+      rules.push({ leaveTypeId, employeeCategory: 'PROBATION', yearlyDays, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true });
+      rules.push({ leaveTypeId, employeeCategory: 'INTERN', yearlyDays, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true });
     });
 
-    // LWP rules — one per unpaid type, per-type enable state
+    // LWP rules — use unpaidEnabled for all LWP types
     lwpTypes.forEach((lt: any) => {
-      rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: lwpEnabledMap[lt.id] !== false });
+      rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: unpaidEnabled });
     });
 
     setSaving(true);
@@ -3043,16 +2986,16 @@ function PolicySettingsTab() {
           </div>
         </div>
 
-        {/* Card 2 — Trainees (Probation + Intern merged) */}
+        {/* Card 2 — Trainees (Probation + Intern — upfront annual) */}
         <div className="layer-card p-5 space-y-4">
           <div className="flex items-center gap-2">
             <span className="text-xl">🕐</span>
             <div>
               <p className="text-sm font-semibold text-gray-800">Trainees</p>
-              <p className="text-[11px] text-gray-400">Probation & Intern — monthly accrual</p>
+              <p className="text-[11px] text-gray-400">Probation & Intern — total days for the period</p>
             </div>
           </div>
-          <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
             {numField('Probation Duration (months)', 'Total probation period length', durations.probationMonths,
               (n) => setDurations((d) => ({ ...d, probationMonths: n })), 1, 24)}
             {numField('Internship Duration (months)', 'Total internship period length', durations.internMonths,
@@ -3061,62 +3004,48 @@ function PolicySettingsTab() {
           {traineeLeaveTypes.length === 0 ? (
             <p className="text-xs text-gray-400 italic">No trainee leave types. Edit types with "Trainees" or "All eligible" audience.</p>
           ) : (
-            <div className="space-y-4 border-t border-gray-100 pt-3">
-              {traineeLeaveTypes.map((lt: any) => (
-                <div key={lt.id} className="space-y-2">
-                  <p className="text-xs font-medium text-gray-600">{lt.name} ({lt.code})</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {numField('Probation / month', '', traineeMonthly[lt.id]?.probation ?? 1,
-                      (n) => setTraineeMonthly((m) => ({ ...m, [lt.id]: { ...(m[lt.id] ?? { probation: 1, intern: 1 }), probation: n } })), 0, 5)}
-                    {numField('Intern / month', '', traineeMonthly[lt.id]?.intern ?? 1,
-                      (n) => setTraineeMonthly((m) => ({ ...m, [lt.id]: { ...(m[lt.id] ?? { probation: 1, intern: 1 }), intern: n } })), 0, 5)}
-                  </div>
-                  <div className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-3 py-2 grid grid-cols-2 gap-2">
-                    <span>Probation total: <strong className="text-gray-700">{(traineeMonthly[lt.id]?.probation ?? 1) * durations.probationMonths}d</strong></span>
-                    <span>Intern total: <strong className="text-gray-700">{(traineeMonthly[lt.id]?.intern ?? 1) * durations.internMonths}d</strong></span>
-                  </div>
-                </div>
-              ))}
+            <div className="space-y-3 border-t border-gray-100 pt-3">
+              <p className="text-[11px] text-gray-500">Total days allocated for the entire probation/internship period:</p>
+              {traineeLeaveTypes.map((lt: any) =>
+                numField(
+                  `${lt.name} (${lt.code}) — total days`,
+                  '',
+                  traineeQuotas[lt.id] ?? 0,
+                  (n) => setTraineeQuotas((q) => ({ ...q, [lt.id]: n })),
+                  0, 60
+                )
+              )}
             </div>
           )}
         </div>
 
-        {/* Card 3 — Unpaid Leave (LWP and others) */}
+        {/* Card 3 — Unpaid Leave */}
         <div className="layer-card p-5 space-y-4">
           <div className="flex items-center gap-2">
             <span className="text-xl">📋</span>
             <div>
               <p className="text-sm font-semibold text-gray-800">Unpaid Leave</p>
-              <p className="text-[11px] text-gray-400">Leave Without Pay — for all eligible employees</p>
+              <p className="text-[11px] text-gray-400">Leave Without Pay — available to all eligible employees</p>
             </div>
           </div>
-          {lwpTypes.length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No unpaid leave types configured. Create a leave type with isPaid=false.</p>
-          ) : (
-            <div className="space-y-3">
-              {lwpTypes.map((lt: any) => {
-                const enabled = lwpEnabledMap[lt.id] !== false;
-                return (
-                  <div key={lt.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">{lt.name} ({lt.code})</p>
-                      <p className="text-[11px] text-gray-400">
-                        {enabled ? 'Enabled — employees can apply for unpaid leave' : 'Disabled'}
-                      </p>
-                    </div>
-                    <Toggle
-                      checked={enabled}
-                      onChange={(v) => editing && setLwpEnabledMap((m) => ({ ...m, [lt.id]: v }))}
-                    />
-                  </div>
-                );
-              })}
-              {Object.values(lwpEnabledMap).some((v) => v === false) && (
-                <p className="text-[11px] text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-                  Disabled unpaid types — employees with zero paid balance cannot apply for those leave types.
-                </p>
-              )}
+          <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Allow Unpaid Leave</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                {unpaidEnabled
+                  ? 'Employees can apply for unpaid leave when paid balance is exhausted'
+                  : 'Unpaid leave is disabled — employees cannot apply for it'}
+              </p>
             </div>
+            <Toggle
+              checked={unpaidEnabled}
+              onChange={(v) => editing && setUnpaidEnabled(v)}
+            />
+          </div>
+          {lwpTypes.length === 0 && (
+            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+              No unpaid leave type found. Create a leave type and set its audience — unpaid handling is automatic.
+            </p>
           )}
         </div>
       </div>
@@ -3134,7 +3063,7 @@ function PolicySettingsTab() {
       <div className="flex items-start gap-2 text-xs text-gray-400 bg-blue-50 rounded-xl p-3 border border-blue-100">
         <Info size={14} className="text-blue-400 mt-0.5 shrink-0" />
         <p>
-          Active employees receive annual leave upfront. Trainees accrue leave monthly during their period.
+          Active employees and trainees receive their full leave allocation upfront at the start of the year/period.
           The <strong>Max Paid / Month</strong> cap applies across all paid leave types for Active employees.{' '}
           <span className="font-medium text-blue-600">Recalculate All</span> updates existing balances immediately — manual adjustments and used days are never overwritten.
         </p>

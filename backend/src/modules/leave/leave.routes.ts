@@ -579,6 +579,20 @@ router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
       where: { id: req.params.id },
       include: { rules: { include: { leaveType: { select: { id: true, name: true, code: true } } } } },
     });
+
+    // Fire-and-forget background recalculation after policy save
+    const { leavePolicyService: lpSvc } = await import('./leave-policy.service.js');
+    const orgId = req.user!.organizationId;
+    const currentYear = new Date().getFullYear();
+    prisma.employee.findMany({
+      where: { organizationId: orgId, deletedAt: null },
+      select: { id: true },
+    }).then((emps) => {
+      return Promise.allSettled(
+        emps.map((e) => lpSvc.allocateForEmployee(e.id, currentYear, { force: true, triggeredBy: req.user!.userId }))
+      );
+    }).catch(() => {/* non-blocking */});
+
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });
