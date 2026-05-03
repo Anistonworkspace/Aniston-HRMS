@@ -248,10 +248,7 @@ export class EmployeeService {
     if (createStatus && !['ONBOARDING', 'INTERN'].includes(createStatus) && !data.departmentId) {
       throw new BadRequestError('Department is required for active employees');
     }
-    // If no status provided (defaults to ACTIVE), also enforce
-    if (!createStatus && !data.departmentId) {
-      throw new BadRequestError('Department is required for active employees');
-    }
+    // If no status provided (defaults to ONBOARDING), department not required
 
     // Generate employee code
     const employeeCode = await this.generateEmployeeCode(organizationId);
@@ -304,7 +301,7 @@ export class EmployeeService {
             panNumber: (data as any).panNumber ? encrypt((data as any).panNumber) : null,
             epfUan: (data as any).epfUan || null,
             epfMemberId: (data as any).epfMemberId || null,
-            status: 'ACTIVE',
+            status: (createStatus as any) || 'ONBOARDING',
             organizationId,
           },
           include: {
@@ -474,7 +471,9 @@ export class EmployeeService {
     // CTC: SUPER_ADMIN, ADMIN, HR only
     const CTC_ALLOWED_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
     // Status + org fields: SUPER_ADMIN, ADMIN, HR only
-    const MANAGEMENT_ONLY_FIELDS = ['status', 'joiningDate', 'probationEndDate', 'workMode', 'officeLocationId', 'email'];
+    const MANAGEMENT_ONLY_FIELDS = ['status', 'joiningDate', 'probationEndDate', 'officeLocationId', 'email'];
+    // workMode is always stripped here — it is derived from ShiftAssignment and only shift.service.ts may write it
+    delete (data as any)['workMode'];
 
     if (callerRole && !CTC_ALLOWED_ROLES.includes(callerRole)) {
       delete (data as any)['ctc'];
@@ -655,32 +654,6 @@ export class EmployeeService {
             await tx.shiftAssignment.updateMany({
               where: { employeeId: id, endDate: null },
               data: { endDate: new Date() },
-            });
-          }
-        }
-
-        // workMode change → auto-reassign appropriate default shift
-        if (data.workMode && data.workMode !== existing.workMode) {
-          const targetShiftType = data.workMode === 'FIELD_SALES' ? 'FIELD' : 'OFFICE';
-          const defaultShift = await tx.shift.findFirst({
-            where: { organizationId, shiftType: targetShiftType as any, isActive: true, isDefault: true },
-          });
-          if (defaultShift) {
-            // End current active shift assignment (if not already handled by explicit shiftId above)
-            if (shiftId === undefined) {
-              await tx.shiftAssignment.updateMany({
-                where: { employeeId: id, endDate: null },
-                data: { endDate: new Date() },
-              });
-            }
-            await tx.shiftAssignment.create({
-              data: {
-                employeeId: id,
-                shiftId: defaultShift.id,
-                startDate: new Date(),
-                endDate: null,
-                assignedBy: updatedBy,
-              },
             });
           }
         }

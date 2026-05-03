@@ -2046,6 +2046,16 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
+// Maps any legacy or unrecognized applicableTo value to one of the three valid modern audience options.
+// Prevents the dropdown from silently showing a blank/wrong option when editing old leave types.
+function normalizeAudience(raw: string | null | undefined): 'ACTIVE_ONLY' | 'TRAINEE_ONLY' | 'ALL_ELIGIBLE' {
+  if (raw === 'ACTIVE_ONLY' || raw === 'TRAINEE_ONLY' || raw === 'ALL_ELIGIBLE') return raw;
+  if (raw === 'ALL') return 'ALL_ELIGIBLE';
+  if (raw === 'ACTIVE' || raw === 'CONFIRMED') return 'ACTIVE_ONLY';
+  if (raw === 'PROBATION' || raw === 'INTERN') return 'TRAINEE_ONLY';
+  return 'ACTIVE_ONLY'; // safe default for any other legacy value
+}
+
 function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose: () => void }) {
   const { t } = useTranslation();
   const isEditing = !!leaveType;
@@ -2069,7 +2079,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         isCarryForward: leaveType.carryForward ?? false,
         maxCarryForward: Number(leaveType.maxCarryForward) || 0,
         isActive: leaveType.isActive ?? true,
-        applicableTo: leaveType.applicableTo || 'ALL',
+        applicableTo: normalizeAudience(leaveType.applicableTo),
         noticeDays: leaveType.noticeDays ?? 0,
         maxPerMonth: leaveType.maxPerMonth ?? 0,
         probationMonths: leaveType.probationMonths ?? 0,
@@ -2238,6 +2248,7 @@ function LeavePersonalView() {
     page: leavePage, limit: 10, ...(leaveStatusFilter ? { status: leaveStatusFilter } : {}),
   });
   const { data: holidaysRes } = useGetHolidaysQuery({});
+  const { data: leavePoliciesRes } = useGetLeavePoliciesQuery();
   const { data: policiesRes } = useGetPoliciesQuery({ category: 'LEAVE' });
   const [acknowledgePolicy, { isLoading: acknowledging }] = useAcknowledgePolicyMutation();
   const [accepted, setAccepted] = useState(false);
@@ -2300,6 +2311,11 @@ function LeavePersonalView() {
   const leaveTypes = allLeaveTypes.filter((lt: any) => balanceLeaveTypeIds.has(lt.id));
   const leaves = leavesRes?.data || [];
   const holidays = holidaysRes?.data || [];
+
+  // Extract monthly paid limit from default policy
+  const defaultLeavePolicies: any[] = leavePoliciesRes?.data ?? [];
+  const defaultLeavePolicy = defaultLeavePolicies.find((p: any) => p.isDefault) ?? defaultLeavePolicies[0];
+  const maxPaidPerMonthDisplay: number = defaultLeavePolicy?.maxPaidLeavesPerMonth ?? 0;
 
   // Employee-level permission gate
   if (!perms.canViewLeaveBalance) return <PermDenied action="view leave balance" />;
@@ -2402,10 +2418,12 @@ function LeavePersonalView() {
   return (
     <div className="page-container">
       {/* Policy reminder banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-4 flex items-center gap-2 text-xs text-blue-700">
-        <AlertCircle size={14} />
-        <span><strong>Policy:</strong> Max 2 paid leaves/month · 1st-10th mandatory attendance · CL needs 2-day notice · PL needs 7-day notice</span>
-      </div>
+      {maxPaidPerMonthDisplay > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-4 flex items-center gap-2 text-xs text-blue-700">
+          <AlertCircle size={14} />
+          <span><strong>Policy:</strong> Max {maxPaidPerMonthDisplay} paid leave day{maxPaidPerMonthDisplay !== 1 ? 's' : ''}/month for active employees.</span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-4 md:mb-6">
         <div>
@@ -2775,7 +2793,8 @@ function PolicySettingsTab() {
   const [traineeMonthly, setTraineeMonthly] = useState<Record<string, { probation: number; intern: number }>>({});
   const [durations, setDurations] = useState({ probationMonths: 3, internMonths: 3 });
   const [maxPaidPerMonth, setMaxPaidPerMonth] = useState(0);
-  const [lwpEnabled, setLwpEnabled] = useState(true);
+  // Per-type LWP enabled map — keyed by leaveTypeId; handles multiple unpaid types correctly
+  const [lwpEnabledMap, setLwpEnabledMap] = useState<Record<string, boolean>>({});
 
   const deriveConfig = () => {
     if (!policy) return;
@@ -2805,15 +2824,19 @@ function PolicySettingsTab() {
     });
     setMaxPaidPerMonth(policy.maxPaidLeavesPerMonth ?? 0);
 
-    const lwpType = allLeaveTypes.find((lt: any) => !lt.isPaid);
-    const lwpRule = lwpType ? findRule(lwpType.id, 'ALL') : null;
-    setLwpEnabled(lwpRule ? lwpRule.isAllowed !== false : true);
+    // Per-type LWP enabled map
+    const lwpMap: Record<string, boolean> = {};
+    lwpTypes.forEach((lt: any) => {
+      const rule = findRule(lt.id, 'ALL');
+      lwpMap[lt.id] = rule ? rule.isAllowed !== false : true;
+    });
+    setLwpEnabledMap(lwpMap);
   };
 
   useEffect(() => {
     if (policy && allLeaveTypes.length) deriveConfig();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [policy?.id, allLeaveTypes.length]);
+  }, [policy?.id, policy?.updatedAt, allLeaveTypes.length]);
 
   const handleSave = async () => {
     if (!policy) return;
@@ -2831,9 +2854,9 @@ function PolicySettingsTab() {
       rules.push({ leaveTypeId, employeeCategory: 'INTERN', yearlyDays: 0, monthlyDays: intern, accrualType: 'MONTHLY', isProrata: false, isAllowed: true });
     });
 
-    // LWP rules (one per unpaid type, for ALL)
+    // LWP rules — one per unpaid type, per-type enable state
     lwpTypes.forEach((lt: any) => {
-      rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: lwpEnabled });
+      rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: lwpEnabledMap[lt.id] !== false });
     });
 
     setSaving(true);
@@ -3037,29 +3060,42 @@ function PolicySettingsTab() {
           )}
         </div>
 
-        {/* Card 3 — LWP */}
+        {/* Card 3 — Unpaid Leave (LWP and others) */}
         <div className="layer-card p-5 space-y-4">
           <div className="flex items-center gap-2">
             <span className="text-xl">📋</span>
             <div>
-              <p className="text-sm font-semibold text-gray-800">Leave Without Pay (LWP)</p>
-              <p className="text-[11px] text-gray-400">Allowed for all eligible employees</p>
+              <p className="text-sm font-semibold text-gray-800">Unpaid Leave</p>
+              <p className="text-[11px] text-gray-400">Leave Without Pay — for all eligible employees</p>
             </div>
           </div>
-          <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-gray-700">Enable LWP</p>
-              <p className="text-[11px] text-gray-400">Employees can apply for unpaid leave when balance is 0</p>
+          {lwpTypes.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No unpaid leave types configured. Create a leave type with isPaid=false.</p>
+          ) : (
+            <div className="space-y-3">
+              {lwpTypes.map((lt: any) => {
+                const enabled = lwpEnabledMap[lt.id] !== false;
+                return (
+                  <div key={lt.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">{lt.name} ({lt.code})</p>
+                      <p className="text-[11px] text-gray-400">
+                        {enabled ? 'Enabled — employees can apply for unpaid leave' : 'Disabled'}
+                      </p>
+                    </div>
+                    <Toggle
+                      checked={enabled}
+                      onChange={(v) => editing && setLwpEnabledMap((m) => ({ ...m, [lt.id]: v }))}
+                    />
+                  </div>
+                );
+              })}
+              {Object.values(lwpEnabledMap).some((v) => v === false) && (
+                <p className="text-[11px] text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                  Disabled unpaid types — employees with zero paid balance cannot apply for those leave types.
+                </p>
+              )}
             </div>
-            <Toggle
-              checked={lwpEnabled}
-              onChange={(v) => editing && setLwpEnabled(v)}
-            />
-          </div>
-          {!lwpEnabled && (
-            <p className="text-[11px] text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-              LWP disabled — employees with zero balance will not be able to apply for leave.
-            </p>
           )}
         </div>
       </div>

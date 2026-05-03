@@ -1,7 +1,7 @@
 // ============================================
 // Aniston HRMS — RBAC Permissions Map
 // ============================================
-import { Role } from './enums';
+import { Role } from './enums.js';
 
 export type Action =
   | 'create'

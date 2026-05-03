@@ -1,3 +1,3 @@
-export * from './enums';
-export * from './permissions';
-export * from './types';
+export * from './enums.js';
+export * from './permissions.js';
+export * from './types.js';

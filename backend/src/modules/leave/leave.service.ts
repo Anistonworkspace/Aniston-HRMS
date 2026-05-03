@@ -32,6 +32,26 @@ export class LeaveService {
    */
   async createLeaveType(data: CreateLeaveTypeInput, organizationId: string) {
     const { applicableToEmployeeIds, ...rest } = data as any;
+
+    // Prevent duplicate code or name within the same organization
+    const existing = await prisma.leaveType.findFirst({
+      where: {
+        organizationId,
+        isActive: true,
+        OR: [
+          { code: rest.code?.toUpperCase?.() ?? rest.code },
+          { name: { equals: rest.name?.trim(), mode: 'insensitive' } },
+        ],
+      },
+      select: { code: true, name: true },
+    });
+    if (existing) {
+      if (existing.code === (rest.code?.toUpperCase?.() ?? rest.code)) {
+        throw new BadRequestError(`A leave type with code "${rest.code}" already exists for this organization.`);
+      }
+      throw new BadRequestError(`A leave type named "${existing.name}" already exists for this organization. Choose a different name.`);
+    }
+
     return prisma.leaveType.create({
       data: {
         ...rest,
@@ -135,6 +155,22 @@ export class LeaveService {
           : null;
         if (specificIds && specificIds.length > 0) return specificIds.includes(employeeId);
         if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
+
+        // Defensive cross-check: LeaveType.applicableTo must be compatible with the employee's category.
+        // This guards against misconfigured policy rules (e.g., ACTIVE policy rule for TRAINEE_ONLY leave type).
+        const app = lt.applicableTo as string | null;
+        const status = employee.status;
+        const isTrainee = status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
+        const isActive = status === 'ACTIVE';
+        if (app === 'ACTIVE_ONLY' && !isActive) return false;
+        if (app === 'TRAINEE_ONLY' && !isTrainee) return false;
+        if (app === 'ALL_ELIGIBLE' && !isActive && !isTrainee) return false;
+        // Legacy ACTIVE / CONFIRMED — only for active
+        if ((app === 'ACTIVE' || app === 'CONFIRMED') && !isActive) return false;
+        // Legacy PROBATION / INTERN — exact match
+        if (app === 'PROBATION' && status !== 'PROBATION') return false;
+        if (app === 'INTERN' && status !== 'INTERN' && userRole !== 'INTERN') return false;
+
         return true;
       });
 
@@ -390,35 +426,75 @@ export class LeaveService {
       }
     }
 
-    // 7b. Global monthly paid-leave limit for ACTIVE employees (cross-type)
-    // The limit is stored on the default policy as maxPaidLeavesPerMonth (0 = unlimited).
+    // 7b. Global monthly paid-leave limit for ACTIVE employees (cross-type, cross-month)
+    // Iterate every calendar month this leave spans and verify quota independently.
     if (leaveType.isPaid && employee.status === 'ACTIVE') {
       try {
         const globalPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
         const maxPaidPerMonth = (globalPolicy as any).maxPaidLeavesPerMonth ?? 0;
         if (maxPaidPerMonth > 0) {
-          // Collect all paid leave type IDs that are ACTIVE-assigned
           const activePaidTypeIds = (globalPolicy.rules as any[])
             .filter((r: any) => r.employeeCategory === 'ACTIVE' && r.isAllowed && r.leaveType?.isPaid !== false)
             .map((r: any) => r.leaveTypeId);
 
           if (activePaidTypeIds.length > 0) {
-            const monthStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-            const monthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
-            const monthUsed = await prisma.leaveRequest.aggregate({
-              where: {
-                employeeId,
-                leaveTypeId: { in: activePaidTypeIds },
-                status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
-                startDate: { gte: monthStart, lte: monthEnd },
-              },
-              _sum: { days: true },
-            });
-            const alreadyUsed = Number(monthUsed._sum.days ?? 0);
-            if (alreadyUsed + days > maxPaidPerMonth) {
-              throw new BadRequestError(
-                `Monthly paid leave limit exceeded. Policy allows ${maxPaidPerMonth} paid leave day(s) per month for active employees. Already taken this month: ${alreadyUsed}d, Requested: ${days}d. Apply for Leave Without Pay (LWP) for the remaining days.`
-              );
+            // Compute calendar-day span of the full request (used for proportional splits)
+            const totalCalDays = Math.max(
+              1,
+              Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1
+            );
+
+            // Iterate each calendar month the leave overlaps
+            let cur = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+            const lastMonthStart = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+            while (cur <= lastMonthStart) {
+              const mStart = new Date(cur.getFullYear(), cur.getMonth(), 1);
+              const mEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+
+              // Calendar overlap of this request with this month
+              const overlapStart = startDate > mStart ? startDate : mStart;
+              const overlapEnd = endDate < mEnd ? endDate : mEnd;
+              const calOverlap = Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1;
+
+              // Proportionally scale working days to this month
+              const daysInMonth = Math.round(days * (calOverlap / totalCalDays));
+
+              if (daysInMonth > 0) {
+                // Use overlap logic: find existing requests that OVERLAP this month
+                // (not just those starting in it) to correctly count cross-month leaves.
+                const overlappingRequests = await prisma.leaveRequest.findMany({
+                  where: {
+                    employeeId,
+                    leaveTypeId: { in: activePaidTypeIds },
+                    status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
+                    startDate: { lte: mEnd },
+                    endDate: { gte: mStart },
+                  },
+                  select: { startDate: true, endDate: true, days: true },
+                });
+
+                // For each overlapping request, compute the portion of its days that falls in this month
+                let alreadyUsedInMonth = 0;
+                for (const req of overlappingRequests) {
+                  const reqStart = new Date(req.startDate);
+                  const reqEnd = new Date(req.endDate);
+                  const reqTotalCal = Math.max(1, Math.floor((reqEnd.getTime() - reqStart.getTime()) / 86400000) + 1);
+                  const reqOverlapStart = reqStart > mStart ? reqStart : mStart;
+                  const reqOverlapEnd = reqEnd < mEnd ? reqEnd : mEnd;
+                  const reqCalOverlap = Math.max(0, Math.floor((reqOverlapEnd.getTime() - reqOverlapStart.getTime()) / 86400000) + 1);
+                  const reqDaysInMonth = Math.round(Number(req.days) * (reqCalOverlap / reqTotalCal));
+                  alreadyUsedInMonth += reqDaysInMonth;
+                }
+
+                if (alreadyUsedInMonth + daysInMonth > maxPaidPerMonth) {
+                  const monthLabel = mStart.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+                  throw new BadRequestError(
+                    `Monthly paid leave limit exceeded for ${monthLabel}. Policy allows ${maxPaidPerMonth} paid leave day(s) per month. Already used: ${alreadyUsedInMonth}d, This leave adds: ${daysInMonth}d. Apply for Leave Without Pay (LWP) for remaining days.`
+                  );
+                }
+              }
+
+              cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
             }
           }
         }
@@ -1095,20 +1171,30 @@ export class LeaveService {
       if (leaveType.applicableTo !== 'ALL') {
         const app = leaveType.applicableTo;
         const status = employee.status;
+        const isTrainee = status === 'PROBATION' || status === 'INTERN' || empUserRole === 'INTERN';
+        const isEligible = status === 'ACTIVE' || isTrainee;
         const allowed = (() => {
+          // Modern audience values
+          if (app === 'ACTIVE_ONLY') return status === 'ACTIVE';
+          if (app === 'TRAINEE_ONLY') return isTrainee;
+          if (app === 'ALL_ELIGIBLE') return isEligible;
+          // Legacy values
           if (app === 'PROBATION') return status === 'PROBATION';
           if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
           if (app === 'NOTICE_PERIOD') return status === 'NOTICE_PERIOD';
-          if (app === 'ONBOARDING') return false; // ONBOARDING employees blocked above; no other status matches
+          if (app === 'ONBOARDING') return false;
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
           if (app === 'SUSPENDED') return status === 'SUSPENDED';
           if (app === 'INACTIVE') return status === 'INACTIVE';
           if (app === 'TERMINATED') return status === 'TERMINATED';
           if (app === 'ABSCONDED') return status === 'ABSCONDED';
-          return true;
+          return isEligible; // unknown values fall back to eligible-only
         })();
         if (!allowed) {
           const labels: Record<string, string> = {
+            ACTIVE_ONLY: 'active/confirmed employees',
+            TRAINEE_ONLY: 'employees on probation or internship',
+            ALL_ELIGIBLE: 'active, probation, or intern employees',
             PROBATION: 'employees in probation period',
             ACTIVE: 'active/full-time employees',
             CONFIRMED: 'active/full-time employees',
@@ -1470,26 +1556,36 @@ export class LeaveService {
 
         const app = leaveType.applicableTo as string | null;
         const empStatus = (empProfile?.status as string | undefined) || '';
-        if (app === 'ALL' && empStatus === 'ONBOARDING') {
-          throw new BadRequestError(`Cannot approve: ${leaveType.name} is not available for employees in onboarding status.`);
+        const empUserRoleForRecheck = empUser?.role || '';
+        const isTraineeForRecheck = empStatus === 'PROBATION' || empStatus === 'INTERN' || empUserRoleForRecheck === 'INTERN';
+        const isEligibleForRecheck = empStatus === 'ACTIVE' || isTraineeForRecheck;
+
+        // Block non-eligible statuses unconditionally
+        const NON_ELIGIBLE_ON_APPROVE = ['ONBOARDING', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
+        if (NON_ELIGIBLE_ON_APPROVE.includes(empStatus)) {
+          throw new BadRequestError(`Cannot approve: Employee is in ${empStatus} status. Leave approval is not valid for this employment state.`);
         }
+
         if (app && app !== 'ALL') {
-          const STATUS_MAP: Record<string, string[]> = {
-            PROBATION: ['PROBATION'],
-            ACTIVE: ['ACTIVE'],
-            CONFIRMED: ['ACTIVE', 'CONFIRMED'],
-            INTERN: ['INTERN'],
-            NOTICE_PERIOD: ['NOTICE_PERIOD'],
-            ONBOARDING: ['ONBOARDING'],
-            SUSPENDED: ['SUSPENDED'],
-            INACTIVE: ['INACTIVE'],
-            TERMINATED: ['TERMINATED'],
-            ABSCONDED: ['ABSCONDED'],
+          const STATUS_MAP: Record<string, (s: string, r: string) => boolean> = {
+            ACTIVE_ONLY: (s) => s === 'ACTIVE',
+            TRAINEE_ONLY: (s, r) => s === 'PROBATION' || s === 'INTERN' || r === 'INTERN',
+            ALL_ELIGIBLE: (s, r) => s === 'ACTIVE' || s === 'PROBATION' || s === 'INTERN' || r === 'INTERN',
+            PROBATION: (s) => s === 'PROBATION',
+            ACTIVE: (s) => s === 'ACTIVE',
+            CONFIRMED: (s) => s === 'ACTIVE',
+            INTERN: (s, r) => s === 'INTERN' || r === 'INTERN',
+            NOTICE_PERIOD: (s) => s === 'NOTICE_PERIOD',
           };
-          const allowed = STATUS_MAP[app];
-          if (allowed && !allowed.includes(empStatus)) {
+          const check = STATUS_MAP[app];
+          if (check && !check(empStatus, empUserRoleForRecheck)) {
+            const labels: Record<string, string> = {
+              ACTIVE_ONLY: 'active employees', TRAINEE_ONLY: 'probation/intern employees',
+              ALL_ELIGIBLE: 'active/probation/intern employees', PROBATION: 'probation employees',
+              ACTIVE: 'active employees', CONFIRMED: 'active employees', INTERN: 'interns',
+            };
             throw new BadRequestError(
-              `Cannot approve: ${leaveType.name} is only applicable to ${app.toLowerCase().replace(/_/g, ' ')} employees. This employee's current status is ${empStatus || 'unknown'}.`
+              `Cannot approve: ${leaveType.name} is only applicable to ${labels[app] || app}. This employee's current status is ${empStatus}.`
             );
           }
         }

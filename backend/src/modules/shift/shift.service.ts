@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError, ConflictError } from '../../middleware/errorHandler.js';
 import type { CreateShiftInput, AssignShiftInput, CreateLocationInput } from './shift.validation.js';
+import { emitToUser } from '../../sockets/index.js';
 
 export class ShiftService {
   // ===================== SHIFTS =====================
@@ -228,7 +229,10 @@ export class ShiftService {
   }
 
   async assignShift(data: AssignShiftInput, organizationId: string, assignedBy: string) {
-    const employee = await prisma.employee.findFirst({ where: { id: data.employeeId, organizationId } });
+    const employee = await prisma.employee.findFirst({
+      where: { id: data.employeeId, organizationId },
+      select: { id: true, status: true, userId: true },
+    });
     if (!employee) throw new NotFoundError('Employee');
 
     // Block assignment for employees who are no longer active
@@ -241,62 +245,145 @@ export class ShiftService {
     if (!shift) throw new NotFoundError('Shift');
 
     const newStart = new Date(data.startDate);
+    newStart.setHours(0, 0, 0, 0);
 
-    // Check for overlapping non-open-ended assignments that won't be closed by the updateMany below
-    const overlapping = await prisma.shiftAssignment.findFirst({
-      where: {
-        employeeId: data.employeeId,
-        endDate: { not: null, gt: newStart },
-        startDate: { lt: newStart },
-      },
-    });
-    if (overlapping) {
-      throw new BadRequestError(
-        `Employee already has a shift assignment active from ${overlapping.startDate.toISOString().split('T')[0]} ` +
-        `to ${overlapping.endDate!.toISOString().split('T')[0]} that overlaps this start date.`
-      );
+    // Validate endDate if provided.
+    // endDate semantics: inclusive — the assignment is active until end-of-day on endDate.
+    // We store it as a DATE column and query with { gt: today } to mean "still active today".
+    let newEnd: Date | null = null;
+    if (data.endDate) {
+      newEnd = new Date(data.endDate);
+      newEnd.setHours(0, 0, 0, 0);
+      if (newEnd <= newStart) {
+        throw new BadRequestError('endDate must be after startDate.');
+      }
     }
 
-    // End any current open assignment
-    await prisma.shiftAssignment.updateMany({
-      where: { employeeId: data.employeeId, endDate: null },
-      data: { endDate: new Date(data.startDate) },
-    });
-
-    // Map shift type to employee work mode
     const workModeMap: Record<string, string> = { OFFICE: 'OFFICE', FIELD: 'FIELD_SALES' };
     const newWorkMode = workModeMap[shift.shiftType] || 'OFFICE';
 
-    // Update employee's workMode to match the assigned shift
-    await prisma.employee.update({
-      where: { id: data.employeeId },
-      data: { workMode: newWorkMode as any },
+    // All reads + writes inside a transaction to prevent overlap races.
+    const assignment = await prisma.$transaction(async (tx) => {
+
+      // ── 1. Same-startDate check (excluding soft-deleted rows) ────────────────
+      // If a non-deleted assignment with exactly this start date already exists,
+      // update it in-place rather than creating a duplicate (idempotent re-submit).
+      const sameStart = await tx.shiftAssignment.findFirst({
+        where: {
+          employeeId: data.employeeId,
+          startDate: newStart,
+          deletedAt: null,
+        },
+      });
+
+      // ── 2. Full date-range overlap check (excluding soft-deleted rows) ────────
+      // An existing assignment [existStart, existEnd] overlaps [newStart, newEnd] when:
+      //   existStart < effectiveNewEnd  AND  (existEnd is null OR existEnd > newStart)
+      // where effectiveNewEnd is newEnd if set, or far-future if open-ended.
+      // We exclude the sameStart row (handled by update above) to avoid false rejection.
+      // We also exclude open-ended rows because updateMany will close them in step 3.
+      const overlapWhere: any = {
+        employeeId: data.employeeId,
+        deletedAt: null,
+        endDate: { not: null },       // open-ended rows will be closed — skip them here
+        startDate: { lt: newEnd ?? new Date('9999-12-31') }, // existStart < effectiveNewEnd
+        NOT: sameStart ? [{ id: sameStart.id }] : [],
+      };
+      // existEnd > newStart  (ensures the existing assignment is still active when new one starts)
+      overlapWhere.endDate = { not: null, gt: newStart };
+      // Also require existStart < effectiveNewEnd (already set above via startDate filter)
+
+      const overlapping = await tx.shiftAssignment.findFirst({ where: overlapWhere });
+      if (overlapping) {
+        const existStart = overlapping.startDate.toISOString().split('T')[0];
+        const existEnd   = overlapping.endDate!.toISOString().split('T')[0];
+        const reqStart   = newStart.toISOString().split('T')[0];
+        const reqEnd     = newEnd ? newEnd.toISOString().split('T')[0] : 'open-ended';
+        throw new BadRequestError(
+          `Shift assignment conflict: requested period ${reqStart}–${reqEnd} overlaps ` +
+          `existing assignment ${existStart}–${existEnd}. ` +
+          `Please end the existing assignment first or choose a non-overlapping date range.`
+        );
+      }
+
+      // ── 3. Same-startDate → update existing row ──────────────────────────────
+      if (sameStart) {
+        const updated = await tx.shiftAssignment.update({
+          where: { id: sameStart.id },
+          data: {
+            shiftId: data.shiftId,
+            locationId: data.locationId || null,
+            endDate: newEnd,
+            assignedBy,
+            deletedAt: null, // ensure not soft-deleted if somehow flagged
+          },
+          include: {
+            shift: true,
+            location: { include: { geofence: true } },
+            employee: { select: { firstName: true, lastName: true, employeeCode: true, workMode: true } },
+          },
+        });
+
+        await tx.employee.update({
+          where: { id: data.employeeId },
+          data: {
+            workMode: newWorkMode as any,
+            ...(data.locationId ? { officeLocationId: data.locationId } : {}),
+          },
+        });
+
+        return updated;
+      }
+
+      // ── 4. Close any open-ended (non-deleted) assignment ─────────────────────
+      // Set endDate = newStart so the previous assignment ends the day the new one begins.
+      await tx.shiftAssignment.updateMany({
+        where: { employeeId: data.employeeId, endDate: null, deletedAt: null },
+        data: { endDate: newStart },
+      });
+
+      // ── 5. Create the new assignment ─────────────────────────────────────────
+      const created = await tx.shiftAssignment.create({
+        data: {
+          employeeId: data.employeeId,
+          shiftId: data.shiftId,
+          locationId: data.locationId || null,
+          organizationId,
+          startDate: newStart,
+          endDate: newEnd,
+          assignedBy,
+        },
+        include: {
+          shift: true,
+          location: { include: { geofence: true } },
+          employee: { select: { firstName: true, lastName: true, employeeCode: true, workMode: true } },
+        },
+      });
+
+      await tx.employee.update({
+        where: { id: data.employeeId },
+        data: {
+          workMode: newWorkMode as any,
+          ...(data.locationId ? { officeLocationId: data.locationId } : {}),
+        },
+      });
+
+      return created;
     });
 
-    // Sync employee's officeLocationId if the shift assignment includes a location
-    if (data.locationId) {
-      await prisma.employee.update({
-        where: { id: data.employeeId },
-        data: { officeLocationId: data.locationId },
+    // Notify the affected employee's open browser/app tab so their attendance page
+    // can refetch without a manual refresh. Safe to ignore if socket not connected.
+    if (employee.userId) {
+      emitToUser(employee.userId, 'shift:assigned', {
+        employeeId: data.employeeId,
+        shiftId: data.shiftId,
+        shiftType: shift.shiftType,
+        workMode: newWorkMode,
+        startDate: data.startDate,
       });
     }
 
-    return prisma.shiftAssignment.create({
-      data: {
-        employeeId: data.employeeId,
-        shiftId: data.shiftId,
-        locationId: data.locationId || null,
-        organizationId,
-        startDate: new Date(data.startDate),
-        endDate: data.endDate ? new Date(data.endDate) : null,
-        assignedBy,
-      },
-      include: {
-        shift: true,
-        location: { include: { geofence: true } },
-        employee: { select: { firstName: true, lastName: true, employeeCode: true, workMode: true } },
-      },
-    });
+    return assignment;
   }
 
   async getEmployeeShift(employeeId: string) {
@@ -306,6 +393,7 @@ export class ShiftService {
     return prisma.shiftAssignment.findFirst({
       where: {
         employeeId,
+        deletedAt: null,
         startDate: { lte: today },
         OR: [{ endDate: null }, { endDate: { gt: today } }],
       },
@@ -319,7 +407,7 @@ export class ShiftService {
 
   async getMyShiftHistory(employeeId: string) {
     return prisma.shiftAssignment.findMany({
-      where: { employeeId },
+      where: { employeeId, deletedAt: null },
       include: {
         shift: true,
         location: true,

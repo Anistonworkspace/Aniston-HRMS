@@ -22,7 +22,7 @@ import { Geolocation, type Position } from '@capacitor/geolocation';
 
 // Register our custom native plugin (GpsTrackingPlugin.java in MainActivity)
 interface GpsTrackingPluginDef {
-  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string }): Promise<void>;
+  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; trackingIntervalMinutes?: number }): Promise<void>;
   stop(): Promise<void>;
   updateToken(opts: { token: string }): Promise<void>;
   isRunning(): Promise<{ running: boolean }>;
@@ -131,12 +131,11 @@ export async function getCurrentPosition(): Promise<GPSPosition> {
 }
 
 /**
- * Start watching position.
+ * Start watching position for foreground UI updates.
  *
- * On native Android: uses BackgroundGeolocation.addWatcher() which starts a
- *   foreground service. GPS fires even when screen is off / app is minimised.
- *   The user sees a persistent "Aniston HRMS — Field GPS Active" notification
- *   while tracking is running (required by Android 8+).
+ * On native Android: uses Geolocation.watchPosition for foreground UI updates.
+ *   Background GPS is handled by the native GpsTrackingService (Java ForegroundService)
+ *   started separately via startNativeGpsService(). That service survives swipe-from-recents.
  *
  * On native iOS: uses Geolocation.watchPosition() (continuous updates).
  *
@@ -149,6 +148,7 @@ export interface GPSCredentials {
   authToken: string;
   employeeId: string;
   orgId: string;
+  trackingIntervalMinutes?: number;
 }
 
 /**
@@ -163,6 +163,9 @@ export async function startNativeGpsService(credentials: GPSCredentials): Promis
     authToken: credentials.authToken,
     employeeId: credentials.employeeId,
     orgId: credentials.orgId,
+    ...(credentials.trackingIntervalMinutes != null
+      ? { trackingIntervalMinutes: credentials.trackingIntervalMinutes }
+      : {}),
   });
 }
 

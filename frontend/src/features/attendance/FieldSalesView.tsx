@@ -15,6 +15,7 @@ import {
   startNativeGpsService,
   stopNativeGpsService,
   updateNativeGpsToken,
+  isNativeGpsRunning,
 } from '../../lib/capacitorGPS';
 import type { RootState } from '../../app/store';
 import toast from 'react-hot-toast';
@@ -159,12 +160,15 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   // Auto-start GPS when employee checks in on a field shift.
   // Handles: (1) already checked in on mount, (2) HR changes shift to FIELD mid-day.
   // startTrackingCore() skips clockIn when isCheckedIn is already true.
+  // Uses isNativeGpsRunning() to query actual native service state, preventing
+  // duplicate starts when the component remounts (e.g. tab switch + return).
   const autoStartRef = useRef(false);
   useEffect(() => {
     if (!isCheckedIn) {
       autoStartRef.current = false;
       return;
     }
+    // Module-level singleton says a watcher is already registered this session
     if (_gpsWatcher.isActive || isTracking) {
       setIsTracking(true);
       autoStartRef.current = true;
@@ -173,11 +177,34 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     if (autoStartRef.current) return;
     if (consentData === undefined) return; // consent query still loading
     autoStartRef.current = true;
-    if (!hasConsented) {
-      setShowConsentDialog(true);
-      return;
+
+    // On Android: check native service state before starting — the module-level singleton
+    // does not survive a process restart, so we must ask the OS directly.
+    if (isNativeAndroid) {
+      isNativeGpsRunning().then((alreadyRunning) => {
+        if (alreadyRunning) {
+          // Service is alive from a previous session — restore UI state without re-starting
+          _gpsWatcher.isActive = true;
+          setIsTracking(true);
+          return;
+        }
+        if (!hasConsented) {
+          setShowConsentDialog(true);
+          return;
+        }
+        startTrackingCore();
+      }).catch(() => {
+        // isRunning() failed (older device/API) — fall through to normal start
+        if (!hasConsented) { setShowConsentDialog(true); return; }
+        startTrackingCore();
+      });
+    } else {
+      if (!hasConsented) {
+        setShowConsentDialog(true);
+        return;
+      }
+      startTrackingCore();
     }
-    startTrackingCore();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCheckedIn, hasConsented, consentData, isTracking]);
 
@@ -370,11 +397,13 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       // Geolocation.watchPosition below handles UI-only foreground updates.
       if (isNativeAndroid) {
         const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
+        const intervalMins = todayStatus?.shift?.trackingIntervalMinutes;
         await startNativeGpsService({
           backendUrl: backendBase,
           authToken: accessToken || '',
           employeeId: user?.employeeId || '',
           orgId: user?.organizationId || '',
+          ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
         }).catch((e: any) => console.warn('Native GPS service start failed:', e?.message));
       }
 
@@ -855,20 +884,12 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           )}
         </div>
 
-        {/* Main Action */}
-        {!isTracking ? (
-          <button
-            onClick={startTracking}
-            disabled={isClockingIn}
-            className="w-full py-4 rounded-xl bg-emerald-600 text-white font-medium text-lg flex items-center justify-center gap-3 hover:bg-emerald-700 transition-colors"
-          >
-            {isClockingIn
-              ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              : <Play className="w-6 h-6" />
-            }
-            {isCheckedIn ? 'Start GPS Tracking' : 'Check In'}
-          </button>
-        ) : (
+        {/* Main Action
+            States:
+            - isTracking true → Check Out button
+            - not checked in → Check In button (triggers clock-in + GPS start)
+            - checked in but GPS not yet running → auto-start useEffect is handling it; show spinner status only (no manual button) */}
+        {isTracking ? (
           <button
             onClick={stopTracking}
             disabled={isClockingOut}
@@ -879,6 +900,23 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
               : <Square className="w-6 h-6" />
             }
             Check Out
+          </button>
+        ) : isCheckedIn ? (
+          <div className="w-full py-4 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium text-base flex items-center justify-center gap-3">
+            <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            Starting background GPS…
+          </div>
+        ) : (
+          <button
+            onClick={startTracking}
+            disabled={isClockingIn}
+            className="w-full py-4 rounded-xl bg-emerald-600 text-white font-medium text-lg flex items-center justify-center gap-3 hover:bg-emerald-700 transition-colors"
+          >
+            {isClockingIn
+              ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Play className="w-6 h-6" />
+            }
+            Check In
           </button>
         )}
       </div>

@@ -856,6 +856,7 @@ function StatDetailModal({ config, onClose, navigate }: {
 
   const STATUS_BADGE: Record<string, string> = {
     ACTIVE: 'bg-green-50 text-green-700 border-green-200',
+    INTERN: 'bg-violet-50 text-violet-700 border-violet-200',
     PROBATION: 'bg-orange-50 text-orange-700 border-orange-200',
     ONBOARDING: 'bg-amber-50 text-amber-700 border-amber-200',
     INACTIVE: 'bg-gray-100 text-gray-500 border-gray-200',

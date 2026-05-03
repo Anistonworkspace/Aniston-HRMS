@@ -477,7 +477,7 @@ router.get('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async 
 router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const { name, description, isDefault, probationDurationMonths, internDurationMonths, rules } = req.body;
+    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
         where: { organizationId: req.user!.organizationId, isDefault: true },
@@ -507,6 +507,13 @@ router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
       },
       include: { rules: { include: { leaveType: { select: { id: true, name: true, code: true } } } } },
     });
+    // Workaround: Prisma v6 does not reliably set @default(0) Int fields via create().
+    // Apply maxPaidLeavesPerMonth via a follow-up update so it is always persisted.
+    const maxPaid = Number(maxPaidLeavesPerMonth ?? 0);
+    if (maxPaid !== 0) {
+      await prisma.leavePolicy.update({ where: { id: policy.id }, data: { maxPaidLeavesPerMonth: maxPaid } });
+      (policy as any).maxPaidLeavesPerMonth = maxPaid;
+    }
     res.status(201).json({ success: true, data: policy });
   } catch (err) { next(err); }
 });

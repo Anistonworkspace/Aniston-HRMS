@@ -8,7 +8,7 @@ import { prisma } from '../../lib/prisma.js';
 async function notifyAdminsOfFailure(orgId: string, category: string, errorMessage: string) {
   try {
     const admins = await prisma.user.findMany({
-      where: { organizationId: orgId, role: 'SUPER_ADMIN', deletedAt: null },
+      where: { organizationId: orgId, role: 'SUPER_ADMIN' },
       select: { id: true },
     });
     for (const admin of admins) {

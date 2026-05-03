@@ -148,6 +148,16 @@ export default function AppShell() {
     return () => { offSocketEvent('kyc:status-changed', handleKycStatusChanged); };
   }, [dispatch, user]);
 
+  // Real-time shift assignment — refetch attendance context so the employee's page
+  // reflects the new shift type (OFFICE/FIELD) without a manual refresh.
+  useEffect(() => {
+    const handleShiftAssigned = () => {
+      dispatch(api.util.invalidateTags(['Attendance', 'Employee'] as any[]));
+    };
+    onSocketEvent('shift:assigned', handleShiftAssigned);
+    return () => { offSocketEvent('shift:assigned', handleShiftAssigned); };
+  }, [dispatch]);
+
   const navigate = useNavigate();
 
   // Single-session enforcement — kicked off because another device logged in with force-login

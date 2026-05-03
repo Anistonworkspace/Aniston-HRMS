@@ -67,7 +67,7 @@ export class AgentService {
     const activeMinutesIncrement = Math.ceil(totalActiveSeconds / 60);
     if (totalActiveSeconds > 0) {
       await prisma.attendanceRecord.updateMany({
-        where: { employeeId, organizationId, date: today, checkOut: null },
+        where: { employeeId, date: today, checkOut: null },
         data: {
           activeMinutes: { increment: activeMinutesIncrement },
           activityPulses: { increment: 1 },

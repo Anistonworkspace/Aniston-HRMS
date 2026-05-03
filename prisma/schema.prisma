@@ -619,6 +619,10 @@ model AttendanceRecord {
   geofenceViolation  Boolean          @default(false)
   clockInCount       Int              @default(0)
   lateMinutes        Int              @default(0)
+  // Shift snapshot — frozen at clock-in time for payroll/audit reports.
+  // Plain UUID fields (no FK constraint) so historical records survive shift deletion.
+  shiftId            String?
+  shiftAssignmentId  String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -632,6 +636,8 @@ model AttendanceRecord {
 
   @@unique([employeeId, date])
   @@index([date])
+  @@index([shiftId])
+  @@index([shiftAssignmentId])
 }
 
 enum AttendanceStatus {
@@ -2430,6 +2436,8 @@ model ShiftAssignment {
   organization Organization?   @relation(fields: [organizationId], references: [id])
 
   @@index([employeeId, startDate])
+  @@index([employeeId, endDate])
+  @@index([employeeId, startDate, endDate])
   @@index([organizationId, startDate])
 }
 

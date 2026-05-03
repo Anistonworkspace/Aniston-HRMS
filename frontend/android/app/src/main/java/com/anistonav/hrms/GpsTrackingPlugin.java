@@ -34,6 +34,7 @@ public class GpsTrackingPlugin extends Plugin {
         String authToken   = call.getString("authToken");
         String employeeId  = call.getString("employeeId");
         String orgId       = call.getString("orgId", "");
+        int trackingIntervalMinutes = call.getInt("trackingIntervalMinutes", 0);
 
         if (authToken == null || authToken.isEmpty()) {
             call.reject("authToken is required");
@@ -50,6 +51,9 @@ public class GpsTrackingPlugin extends Plugin {
         intent.putExtra(GpsTrackingService.EXTRA_TOKEN, authToken);
         intent.putExtra(GpsTrackingService.EXTRA_EMPLOYEE_ID, employeeId);
         intent.putExtra(GpsTrackingService.EXTRA_ORG_ID, orgId);
+        if (trackingIntervalMinutes > 0) {
+            intent.putExtra(GpsTrackingService.EXTRA_TRACKING_INTERVAL_MINUTES, trackingIntervalMinutes);
+        }
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -108,11 +112,11 @@ public class GpsTrackingPlugin extends Plugin {
 
     @PluginMethod
     public void isRunning(PluginCall call) {
-        SharedPreferences prefs = getContext().getSharedPreferences(
-            GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
-        boolean running = prefs.getString(GpsTrackingService.EXTRA_TOKEN, null) != null;
+        // Use the static volatile field — reliable even after OOM kill because
+        // a new process starts with sIsRunning = false (static default).
+        // SharedPreferences can falsely say "running" if onDestroy was skipped by the OS.
         JSObject result = new JSObject();
-        result.put("running", running);
+        result.put("running", GpsTrackingService.sIsRunning);
         call.resolve(result);
     }
 }

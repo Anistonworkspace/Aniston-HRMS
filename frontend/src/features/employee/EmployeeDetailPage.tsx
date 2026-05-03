@@ -962,8 +962,10 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             }
             setIsChangingRole(false);
           }
+          // Strip workMode — it is managed exclusively by shift assignment, never by profile save
+          const { workMode: _discardedWorkMode, ...safeForm } = form;
           onSave({
-            ...form,
+            ...safeForm,
             departmentId: form.departmentId || null,
             designationId: form.designationId || null,
             managerId: form.managerId || null,

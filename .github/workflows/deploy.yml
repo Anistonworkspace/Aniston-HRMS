@@ -115,6 +115,9 @@ jobs:
       - name: Generate Prisma client
         run: npx --no-install prisma generate
 
+      - name: Build shared package
+        run: npm run build --workspace=shared
+
       - name: Build backend
         run: npm run build --workspace=backend
 
@@ -302,6 +305,22 @@ jobs:
               echo "Schema push skipped"
             }
 
+            echo "=== [6.4/17] Running INTERN employee status + leave settings enum migration ==="
+            # Adds INTERN to EmployeeStatus PostgreSQL enum + leave type columns.
+            # ALTER TYPE ADD VALUE cannot run inside a transaction — this explicit step ensures
+            # the enum exists in production even if prisma db push skips it due to a prior partial sync.
+            if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
+              psql "$DEPLOY_DATABASE_URL" \
+                -f "prisma/migrations/20260413000000_add_leave_settings_intern_role/migration.sql" \
+                2>/dev/null || true
+              psql "$DEPLOY_DATABASE_URL" \
+                -f "prisma/migrations/20260413000001_add_leave_applicable_employees/migration.sql" \
+                2>/dev/null || true
+              echo "✅ INTERN enum + leave settings migration complete"
+            else
+              echo "psql not available or DATABASE_URL not set — skipping INTERN enum migration"
+            fi
+
             echo "=== [6.5/17] Running leave policy data migration SQL ==="
             # Runs the migration file via psql -f (avoids heredoc << in YAML).
             # psql continues past 'already exists' errors by default — safe to re-run.
@@ -323,6 +342,21 @@ jobs:
               echo "✅ Leave balance breakdown migration complete"
             else
               echo "psql not available or DATABASE_URL not set — skipping leave balance breakdown migration"
+            fi
+
+            echo "=== [6.7/17] Running leave policy maxPaidLeavesPerMonth + attendance shift snapshot migrations ==="
+            # These are schema-only migrations (all guards use IF NOT EXISTS) and are also
+            # covered by the db push above — running them here ensures idempotent explicit tracking.
+            if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
+              psql "$DEPLOY_DATABASE_URL" \
+                -f "prisma/migrations/20260503000001_leave_policy_max_paid_per_month/migration.sql" \
+                2>/dev/null || true
+              psql "$DEPLOY_DATABASE_URL" \
+                -f "prisma/migrations/20260503000002_attendance_shift_snapshot_and_indexes/migration.sql" \
+                2>/dev/null || true
+              echo "✅ Leave policy cap + attendance snapshot migrations complete"
+            else
+              echo "psql not available or DATABASE_URL not set — skipping"
             fi
 
             echo "=== [7/17] Generating Prisma client (after schema sync) ==="
@@ -395,9 +429,10 @@ jobs:
             echo "=== [10/17] Seeding database ==="
             npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
 
-            echo "=== [11/17] Building backend ==="
+            echo "=== [11/17] Building shared + backend ==="
+            npm run build --workspace=shared
             npm run build --workspace=backend
-            echo "✅ Backend compiled to backend/dist/"
+            echo "✅ Shared + Backend compiled to backend/dist/"
 
             echo "=== [11.5/17] Building frontend ==="
             cd frontend && VITE_API_URL=/api npx vite build && cd ..

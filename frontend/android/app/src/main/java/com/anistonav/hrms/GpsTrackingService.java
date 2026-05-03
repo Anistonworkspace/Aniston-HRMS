@@ -67,9 +67,13 @@ public class GpsTrackingService extends Service {
     public static final String EXTRA_BACKEND_URL = "backend_url";
     public static final String EXTRA_EMPLOYEE_ID = "employee_id";
     public static final String EXTRA_ORG_ID = "org_id";
+    // Intent extra key: value is an integer number of MINUTES (as sent by the Capacitor plugin)
+    public static final String EXTRA_TRACKING_INTERVAL_MINUTES = "tracking_interval_minutes";
+    // SharedPreferences key: value is stored in MILLISECONDS for direct use in LocationRequest
+    private static final String PREFS_KEY_GPS_INTERVAL_MS = "gps_interval_ms";
 
-    // GPS timing
-    private static final long GPS_INTERVAL_MS = 60_000L;      // request update every 60 s
+    // GPS timing — interval overridable per shift; clamped to [1, 60] minutes
+    private static final long GPS_INTERVAL_MS_DEFAULT = 60_000L;
     private static final long GPS_FASTEST_MS = 30_000L;       // never faster than 30 s
     private static final long HEARTBEAT_INTERVAL_MS = 5 * 60_000L; // ping backend every 5 min
 
@@ -84,6 +88,12 @@ public class GpsTrackingService extends Service {
     private String authToken;
     private String employeeId;
     private String orgId;
+    private long gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
+
+    // Visible across all threads and to GpsTrackingPlugin without needing a Context.
+    // Set true once the foreground service is fully started; false at the top of onDestroy
+    // so that an OOM kill (which skips onDestroy) returns false — safer than prefs alone.
+    public static volatile boolean sIsRunning = false;
 
     // Last known location — kept for notification updates
     private double lastLat = 0;
@@ -123,6 +133,14 @@ public class GpsTrackingService extends Service {
             employeeId = intent.getStringExtra(EXTRA_EMPLOYEE_ID);
             orgId = intent.getStringExtra(EXTRA_ORG_ID);
             if (backendUrl == null) backendUrl = "https://hr.anistonav.com";
+            int intervalMinutes = intent.getIntExtra(EXTRA_TRACKING_INTERVAL_MINUTES, 0);
+            if (intervalMinutes > 0) {
+                // Clamp to [1, 60] minutes to avoid absurd intervals
+                intervalMinutes = Math.max(1, Math.min(60, intervalMinutes));
+                gpsIntervalMs = intervalMinutes * 60_000L;
+            } else {
+                gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
+            }
             saveToPrefs();
         }
 
@@ -132,6 +150,7 @@ public class GpsTrackingService extends Service {
         }
 
         startForegroundNow("Aniston HRMS — GPS Active", "Initialising location…");
+        sIsRunning = true;
         startLocationUpdates();
         startHeartbeat();
         return START_STICKY;
@@ -145,15 +164,23 @@ public class GpsTrackingService extends Service {
             .putString(EXTRA_TOKEN, authToken)
             .putString(EXTRA_EMPLOYEE_ID, employeeId)
             .putString(EXTRA_ORG_ID, orgId)
+            .putLong(PREFS_KEY_GPS_INTERVAL_MS, gpsIntervalMs)
             .apply();
     }
 
     private void restoreFromPrefs() {
         SharedPreferences p = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        backendUrl  = p.getString(EXTRA_BACKEND_URL, "https://hr.anistonav.com");
-        authToken   = p.getString(EXTRA_TOKEN, null);
-        employeeId  = p.getString(EXTRA_EMPLOYEE_ID, null);
-        orgId       = p.getString(EXTRA_ORG_ID, null);
+        backendUrl = p.getString(EXTRA_BACKEND_URL, "https://hr.anistonav.com");
+        authToken  = p.getString(EXTRA_TOKEN, null);
+        employeeId = p.getString(EXTRA_EMPLOYEE_ID, null);
+        orgId      = p.getString(EXTRA_ORG_ID, null);
+        // Read new key first; fall back to old misnamed key for apps upgrading from a
+        // previous install where the value was stored under "tracking_interval_minutes".
+        if (p.contains(PREFS_KEY_GPS_INTERVAL_MS)) {
+            gpsIntervalMs = p.getLong(PREFS_KEY_GPS_INTERVAL_MS, GPS_INTERVAL_MS_DEFAULT);
+        } else {
+            gpsIntervalMs = p.getLong(EXTRA_TRACKING_INTERVAL_MINUTES, GPS_INTERVAL_MS_DEFAULT);
+        }
     }
 
     // ── Wake lock ────────────────────────────────────────────────────────────────
@@ -170,7 +197,7 @@ public class GpsTrackingService extends Service {
     // ── GPS ──────────────────────────────────────────────────────────────────────
 
     private void startLocationUpdates() {
-        LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, GPS_INTERVAL_MS)
+        LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, gpsIntervalMs)
             .setMinUpdateIntervalMillis(GPS_FASTEST_MS)
             .setWaitForAccurateLocation(false)
             .build();
@@ -324,10 +351,14 @@ public class GpsTrackingService extends Service {
         if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(title, text));
     }
 
+    /** Extra key carried on the notification-tap Intent so MainActivity can deep-link. */
+    public static final String EXTRA_NAVIGATE = "navigate_to";
+
     private Notification buildNotification(String title, String text) {
-        // Tap notification → open app at /attendance
+        // Tap notification → open app and navigate to /attendance
         Intent openApp = new Intent(this, MainActivity.class);
         openApp.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        openApp.putExtra(EXTRA_NAVIGATE, "/attendance");
         PendingIntent openPi = PendingIntent.getActivity(this, 0, openApp,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
@@ -368,7 +399,9 @@ public class GpsTrackingService extends Service {
         if (networkExecutor != null && !networkExecutor.isShutdown()) {
             networkExecutor.shutdown();
         }
-        // Clear prefs so plugin knows service is not running
+        // Mark stopped before clearing prefs — if OOM killed us without calling onDestroy,
+        // the static field is already false in the new process, so isRunning() returns false.
+        sIsRunning = false;
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
     }
 

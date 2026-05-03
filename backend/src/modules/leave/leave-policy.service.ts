@@ -88,39 +88,42 @@ export class LeavePolicyService {
   }
 
   private async _bootstrapDefaultPolicy(organizationId: string) {
-    // Get active leave types for this org
     const leaveTypes = await prisma.leaveType.findMany({
       where: { organizationId, isActive: true },
       select: { id: true, code: true, name: true, isPaid: true, defaultBalance: true, applicableTo: true },
     });
 
-    const clType = leaveTypes.find(lt => lt.code === 'CL' && !lt.name.toLowerCase().includes('probation'));
-    const elType = leaveTypes.find(lt => lt.code === 'EL');
-    const lwpType = leaveTypes.find(lt => lt.code === 'LWP');
+    type RuleRow = { leaveTypeId: string; employeeCategory: string; yearlyDays: number; monthlyDays: number; accrualType: string; isProrata: boolean; daysAllowed: number; isAllowed: boolean };
+    const rules: RuleRow[] = [];
 
-    const rules: { leaveTypeId: string; employeeCategory: string; yearlyDays: number; monthlyDays: number; accrualType: string; isProrata: boolean; daysAllowed: number; isAllowed: boolean }[] = [];
-
-    // CL: Active 10/year (prorata), Probation 1/month, Intern 1/month
-    if (clType) {
-      rules.push({ leaveTypeId: clType.id, employeeCategory: 'ACTIVE', yearlyDays: 10, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: true, daysAllowed: 10, isAllowed: true });
-      rules.push({ leaveTypeId: clType.id, employeeCategory: 'PROBATION', yearlyDays: 0, monthlyDays: 1, accrualType: 'MONTHLY', isProrata: false, daysAllowed: 0, isAllowed: true });
-      rules.push({ leaveTypeId: clType.id, employeeCategory: 'INTERN', yearlyDays: 0, monthlyDays: 1, accrualType: 'MONTHLY', isProrata: false, daysAllowed: 0, isAllowed: true });
-    }
-
-    // EL: Active 10/year (prorata)
-    if (elType) {
-      rules.push({ leaveTypeId: elType.id, employeeCategory: 'ACTIVE', yearlyDays: 10, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: true, daysAllowed: 10, isAllowed: true });
-    }
-
-    // LWP: ALL categories, unlimited (0 = allowed, balance not tracked)
-    if (lwpType) {
-      rules.push({ leaveTypeId: lwpType.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: 0, isAllowed: true });
-    }
-
-    // Any remaining leave types (SL, PL, custom) — mapped but disabled so history is preserved
     for (const lt of leaveTypes) {
-      const alreadyMapped = rules.some(r => r.leaveTypeId === lt.id);
-      if (!alreadyMapped) {
+      const app = lt.applicableTo ?? 'ALL';
+      const yearly = Number(lt.defaultBalance ?? 0);
+
+      if (!lt.isPaid) {
+        // Unpaid leave (LWP, etc.) — allowed for all eligible, no balance tracking
+        rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: 0, isAllowed: true });
+        continue;
+      }
+
+      // Derive which categories this leave type covers from applicableTo
+      const coversActive   = ['ACTIVE_ONLY', 'ALL_ELIGIBLE', 'ALL', 'ACTIVE', 'CONFIRMED'].includes(app);
+      const coversProbation = ['TRAINEE_ONLY', 'ALL_ELIGIBLE', 'ALL', 'PROBATION'].includes(app);
+      const coversIntern   = ['TRAINEE_ONLY', 'ALL_ELIGIBLE', 'ALL', 'INTERN'].includes(app);
+
+      if (coversActive) {
+        rules.push({ leaveTypeId: lt.id, employeeCategory: 'ACTIVE', yearlyDays: yearly, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: true, daysAllowed: yearly, isAllowed: yearly > 0 });
+      }
+      // Trainees get monthly accrual: spread yearly quota across 12 months (min 1 if quota set)
+      const monthlyAccrual = yearly > 0 ? Math.max(1, Math.round(yearly / 12)) : 0;
+      if (coversProbation) {
+        rules.push({ leaveTypeId: lt.id, employeeCategory: 'PROBATION', yearlyDays: 0, monthlyDays: monthlyAccrual, accrualType: 'MONTHLY', isProrata: false, daysAllowed: 0, isAllowed: yearly > 0 });
+      }
+      if (coversIntern) {
+        rules.push({ leaveTypeId: lt.id, employeeCategory: 'INTERN', yearlyDays: 0, monthlyDays: monthlyAccrual, accrualType: 'MONTHLY', isProrata: false, daysAllowed: 0, isAllowed: yearly > 0 });
+      }
+      // If applicableTo is something specific and unrecognized, add as disabled placeholder
+      if (!coversActive && !coversProbation && !coversIntern) {
         rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, daysAllowed: 0, isAllowed: false });
       }
     }

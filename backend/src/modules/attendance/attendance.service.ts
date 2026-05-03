@@ -415,13 +415,17 @@ export class AttendanceService {
           date: today,
           checkIn: now,
           status: autoHalfDay ? 'HALF_DAY' : (effectiveWfh ? 'WORK_FROM_HOME' : 'PRESENT'),
-          workMode: employee.workMode,
+          workMode: (currentShiftType === 'FIELD' ? 'FIELD_SALES' : currentShiftType === 'OFFICE' ? 'OFFICE' : employee.workMode) as any,
           source: data.source || 'MANUAL_APP',
           checkInLocation: locationData as any,
           notes: data.notes,
           geofenceViolation,
           clockInCount: 1,
           lateMinutes: isLate ? lateMinutes : 0,
+          // Snapshot the active shift/assignment at clock-in for payroll & compliance audit.
+          // Plain IDs (no FK) so historical records survive shift deletion.
+          shiftId: shiftAssignment?.shiftId ?? (shift?.id ?? null),
+          shiftAssignmentId: shiftAssignment?.id ?? null,
         },
         update: {
           // Already clocked in — treat as a no-op rather than overwriting the first clock-in time.
