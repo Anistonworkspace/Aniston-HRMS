@@ -21,8 +21,8 @@ interface KpiStripProps {
     pendingRegularizations: number;
   } | null;
   isLoading: boolean;
-  activeFilter?: { status?: string; anomalyType?: string } | null;
-  onCardClick?: (filter: { status?: string; anomalyType?: string } | null) => void;
+  activeFilter?: { status?: string; anomalyType?: string; workMode?: string; isLate?: boolean } | null;
+  onCardClick?: (filter: { status?: string; anomalyType?: string; workMode?: string; isLate?: boolean } | null) => void;
 }
 
 const KPI_CONFIG = [
@@ -31,10 +31,10 @@ const KPI_CONFIG = [
   { key: 'absent',        label: 'Absent',         icon: UserX,      color: 'text-red-500',     bg: 'bg-red-50',     border: 'border-red-100',    filter: { status: 'ABSENT' } },
   { key: 'onLeave',       label: 'On Leave',       icon: CalendarOff,color: 'text-purple-500',  bg: 'bg-purple-50',  border: 'border-purple-100', filter: { status: 'ON_LEAVE' } },
   { key: 'notCheckedIn',  label: 'Not Checked In', icon: Clock,      color: 'text-gray-500',    bg: 'bg-gray-50',    border: 'border-gray-200',   filter: { status: 'NOT_CHECKED_IN' } },
-  { key: 'lateArrivals',  label: 'Late',           icon: Timer,      color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-100',  filter: { anomalyType: 'LATE_ARRIVAL' } },
+  { key: 'lateArrivals',  label: 'Late',           icon: Timer,      color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-100',  filter: { isLate: true } },
   { key: 'earlyExits',    label: 'Early Exit',     icon: UserMinus,  color: 'text-orange-500',  bg: 'bg-orange-50',  border: 'border-orange-100', filter: { anomalyType: 'EARLY_EXIT' } },
   { key: 'halfDay',       label: 'Half Day',       icon: Coffee,     color: 'text-amber-500',   bg: 'bg-amber-50',   border: 'border-amber-100',  filter: { status: 'HALF_DAY' } },
-  { key: 'fieldActive',   label: 'Field Active',   icon: MapPin,     color: 'text-green-600',   bg: 'bg-green-50',   border: 'border-green-100',  filter: null },
+  { key: 'fieldActive',   label: 'Field Active',   icon: MapPin,     color: 'text-green-600',   bg: 'bg-green-50',   border: 'border-green-100',  filter: { workMode: 'FIELD_SALES' } },
 ] as const;
 
 export default function KpiStrip({ stats, isLoading, activeFilter, onCardClick }: KpiStripProps) {
@@ -51,10 +51,12 @@ export default function KpiStrip({ stats, isLoading, activeFilter, onCardClick }
     );
   }
 
-  const isCardActive = (filter: { status?: string; anomalyType?: string } | null) => {
+  const isCardActive = (filter: { status?: string; anomalyType?: string; workMode?: string; isLate?: boolean } | null) => {
     if (!filter || !activeFilter) return false;
     if (filter.status && activeFilter.status === filter.status) return true;
     if (filter.anomalyType && activeFilter.anomalyType === filter.anomalyType) return true;
+    if (filter.workMode && activeFilter.workMode === filter.workMode) return true;
+    if (filter.isLate && activeFilter.isLate === true) return true;
     return false;
   };
 

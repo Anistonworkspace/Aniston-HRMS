@@ -252,8 +252,9 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
   const end = new Date(year, month, 0); end.setHours(23, 59, 59, 999);
 
   const employees = await prisma.employee.findMany({
-    where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
+    where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] } },
     select: { id: true, firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
   });
 
   const records = await prisma.attendanceRecord.findMany({
@@ -301,18 +302,21 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
     const recs = empRecordMap.get(emp.id) || [];
     const empShift = empShiftMap.get(emp.id);
     const present = recs.filter(r => r.status === 'PRESENT').length;
-    const absent = recs.filter(r => r.status === 'ABSENT').length;
+    const explicitAbsent = recs.filter(r => r.status === 'ABSENT').length;
     const halfDay = recs.filter(r => r.status === 'HALF_DAY').length;
     const onLeave = recs.filter(r => r.status === 'ON_LEAVE').length;
     const wfh = recs.filter(r => r.status === 'WORK_FROM_HOME').length;
     const totalHours = recs.reduce((s, r) => s + (Number(r.totalHours) || 0), 0);
+    const effectivePresent = present + wfh + (halfDay * 0.5);
+    // Days with no record (and not weekend/holiday) count as absent — matches LOP logic
+    const implicitAbsent = Math.max(0, lopWorkingDays - effectivePresent - onLeave - explicitAbsent);
+    const absent = explicitAbsent + Math.round(implicitAbsent);
     const [shiftStartH, shiftStartM] = (empShift?.startTime || '09:00').split(':').map(Number);
     const shiftStartMinutes = shiftStartH * 60 + shiftStartM;
     const graceMinutes = empShift?.graceMinutes || policy?.lateGraceMinutes || 15;
     const lateCount = recs.filter(r =>
       r.checkIn ? toISTMinutes(new Date(r.checkIn)) > (shiftStartMinutes + graceMinutes) : false
     ).length;
-    const effectivePresent = present + wfh + (halfDay * 0.5);
     let lopDays = Math.max(0, lopWorkingDays - effectivePresent - onLeave);
 
     let latePenaltyLOP = 0;

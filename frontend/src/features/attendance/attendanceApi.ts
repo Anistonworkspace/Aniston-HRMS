@@ -301,7 +301,7 @@ export const attendanceApi = api.injectEndpoints({
       department?: string; status?: string; workMode?: string; search?: string;
       designation?: string; managerId?: string; shiftType?: string;
       anomalyType?: string; regularizationStatus?: string; employeeType?: string;
-      sortBy?: string; sortOrder?: string;
+      sortBy?: string; sortOrder?: string; isLate?: boolean;
     }>({
       query: (params) => ({ url: '/attendance/command-center/records', params }),
       providesTags: ['Attendance'],

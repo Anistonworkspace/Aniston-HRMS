@@ -68,7 +68,7 @@ export default function CommandCenter() {
     endDate: filters.date,
     department: filters.department || undefined,
     status: filters.status || undefined,
-    workMode: filters.workMode || undefined,
+    workMode: (filters as any).workMode || undefined,
     search: filters.search || undefined,
     shiftType: filters.shiftType || undefined,
     anomalyType: filters.anomalyType || undefined,
@@ -76,6 +76,7 @@ export default function CommandCenter() {
     employeeType: filters.employeeType || undefined,
     sortBy: sortBy || undefined,
     sortOrder: sortOrder || undefined,
+    isLate: (filters as any).isLate || undefined,
   });
   const records = recordsRes?.data || [];
   const meta = recordsRes?.meta;
@@ -98,15 +99,16 @@ export default function CommandCenter() {
     setPage(1);
   }, []);
 
-  // KPI card click — apply status or anomalyType filter, null clears it
-  const handleKpiCardClick = useCallback((filter: { status?: string; anomalyType?: string } | null) => {
+  // KPI card click — apply status / anomalyType / workMode / isLate filter, null clears it
+  const handleKpiCardClick = useCallback((filter: { status?: string; anomalyType?: string; workMode?: string; isLate?: boolean } | null) => {
     setFilters((prev) => ({
       ...prev,
       status: filter?.status ?? '',
       anomalyType: filter?.anomalyType ?? '',
+      workMode: filter?.workMode ?? prev.workMode,
+      isLate: filter?.isLate ?? false,
     }));
     setPage(1);
-    // Switch to today tab so the filtered table is visible
     setActiveTab('today');
   }, []);
 
@@ -156,19 +158,21 @@ export default function CommandCenter() {
       <KpiStrip
         stats={stats}
         isLoading={statsLoading}
-        activeFilter={(filters.status || filters.anomalyType) ? { status: filters.status || undefined, anomalyType: filters.anomalyType || undefined } : null}
+        activeFilter={(filters.status || filters.anomalyType || (filters as any).workMode || (filters as any).isLate)
+          ? { status: filters.status || undefined, anomalyType: filters.anomalyType || undefined, workMode: (filters as any).workMode || undefined, isLate: (filters as any).isLate || undefined }
+          : null}
         onCardClick={handleKpiCardClick}
       />
 
       {/* Clear KPI filter badge */}
-      {(filters.status || filters.anomalyType) && (
+      {(filters.status || filters.anomalyType || (filters as any).isLate) && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Filtered by:</span>
           <button
             onClick={() => handleKpiCardClick(null)}
             className="flex items-center gap-1 text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-1 rounded-full hover:bg-brand-100 transition-colors"
           >
-            {filters.status || filters.anomalyType?.replace(/_/g, ' ')}
+            {(filters as any).isLate ? 'LATE ARRIVAL' : filters.status || filters.anomalyType?.replace(/_/g, ' ')}
             <X size={11} />
           </button>
         </div>

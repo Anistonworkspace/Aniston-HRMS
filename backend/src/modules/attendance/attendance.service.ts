@@ -2770,13 +2770,9 @@ export class AttendanceService {
 
     // Derived stats from records
     const present = records.filter(r => r.status === 'PRESENT' || r.status === 'WORK_FROM_HOME').length;
-    const absent = records.filter(r => r.status === 'ABSENT').length;
+    const explicitAbsent = records.filter(r => r.status === 'ABSENT').length;
     const halfDay = records.filter(r => r.status === 'HALF_DAY').length;
-    const lateArrivals = records.filter(r => {
-      if (!r.checkIn) return false;
-      // Notes always contain '[Late by X min...]' when employee clocked in late
-      return r.notes?.includes('[Late by') === true;
-    }).length;
+    const lateArrivals = records.filter(r => r.checkIn && (r.lateMinutes > 0 || r.notes?.includes('[Late by'))).length;
     const earlyExits = records.filter(r => {
       if (!r.checkOut || !r.checkIn) return false;
       const hours = Number(r.totalHours || 0);
@@ -2786,6 +2782,8 @@ export class AttendanceService {
     }).length;
     const missingPunch = records.filter(r => r.checkIn && !r.checkOut && r.status === 'PRESENT').length;
     const notCheckedIn = Math.max(0, totalActive - records.length);
+    // Employees who haven't checked in are treated as absent for the stat card
+    const absent = explicitAbsent + notCheckedIn;
 
     return {
       expectedToday: isWeekend ? 0 : Math.max(0, totalActive - onLeaveToday),
@@ -2818,10 +2816,11 @@ export class AttendanceService {
     search?: string;
     sortBy?: string;
     sortOrder?: string;
+    isLate?: boolean;
   }, organizationId: string) {
     const { page, limit, startDate, endDate, employeeId, department, status, workMode,
       designation, managerId, shiftType, anomalyType, regularizationStatus, employeeType,
-      search, sortBy, sortOrder } = query;
+      search, sortBy, sortOrder, isLate } = query;
     const skip = (page - 1) * limit;
 
     let queryDate = startDate ? new Date(startDate) : new Date();
@@ -2949,12 +2948,20 @@ export class AttendanceService {
     });
 
     // Apply filters
-    if (status) mergedData = mergedData.filter(r => r.status === status);
+    if (status) {
+      // ABSENT filter includes NOT_CHECKED_IN employees (they are effectively absent)
+      if (status === 'ABSENT') {
+        mergedData = mergedData.filter(r => r.status === 'ABSENT' || r.status === 'NOT_CHECKED_IN');
+      } else {
+        mergedData = mergedData.filter(r => r.status === status);
+      }
+    }
+    if (isLate) mergedData = mergedData.filter(r => (r.lateMinutes > 0) || r.notes?.includes('[Late by'));
     if (anomalyType) mergedData = mergedData.filter(r => r.anomalyTypes?.includes(anomalyType));
     if (regularizationStatus) mergedData = mergedData.filter(r => r.regularizationStatus === regularizationStatus);
     if (shiftType) mergedData = mergedData.filter(r => r.shift?.shiftType === shiftType);
 
-    // Sort
+    // Always sort alphabetically case-insensitive; override with explicit sortBy if provided
     if (sortBy) {
       mergedData.sort((a, b) => {
         let valA: any, valB: any;
@@ -2968,6 +2975,12 @@ export class AttendanceService {
         if (valA == null) return 1;
         if (valB == null) return -1;
         return sortOrder === 'desc' ? (valB > valA ? 1 : -1) : (valA > valB ? 1 : -1);
+      });
+    } else {
+      mergedData.sort((a, b) => {
+        const nameA = `${a.employee?.firstName || ''} ${a.employee?.lastName || ''}`.trim();
+        const nameB = `${b.employee?.firstName || ''} ${b.employee?.lastName || ''}`.trim();
+        return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
       });
     }
 

@@ -303,6 +303,7 @@ export class AttendanceController {
         search: req.query.search as string,
         sortBy: req.query.sortBy as string,
         sortOrder: req.query.sortOrder as string,
+        isLate: req.query.isLate === 'true',
       };
       const result = await attendanceService.getAllAttendanceEnhanced(enhanced, req.user!.organizationId);
       res.json({ success: true, ...result });

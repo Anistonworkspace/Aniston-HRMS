@@ -6,16 +6,17 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, Activity,
   Flag, LogIn, LogOut, Coffee, Play, Shield, FileText, AlertTriangle,
-  Download, PenSquare, ClipboardList, User, Briefcase, Building, Maximize2, X, Navigation,
+  Download, PenSquare, User, Briefcase, Building, Maximize2, X, Navigation, CheckCircle,
 } from 'lucide-react';
 import { useGetEmployeeQuery } from '../employee/employeeApi';
 import {
   useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery,
   useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
   useGetAttendanceLogsQuery, useGetEmployeeAttendanceDetailQuery,
-  useGetAttendancePolicyQuery,
+  useGetAttendancePolicyQuery, useSubmitRegularizationMutation, useMarkAttendanceMutation,
 } from './attendanceApi';
 import { useGetEmployeeShiftQuery } from '../workforce/workforceApi';
+import toast from 'react-hot-toast';
 import { cn, formatDate, getInitials, getStatusColor } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 
@@ -73,10 +74,23 @@ export default function EmployeeAttendanceDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
   const navigate = useNavigate();
   const accessToken = useAppSelector(s => s.auth.accessToken);
+  const user = useAppSelector(s => s.auth.user);
+  const isHR = user && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [gpsTrailModal, setGpsTrailModal] = useState<{ date: string } | null>(null);
+
+  // Regularize modal state
+  const [showRegularizeModal, setShowRegularizeModal] = useState(false);
+  const [regReason, setRegReason] = useState('');
+  const [regCheckIn, setRegCheckIn] = useState('');
+  const [regCheckOut, setRegCheckOut] = useState('');
+  const [submitRegularization, { isLoading: isSubmittingReg }] = useSubmitRegularizationMutation();
+
+  // Calendar manual marking popover
+  const [markingDate, setMarkingDate] = useState<string | null>(null);
+  const [markAttendance, { isLoading: isMarking }] = useMarkAttendanceMutation();
 
   // Data fetching
   const { data: empRes } = useGetEmployeeQuery(employeeId || '');
@@ -302,19 +316,20 @@ export default function EmployeeAttendanceDetailPage() {
           </div>
           {/* Header actions */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <button
-              onClick={() => navigate(`/attendance?regularize=${employeeId}&date=${selectedDate}`)}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
-              <PenSquare size={11} /> Regularize
-            </button>
+            {isHR && (
+              <button
+                onClick={() => { setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); setShowRegularizeModal(true); }}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+                <PenSquare size={11} /> Regularize
+              </button>
+            )}
             <button
               onClick={async () => {
                 try {
-                  const token = accessToken;
                   const apiUrl = import.meta.env.VITE_API_URL || '/api';
                   const res = await fetch(
                     `${apiUrl}/attendance/export?employeeId=${employeeId}&month=${currentMonth.getMonth() + 1}&year=${currentMonth.getFullYear()}`,
-                    { headers: { Authorization: `Bearer ${token}` } }
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
                   );
                   if (!res.ok) throw new Error('Export failed');
                   const blob = await res.blob();
@@ -324,15 +339,10 @@ export default function EmployeeAttendanceDetailPage() {
                   a.download = `attendance-${employeeId}-${currentMonth.getMonth() + 1}-${currentMonth.getFullYear()}.xlsx`;
                   a.click();
                   URL.revokeObjectURL(url);
-                } catch { /* toast handled below */ }
+                } catch { toast.error('Export failed'); }
               }}
               className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
               <Download size={11} /> Export
-            </button>
-            <button
-              onClick={() => navigate(`/attendance/employee/${employeeId}`)}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
-              <ClipboardList size={11} /> Audit
             </button>
           </div>
         </div>
@@ -574,32 +584,66 @@ export default function EmployeeAttendanceDetailPage() {
               </div>
               <div className="grid grid-cols-7 gap-0.5">
                 {calendarDays.map((day: any, idx: number) => (
-                  <button key={idx} disabled={day.date === 0}
-                    onClick={() => day.dateStr && setSelectedDate(day.dateStr)}
-                    className={cn(
-                      'rounded-md flex flex-col items-center justify-center text-[9px] transition-all py-1.5 px-0.5',
-                      day.date === 0 && 'invisible',
-                      day.isSelected && 'ring-1.5 ring-brand-500 ring-offset-1',
-                      day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
-                      STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50' : ''),
-                    )}>
-                    <span className={cn('font-medium leading-none text-[10px]', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
-                      {day.date > 0 ? day.date : ''}
-                    </span>
-                    {day.status && day.date > 0 && (
-                      <span className={cn('text-[6px] font-bold leading-none mt-0.5',
-                        day.status === 'PRESENT' ? 'text-emerald-600' :
-                        day.status === 'ABSENT' ? 'text-red-500' :
-                        day.status === 'HALF_DAY' ? 'text-amber-600' :
-                        day.status === 'ON_LEAVE' ? 'text-purple-500' :
-                        day.status === 'WORK_FROM_HOME' ? 'text-teal-500' :
-                        day.status === 'HOLIDAY' ? 'text-blue-500' :
-                        'text-gray-400'
+                  <div key={idx} className="relative">
+                    <button disabled={day.date === 0}
+                      onClick={() => {
+                        if (!day.dateStr) return;
+                        setSelectedDate(day.dateStr);
+                        // HR can mark past/today dates only
+                        if (isHR && day.dateStr <= new Date().toISOString().split('T')[0] && day.status !== 'HOLIDAY' && day.status !== 'WEEKEND') {
+                          setMarkingDate(markingDate === day.dateStr ? null : day.dateStr);
+                        } else {
+                          setMarkingDate(null);
+                        }
+                      }}
+                      className={cn(
+                        'w-full rounded-md flex flex-col items-center justify-center text-[9px] transition-all py-1.5 px-0.5',
+                        day.date === 0 && 'invisible',
+                        day.isSelected && 'ring-1.5 ring-brand-500 ring-offset-1',
+                        day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
+                        STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50' : ''),
                       )}>
-                        {STATUS_LABEL[day.status] || ''}
+                      <span className={cn('font-medium leading-none text-[10px]', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
+                        {day.date > 0 ? day.date : ''}
                       </span>
+                      {day.status && day.date > 0 && (
+                        <span className={cn('text-[6px] font-bold leading-none mt-0.5',
+                          day.status === 'PRESENT' ? 'text-emerald-600' :
+                          day.status === 'ABSENT' ? 'text-red-500' :
+                          day.status === 'HALF_DAY' ? 'text-amber-600' :
+                          day.status === 'ON_LEAVE' ? 'text-purple-500' :
+                          day.status === 'WORK_FROM_HOME' ? 'text-teal-500' :
+                          day.status === 'HOLIDAY' ? 'text-blue-500' :
+                          'text-gray-400'
+                        )}>
+                          {STATUS_LABEL[day.status] || ''}
+                        </span>
+                      )}
+                    </button>
+                    {/* HR marking popover */}
+                    {isHR && markingDate === day.dateStr && (
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg p-1.5 min-w-[90px]" onClick={e => e.stopPropagation()}>
+                        <p className="text-[8px] text-gray-400 font-medium px-1 mb-1">Mark as</p>
+                        {['PRESENT', 'HALF_DAY', 'ABSENT'].map(s => (
+                          <button key={s}
+                            disabled={isMarking}
+                            onClick={async () => {
+                              try {
+                                await markAttendance({ employeeId: employeeId!, date: day.dateStr, status: s }).unwrap();
+                                toast.success(`Marked ${s.replace(/_/g, ' ')} for ${day.dateStr}`);
+                                setMarkingDate(null);
+                              } catch { toast.error('Failed to mark attendance'); }
+                            }}
+                            className={cn(
+                              'w-full text-left text-[9px] font-medium px-1.5 py-1 rounded-lg hover:bg-gray-50 transition-colors',
+                              s === 'PRESENT' ? 'text-emerald-600' : s === 'HALF_DAY' ? 'text-amber-600' : 'text-red-500'
+                            )}>
+                            {s === 'PRESENT' ? 'Present' : s === 'HALF_DAY' ? 'Half Day' : 'Absent'}
+                          </button>
+                        ))}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -916,6 +960,106 @@ export default function EmployeeAttendanceDetailPage() {
           />
         )}
       </Suspense>
+
+      {/* Regularize Modal */}
+      <AnimatePresence>
+        {showRegularizeModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={e => e.target === e.currentTarget && setShowRegularizeModal(false)}>
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-display font-semibold text-gray-900 flex items-center gap-2">
+                  <PenSquare size={15} className="text-brand-500" /> Regularization Request
+                </h3>
+                <button onClick={() => setShowRegularizeModal(false)} className="p-1 rounded-lg hover:bg-gray-100">
+                  <X size={15} />
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 mb-3">
+                Date: <span className="font-medium text-gray-700">{selectedDate}</span>
+              </p>
+
+              {/* Existing regularization requests for this date */}
+              {detail?.regularizations?.length > 0 && (
+                <div className="mb-4 space-y-1.5">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Existing Requests</p>
+                  {detail.regularizations.map((r: any) => (
+                    <div key={r.id} className="bg-surface-2 rounded-lg p-2.5 text-[11px]">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-gray-500">{formatDate(r.attendance?.date)}</span>
+                        <span className={cn('badge text-[9px]',
+                          r.status === 'PENDING' ? 'badge-warning' :
+                          r.status === 'APPROVED' ? 'badge-success' : 'badge-error'
+                        )}>{r.status}</span>
+                      </div>
+                      <p className="text-gray-600">{r.reason}</p>
+                      {r.requestedCheckIn && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {formatTime(r.requestedCheckIn)} → {formatTime(r.requestedCheckOut)}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* New request form */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-medium">Requested Check-In</label>
+                    <input type="time" value={regCheckIn} onChange={e => setRegCheckIn(e.target.value)}
+                      className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-medium">Requested Check-Out</label>
+                    <input type="time" value={regCheckOut} onChange={e => setRegCheckOut(e.target.value)}
+                      className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 font-medium">Reason <span className="text-red-400">*</span></label>
+                  <textarea value={regReason} onChange={e => setRegReason(e.target.value)} rows={3}
+                    placeholder="Explain why regularization is needed..."
+                    className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => setShowRegularizeModal(false)}
+                    className="flex-1 px-3 py-2 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!regReason.trim() || isSubmittingReg}
+                    onClick={async () => {
+                      try {
+                        const toISO = (time: string) => time ? `${selectedDate}T${time}:00` : undefined;
+                        await submitRegularization({
+                          date: selectedDate,
+                          reason: regReason.trim(),
+                          requestedCheckIn: toISO(regCheckIn),
+                          requestedCheckOut: toISO(regCheckOut),
+                        }).unwrap();
+                        toast.success('Regularization request submitted');
+                        setShowRegularizeModal(false);
+                      } catch { toast.error('Failed to submit regularization'); }
+                    }}
+                    className="flex-1 px-3 py-2 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                    <CheckCircle size={11} /> Submit Request
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Dismiss marking popover on outside click */}
+      {markingDate && (
+        <div className="fixed inset-0 z-20" onClick={() => setMarkingDate(null)} />
+      )}
     </div>
   );
 }
