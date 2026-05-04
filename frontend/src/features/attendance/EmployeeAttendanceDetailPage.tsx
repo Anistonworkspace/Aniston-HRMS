@@ -95,6 +95,10 @@ export default function EmployeeAttendanceDetailPage() {
   const [markingDate, setMarkingDate] = useState<string | null>(null);
   const [markAttendance, { isLoading: isMarking }] = useMarkAttendanceMutation();
 
+  // Live hours counter — ticks every second when employee is clocked in today with no checkout
+  const [liveElapsedSecs, setLiveElapsedSecs] = useState(0);
+  const liveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Data fetching
   const { data: empRes } = useGetEmployeeQuery(employeeId || '');
   const employee = empRes?.data;
@@ -161,6 +165,23 @@ export default function EmployeeAttendanceDetailPage() {
     onSocketEvent('attendance:marked', handler);
     return () => offSocketEvent('attendance:marked', handler);
   }, [employeeId]);
+
+  // Live clock — only runs when viewing today's record with an active check-in (no checkout yet)
+  useEffect(() => {
+    if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayRecord = records.find((r: any) => new Date(r.date).toISOString().split('T')[0] === todayStr);
+    if (!todayRecord?.checkIn || todayRecord?.checkOut) {
+      setLiveElapsedSecs(0);
+      return;
+    }
+    const checkInMs = new Date(todayRecord.checkIn).getTime();
+    const breakMs = (todayRecord.breaks || []).reduce((sum: number, b: any) => sum + (b.durationMinutes || 0), 0) * 60_000;
+    const calc = () => Math.max(0, Math.floor((Date.now() - checkInMs - breakMs) / 1000));
+    setLiveElapsedSecs(calc());
+    liveTimerRef.current = setInterval(() => setLiveElapsedSecs(calc()), 1000);
+    return () => { if (liveTimerRef.current) clearInterval(liveTimerRef.current); };
+  }, [records]);
 
   // C3 — detect tracking gap for HR: compare last GPS point to now
   const trackingIntervalMs = (shift?.trackingIntervalMinutes || 60) * 60_000;
@@ -244,6 +265,14 @@ export default function EmployeeAttendanceDetailPage() {
     return days;
   }, [currentMonth, records, holidays, selectedDate, weekOffDays, shift]);
 
+  // Format seconds as H:MM:SS for live counter
+  const fmtLive = (secs: number) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
   // Helpers
   const formatTime = (d: string | null) => {
     if (!d) return '--';
@@ -290,6 +319,12 @@ export default function EmployeeAttendanceDetailPage() {
   }
 
   const monthName = currentMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+  // Live session detection — today's record checked in but not checked out yet
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayRecord = records.find((r: any) => new Date(r.date).toISOString().split('T')[0] === todayDateStr);
+  const isClockedInNow = !!(todayRecord?.checkIn && !todayRecord?.checkOut);
+
   const checkInLoc = selectedRecord?.checkInLocation as any;
   const geofence = shiftAssignment?.location?.geofence;
   const geofenceCoords = geofence?.coordinates as any;
@@ -338,6 +373,16 @@ export default function EmployeeAttendanceDetailPage() {
               {shift && (
                 <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium', SHIFT_BADGE[shiftType] || SHIFT_BADGE.OFFICE)}>
                   {shift.name} ({shift.startTime}–{shift.endTime})
+                </span>
+              )}
+              {/* Live session counter — only shown while employee is actively clocked in today */}
+              {isClockedInNow && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-mono font-bold text-emerald-700" data-mono>
+                    {fmtLive(liveElapsedSecs)}
+                  </span>
+                  <span className="text-[9px] text-emerald-600">active</span>
                 </span>
               )}
             </div>
