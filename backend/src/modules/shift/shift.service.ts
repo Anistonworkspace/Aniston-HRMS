@@ -261,7 +261,11 @@ export class ShiftService {
       }
     }
 
-    const workModeMap: Record<string, string> = { OFFICE: 'OFFICE', FIELD: 'FIELD_SALES' };
+    const workModeMap: Record<string, string> = {
+      OFFICE: 'OFFICE',
+      FIELD: 'FIELD_SALES',
+      HYBRID: 'HYBRID',
+    };
     const newWorkMode = workModeMap[shift.shiftType] || 'OFFICE';
 
     // All reads + writes inside a transaction to prevent overlap races.
@@ -310,6 +314,19 @@ export class ShiftService {
 
       // ── 3. Same-startDate → update existing row ──────────────────────────────
       if (sameStart) {
+        // Close any OTHER open-ended assignments that are older than this same-day row.
+        // This handles the case where the employee had a long-running assignment (startDate
+        // in the past, endDate = null) that was never closed when today's row was first created.
+        await tx.shiftAssignment.updateMany({
+          where: {
+            employeeId: data.employeeId,
+            deletedAt: null,
+            endDate: null,
+            NOT: { id: sameStart.id }, // don't close the row we're about to update
+          },
+          data: { endDate: newStart },
+        });
+
         const updated = await tx.shiftAssignment.update({
           where: { id: sameStart.id },
           data: {
@@ -317,7 +334,7 @@ export class ShiftService {
             locationId: data.locationId || null,
             endDate: newEnd,
             assignedBy,
-            deletedAt: null, // ensure not soft-deleted if somehow flagged
+            deletedAt: null,
           },
           include: {
             shift: true,
@@ -326,11 +343,13 @@ export class ShiftService {
           },
         });
 
+        // Always write both workMode AND officeLocationId so switching OFFICE→FIELD
+        // clears the old location, and FIELD→OFFICE sets the new one.
         await tx.employee.update({
           where: { id: data.employeeId },
           data: {
             workMode: newWorkMode as any,
-            ...(data.locationId ? { officeLocationId: data.locationId } : {}),
+            officeLocationId: data.locationId || null,
           },
         });
 
@@ -362,11 +381,13 @@ export class ShiftService {
         },
       });
 
+      // Always write both workMode AND officeLocationId — switching OFFICE→FIELD
+      // must clear the old location, FIELD→OFFICE must set the new one.
       await tx.employee.update({
         where: { id: data.employeeId },
         data: {
           workMode: newWorkMode as any,
-          ...(data.locationId ? { officeLocationId: data.locationId } : {}),
+          officeLocationId: data.locationId || null,
         },
       });
 

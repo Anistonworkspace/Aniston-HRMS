@@ -143,11 +143,12 @@ export const workforceApi = api.injectEndpoints({
     }),
     assignShift: builder.mutation<ApiResponse<ShiftAssignment>, AssignShiftRequest>({
       query: (body) => ({ url: '/workforce/shifts/assign', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
+      // Invalidate both Attendance (shift assignments) AND EmployeeList (workMode badge update)
+      invalidatesTags: ['Attendance', 'EmployeeList'],
     }),
     autoAssignDefault: builder.mutation<ApiResponse<{ assigned: number; message?: string }>, void>({
       query: () => ({ url: '/workforce/shifts/auto-assign', method: 'POST' }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'EmployeeList'],
     }),
     getEmployeeShift: builder.query<ApiResponse<ShiftAssignment | null>, string>({
       query: (employeeId) => `/workforce/shifts/employee/${employeeId}`,
