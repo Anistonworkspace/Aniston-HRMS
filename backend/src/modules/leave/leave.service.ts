@@ -850,6 +850,7 @@ export class LeaveService {
               avatar: true,
             },
           },
+          approvalDecisions: { orderBy: { createdAt: 'desc' }, take: 1, select: { conditionNote: true, action: true } },
         },
       }),
       prisma.leaveRequest.count({ where }),
@@ -1585,6 +1586,91 @@ export class LeaveService {
   }
 
   // =====================
+  // CONDITION RESPONSE
+  // =====================
+
+  async submitConditionResponse(requestId: string, employeeId: string, organizationId: string, response: string) {
+    const request = await prisma.leaveRequest.findFirst({
+      where: { id: requestId, employeeId, status: 'APPROVED_WITH_CONDITION' },
+      include: {
+        leaveType: { select: { name: true } },
+        approvalDecisions: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!request) throw new NotFoundError('Leave request (must be yours and conditionally approved)');
+
+    await prisma.leaveRequest.update({
+      where: { id: requestId },
+      data: { conditionResponse: response, conditionRespondedAt: new Date() },
+    });
+
+    // Notify HR/Admin by email
+    this.sendConditionResponseNotification(request, response, organizationId, employeeId).catch((err) =>
+      logger.warn(`[ConditionResponse] Notify failed: ${err.message}`)
+    );
+
+    return { message: 'Response submitted. HR has been notified.' };
+  }
+
+  private async sendConditionResponseNotification(leaveRequest: any, response: string, organizationId: string, employeeId: string) {
+    try {
+      const employee = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { firstName: true, lastName: true, email: true, employeeCode: true, department: { select: { name: true } } },
+      });
+      if (!employee) return;
+
+      const org = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { name: true, adminNotificationEmail: true },
+      });
+
+      const conditionNote = leaveRequest.approvalDecisions?.[0]?.conditionNote || '';
+      const leaveTypeName = leaveRequest.leaveType?.name || 'Leave';
+      const empName = `${employee.firstName} ${employee.lastName}`;
+      const context = {
+        employeeName: empName,
+        employeeCode: employee.employeeCode || '',
+        department: employee.department?.name || '',
+        leaveType: leaveTypeName,
+        startDate: new Date(leaveRequest.startDate).toISOString(),
+        endDate: new Date(leaveRequest.endDate).toISOString(),
+        days: Number(leaveRequest.days),
+        conditionNote,
+        conditionResponse: response,
+        appUrl: 'https://hr.anistonav.com',
+        orgName: org?.name || 'Aniston Technologies',
+      };
+
+      const subject = `Condition Response: ${empName} replied to conditional leave approval`;
+
+      // Notify all HR/Admin
+      const hrUsers = await prisma.user.findMany({
+        where: { organizationId, role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] }, status: 'ACTIVE' },
+        select: { id: true, email: true },
+      });
+      const hrEmailsSent = new Set<string>();
+      for (const hr of hrUsers) {
+        if (hr.email) {
+          await enqueueEmail({ to: hr.email, subject, template: 'leave-condition-response', context }).catch(() => {});
+          hrEmailsSent.add(hr.email);
+        }
+        await enqueueNotification({
+          userId: hr.id, organizationId,
+          title: subject,
+          message: `${empName} responded to their conditional leave. Review needed.`,
+          type: 'LEAVE', link: '/leaves',
+        }).catch(() => {});
+      }
+      if (org?.adminNotificationEmail && !hrEmailsSent.has(org.adminNotificationEmail)) {
+        await enqueueEmail({ to: org.adminNotificationEmail, subject, template: 'leave-condition-response', context }).catch(() => {});
+      }
+    } catch (err: any) {
+      logger.warn(`[ConditionResponse] sendNotification error: ${err.message}`);
+    }
+  }
+
+  // =====================
   // HANDOVER
   // =====================
 
@@ -1919,8 +2005,8 @@ export class LeaveService {
     }
 
     // Send notifications
-    const eventName = finalStatus === 'REJECTED' ? 'rejected' : 'approved';
-    this.sendLeaveNotifications(updated, eventName, organizationId || request.employee?.organizationId || '', request.employeeId).catch((err) =>
+    const eventName = finalStatus === 'REJECTED' ? 'rejected' : finalStatus === 'APPROVED_WITH_CONDITION' ? 'conditional' : 'approved';
+    this.sendLeaveNotifications(updated, eventName, organizationId || request.employee?.organizationId || '', request.employeeId, conditionNote).catch((err) =>
       logger.warn(`[LeaveNotify] Failed: ${err.message}`)
     );
 
@@ -2014,7 +2100,8 @@ export class LeaveService {
     leaveRequest: any,
     event: string,
     organizationId: string,
-    employeeId: string
+    employeeId: string,
+    conditionNote?: string
   ) {
     try {
       // Fetch employee with full details for rich email context
@@ -2055,6 +2142,7 @@ export class LeaveService {
         riskScore: leaveRequest.riskScore || 0,
         status: leaveRequest.status,
         remarks: leaveRequest.approverRemarks || leaveRequest.managerRemarks || '',
+        conditionNote: conditionNote || '',
         appUrl: 'https://hr.anistonav.com',
         orgName: org?.name || 'Aniston Technologies',
       };
@@ -2129,14 +2217,18 @@ export class LeaveService {
           }).catch((err) => logger.error(`[LeaveNotify] employee confirmation: ${err.message}`));
         }
 
-      } else if (event === 'approved' || event === 'rejected') {
+      } else if (event === 'approved' || event === 'rejected' || event === 'conditional') {
         const subject = event === 'approved'
           ? `Leave Approved: ${leaveTypeName} (${dayLabel})`
+          : event === 'conditional'
+          ? `Leave Conditionally Approved: ${leaveTypeName} (${dayLabel}) — Action Required`
           : `Leave Rejected: ${leaveTypeName}`;
+
+        const template = event === 'conditional' ? 'leave-conditional' : `leave-${event === 'approved' ? 'approved' : 'rejected'}`;
 
         // Notify the employee
         if (employee.userId) {
-          await notify(employee.userId, employee.email, subject, `leave-${event}`, baseContext);
+          await notify(employee.userId, employee.email, subject, template, baseContext);
         }
 
         // Notify backup with the correct template

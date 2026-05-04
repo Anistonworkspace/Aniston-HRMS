@@ -196,6 +196,24 @@ export class LeaveController {
     } catch (err) { next(err); }
   }
 
+  // ── Condition Response ──
+
+  async submitConditionResponse(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const { response } = req.body;
+      if (!response || typeof response !== 'string' || response.trim().length < 3) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'Response is required (min 3 chars)' } });
+        return;
+      }
+      const result = await leaveService.submitConditionResponse(req.params.id, req.user!.employeeId, req.user!.organizationId, response.trim());
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   // ── Handover ──
 
   async updateHandover(req: Request, res: Response, next: NextFunction) {

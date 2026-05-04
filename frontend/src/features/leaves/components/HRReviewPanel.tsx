@@ -186,6 +186,39 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
             />
           </div>
 
+          {/* Condition note (shown when already conditionally approved) */}
+          {data.status === 'APPROVED_WITH_CONDITION' && (() => {
+            const condDecision = data.approvalDecisions?.find((d: any) => d.action === 'APPROVED_WITH_CONDITION' && d.conditionNote);
+            const empResponse = (data as any).conditionResponse;
+            const empRespondedAt = (data as any).conditionRespondedAt;
+            return (
+              <div className="space-y-3">
+                {condDecision?.conditionNote && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-amber-700 mb-1.5 flex items-center gap-1.5">
+                      <AlertTriangle size={12} /> HR Condition
+                    </p>
+                    <p className="text-sm text-amber-900">{condDecision.conditionNote}</p>
+                  </div>
+                )}
+                {empResponse ? (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-emerald-700 mb-1.5 flex items-center gap-1.5">
+                      <CheckCircle size={12} /> Employee Response
+                      {empRespondedAt && <span className="font-normal text-emerald-500 ml-1">— {new Date(empRespondedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+                    </p>
+                    <p className="text-sm text-emerald-900 italic">"{empResponse}"</p>
+                    <p className="text-[11px] text-emerald-600 mt-2">Employee has responded. You can now approve or revoke below.</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-gray-50 text-gray-500 border border-gray-200">
+                    <Clock size={12} /> Waiting for employee to respond to the condition...
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Remarks */}
           <div>
             <label className="text-xs text-gray-500 mb-1 block">

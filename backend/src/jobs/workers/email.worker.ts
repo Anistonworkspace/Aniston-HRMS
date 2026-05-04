@@ -859,6 +859,105 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.organizationName || 'Aniston Technologies')
   ),
 
+  // Sent to employee when leave is conditionally approved (APPROVED_WITH_CONDITION)
+  'leave-conditional': (ctx) => emailLayout(
+    'linear-gradient(135deg,#D97706 0%,#F59E0B 100%)', '&#9888;', 'Leave Conditionally Approved', `Your ${esc(ctx.leaveType)} has been approved with a condition`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Your leave request has been <strong style="color:#D97706;">conditionally approved</strong>. Please read the HR's condition carefully and respond through the HRMS portal.</p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF3C7;border:1px solid #FDE68A;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#92400E;font-weight:700;font-size:14px;margin:0 0 8px;">&#128203; HR's Condition</p>
+        <p style="color:#78350F;font-size:14px;line-height:1.6;margin:0;">${esc(ctx.conditionNote)}</p>
+      </td></tr>
+    </table>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;border:1px solid #BBF7D0;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#166534;font-weight:700;font-size:14px;margin:0 0 12px;">&#128197; Your Leave Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:110px;border-bottom:1px solid #BBF7D0;">Leave Type</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #BBF7D0;">${esc(ctx.leaveType)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #BBF7D0;">From</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #BBF7D0;">${new Date(ctx.startDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #BBF7D0;">To</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #BBF7D0;">${new Date(ctx.endDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;">Duration</td>
+            <td style="padding:6px 0;color:#D97706;font-size:16px;font-weight:700;">${ctx.days} day${ctx.days !== 1 ? 's' : ''}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#1E40AF;font-weight:600;font-size:13px;margin:0 0 6px;">&#9889; What you need to do</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#1E3A8A;font-size:12px;">1. Open the HRMS portal and go to Leave Management</td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A8A;font-size:12px;">2. Click on this leave request to view the condition</td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A8A;font-size:12px;">3. Type your response / acknowledgement and click "Send Response"</td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A8A;font-size:12px;">4. HR will review your response and give the final decision</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'Respond to Condition Now')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
+  // Sent to HR when employee submits a condition response
+  'leave-condition-response': (ctx) => emailLayout(
+    'linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%)', '&#128172;', 'Condition Response Received', `${esc(ctx.employeeName)} responded to conditional leave approval`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">An employee has submitted their response to the HR condition on their leave request.</p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2FF;border:1px solid #C7D2FE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#4338CA;font-weight:700;font-size:14px;margin:0 0 12px;">&#128100; Employee</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;width:130px;">Name</td>
+            <td style="padding:5px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}${ctx.employeeCode ? ` (${esc(ctx.employeeCode)})` : ''}</td>
+          </tr>
+          ${ctx.department ? `<tr><td style="padding:5px 0;color:#6B7280;font-size:13px;">Department</td><td style="padding:5px 0;color:#111827;font-size:13px;">${esc(ctx.department)}</td></tr>` : ''}
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Leave Type</td>
+            <td style="padding:5px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.leaveType)}</td>
+          </tr>
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Dates</td>
+            <td style="padding:5px 0;color:#111827;font-size:13px;">${new Date(ctx.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} — ${new Date(ctx.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctx.conditionNote ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF3C7;border:1px solid #FDE68A;margin:0 0 16px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#92400E;font-weight:600;font-size:13px;margin:0 0 6px;">Original Condition</p>
+        <p style="color:#78350F;font-size:13px;margin:0;line-height:1.5;">${esc(ctx.conditionNote)}</p>
+      </td></tr>
+    </table>` : ''}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;border:1px solid #BBF7D0;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#166534;font-weight:600;font-size:13px;margin:0 0 6px;">Employee's Response</p>
+        <p style="color:#14532D;font-size:14px;margin:0;line-height:1.6;font-style:italic;">"${esc(ctx.conditionResponse)}"</p>
+      </td></tr>
+    </table>
+
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'Review &amp; Give Final Decision')}
+
+    <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:8px 0 0;">You can now approve or revoke this leave from the HR Review panel.</p>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
   // ── Regularization Templates ──
 
   // Sent to HR/Admin when employee submits an attendance regularization request

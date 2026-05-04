@@ -91,6 +91,9 @@ router.get('/:id/hr-review',
 // Handover
 router.patch('/:id/handover', (req, res, next) => leaveController.updateHandover(req, res, next));
 
+// Employee condition response (reply to APPROVED_WITH_CONDITION)
+router.post('/:id/condition-response', (req, res, next) => leaveController.submitConditionResponse(req, res, next));
+
 // Audit & notifications
 router.get('/:id/audit', (req, res, next) => leaveController.getLeaveAudit(req, res, next));
 router.get('/:id/notifications',

@@ -31,6 +31,7 @@ import {
   useUpdateLeavePolicyMutation,
   useRecalculatePolicyAllocationsMutation,
   useCreateEmployeeAdjustmentMutation,
+  useSubmitConditionResponseMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -92,7 +93,7 @@ function LeaveManagementView() {
   const initialTab = (['approvals', 'types', 'holidays', 'employee-leaves', 'policy'] as const)
     .find(k => k === searchParams.get('tab')) ?? 'approvals';
   const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'employee-leaves' | 'policy'>(initialTab);
-  const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'conditional' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [showLeaveTypeModal, setShowLeaveTypeModal] = useState(false);
@@ -143,9 +144,10 @@ function LeaveManagementView() {
     { skip: approvalStatusFilter !== 'pending' }
   );
 
-  // All leaves with status filter — used for approved/rejected/all tabs
+  // All leaves with status filter — used for approved/rejected/conditional/all tabs
   // "rejected" pill shows both REJECTED and CANCELLED; backend accepts comma-separated values
   const allLeavesStatus = approvalStatusFilter === 'approved' ? 'APPROVED'
+    : approvalStatusFilter === 'conditional' ? 'APPROVED_WITH_CONDITION'
     : approvalStatusFilter === 'rejected' ? 'REJECTED,CANCELLED'
     : undefined;
   const { data: allLeavesRes, isLoading: allLeavesLoading, isError: allLeavesIsError, error: allLeavesErrorData } = useGetAllLeavesQuery(
@@ -391,6 +393,7 @@ function LeaveManagementView() {
             {[
               { key: 'pending', label: 'Pending', color: 'amber' },
               { key: 'approved', label: 'Approved', color: 'emerald' },
+              { key: 'conditional', label: 'Conditional', color: 'orange' },
               { key: 'rejected', label: 'Rejected / Cancelled', color: 'red' },
               { key: 'all', label: 'All', color: 'gray' },
             ].map((f) => (
@@ -402,6 +405,7 @@ function LeaveManagementView() {
                   approvalStatusFilter === f.key
                     ? f.color === 'amber' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300'
                       : f.color === 'emerald' ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                      : f.color === 'orange' ? 'bg-orange-100 text-orange-800 ring-1 ring-orange-300'
                       : f.color === 'red' ? 'bg-red-100 text-red-800 ring-1 ring-red-300'
                       : 'bg-gray-200 text-gray-800 ring-1 ring-gray-300'
                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -2665,6 +2669,9 @@ function LeavePersonalView() {
 function LeaveRequestCard({ leave }: { leave: any }) {
   const { t } = useTranslation();
   const [cancelLeave] = useCancelLeaveMutation();
+  const [submitConditionResponse, { isLoading: submitting }] = useSubmitConditionResponseMutation();
+  const [showConditionPanel, setShowConditionPanel] = useState(false);
+  const [conditionReply, setConditionReply] = useState('');
 
   const handleCancel = async () => {
     if (!window.confirm(t('common.areYouSure'))) return;
@@ -2676,51 +2683,131 @@ function LeaveRequestCard({ leave }: { leave: any }) {
     }
   };
 
+  const handleConditionReply = async () => {
+    if (!conditionReply.trim() || conditionReply.trim().length < 3) {
+      toast.error('Please write a response (min 3 chars)');
+      return;
+    }
+    try {
+      await submitConditionResponse({ id: leave.id, response: conditionReply.trim() }).unwrap();
+      toast.success('Response sent to HR!');
+      setShowConditionPanel(false);
+      setConditionReply('');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to send response');
+    }
+  };
+
   const statusIcon: Record<string, React.ReactNode> = {
-    DRAFT: <Clock size={16} className="text-gray-400" />,
-    PENDING: <Clock size={16} className="text-amber-500" />,
-    MANAGER_APPROVED: <CheckCircle size={16} className="text-blue-500" />,
-    APPROVED: <CheckCircle size={16} className="text-emerald-500" />,
-    APPROVED_WITH_CONDITION: <CheckCircle size={16} className="text-amber-500" />,
-    REJECTED: <XCircle size={16} className="text-red-500" />,
-    CANCELLED: <AlertCircle size={16} className="text-gray-400" />,
+    DRAFT: <Clock size={14} className="text-gray-400 shrink-0" />,
+    PENDING: <Clock size={14} className="text-amber-500 shrink-0" />,
+    MANAGER_APPROVED: <CheckCircle size={14} className="text-blue-500 shrink-0" />,
+    APPROVED: <CheckCircle size={14} className="text-emerald-500 shrink-0" />,
+    APPROVED_WITH_CONDITION: <AlertTriangle size={14} className="text-amber-500 shrink-0" />,
+    REJECTED: <XCircle size={14} className="text-red-500 shrink-0" />,
+    CANCELLED: <AlertCircle size={14} className="text-gray-400 shrink-0" />,
   };
   const currentStatusIcon = statusIcon[leave.status] || null;
 
+  const conditionNote = leave.approvalDecisions?.find((d: any) => d.action === 'APPROVED_WITH_CONDITION' && d.conditionNote)?.conditionNote;
+  const hasRespondedToCondition = !!leave.conditionResponse;
+
   return (
-    <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
-      <div className="flex items-center gap-3">
-        {currentStatusIcon}
-        <div>
-          <p className="text-sm font-medium text-gray-800">
-            {leave.leaveType?.name || 'Leave'}
-            <span className="text-gray-400 ml-2">
+    <div className="py-3 px-4 bg-surface-2 rounded-lg space-y-2">
+      {/* Main row */}
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="mt-0.5">{currentStatusIcon}</div>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <p className="text-sm font-medium text-gray-800 truncate">
+              {leave.leaveType?.name || 'Leave'}
+            </p>
+            <span className="text-xs text-gray-400 shrink-0">
               {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
             </span>
-          </p>
-          <p className="text-xs text-gray-500">
+            <span className={`badge ${getStatusColor(leave.status)} text-xs shrink-0`}>
+              {leave.status === 'MANAGER_APPROVED' ? 'Mgr Approved'
+                : leave.status === 'APPROVED_WITH_CONDITION' ? 'Conditional'
+                : leave.status}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
             {formatDate(leave.startDate)} — {formatDate(leave.endDate)}
           </p>
           {leave.reason && (
-            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">{leave.reason}</p>
+            <p className="text-xs text-gray-400 mt-0.5 truncate">{leave.reason}</p>
+          )}
+        </div>
+        {/* Actions — shrink-0 so they never disappear */}
+        <div className="flex items-center gap-2 shrink-0">
+          {leave.status === 'APPROVED_WITH_CONDITION' && conditionNote && (
+            <button
+              onClick={() => setShowConditionPanel((v) => !v)}
+              className={cn(
+                'text-xs px-2 py-1 rounded-lg font-medium transition-colors shrink-0',
+                hasRespondedToCondition
+                  ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-300 animate-pulse'
+              )}
+            >
+              {hasRespondedToCondition ? 'View' : 'Respond'}
+            </button>
+          )}
+          {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
+            <button
+              onClick={handleCancel}
+              className="text-xs text-red-400 hover:text-red-600 transition-colors shrink-0"
+            >
+              {t('common.cancel')}
+            </button>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
-          {leave.status === 'MANAGER_APPROVED' ? 'Manager Approved'
-            : leave.status === 'APPROVED_WITH_CONDITION' ? 'Approved (Conditional)'
-            : leave.status}
-        </span>
-        {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
-          <button
-            onClick={handleCancel}
-            className="text-xs text-red-400 hover:text-red-600 transition-colors"
-          >
-            {t('common.cancel')}
-          </button>
-        )}
-      </div>
+
+      {/* Condition panel — expanded inline */}
+      {showConditionPanel && leave.status === 'APPROVED_WITH_CONDITION' && conditionNote && (
+        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+          <div>
+            <p className="text-[11px] font-semibold text-amber-700 mb-1 flex items-center gap-1">
+              <AlertTriangle size={11} /> HR Condition
+            </p>
+            <p className="text-xs text-amber-900">{conditionNote}</p>
+          </div>
+          {hasRespondedToCondition ? (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+              <p className="text-[11px] font-semibold text-emerald-700 mb-0.5">Your Response</p>
+              <p className="text-xs text-emerald-900 italic">"{leave.conditionResponse}"</p>
+              <p className="text-[10px] text-emerald-500 mt-1">HR has been notified. Awaiting final decision.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <textarea
+                value={conditionReply}
+                onChange={(e) => setConditionReply(e.target.value)}
+                className="input-glass w-full text-xs"
+                rows={2}
+                placeholder="Type your acknowledgement or response to HR's condition..."
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowConditionPanel(false)}
+                  className="text-xs px-3 py-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleConditionReply}
+                  disabled={submitting || conditionReply.trim().length < 3}
+                  className="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                >
+                  {submitting ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                  Send Response
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -220,6 +220,11 @@ export const leaveApi = api.injectEndpoints({
       query: ({ employeeId, year }) => ({ url: `/leaves/adjustments/${employeeId}`, params: year ? { year } : {} }),
       providesTags: (result, error, { employeeId }) => [{ type: 'LeaveBalance' as const, id: employeeId }, 'LeaveBalance'],
     }),
+    submitConditionResponse: builder.mutation<any, { id: string; response: string }>({
+      query: ({ id, response }) => ({ url: `/leaves/${id}/condition-response`, method: 'POST', body: { response } }),
+      invalidatesTags: (result, error, { id }) => [{ type: 'Leave' as const, id }, 'Leave'],
+    }),
+
     createEmployeeAdjustment: builder.mutation<any, {
       employeeId: string;
       adjustmentType: 'PREVIOUS_USED' | 'BALANCE_CORRECTION';
@@ -282,4 +287,6 @@ export const {
   useGetEmployeeAdjustmentsQuery,
   useCreateEmployeeAdjustmentMutation,
   useRecalculateEmployeeAllocationMutation,
+  // Condition Response
+  useSubmitConditionResponseMutation,
 } = leaveApi;

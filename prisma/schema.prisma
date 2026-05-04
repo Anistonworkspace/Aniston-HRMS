@@ -973,6 +973,8 @@ model LeaveRequest {
   acknowledgements   Json?              // { reviewedTasks, assignedHandover, acceptedVisibility }
   riskLevel          RiskLevel?         // cached from task audit
   riskScore          Int?               // cached from task audit
+  conditionResponse     String?          // employee's reply to APPROVED_WITH_CONDITION
+  conditionRespondedAt  DateTime?        // when employee submitted the response
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
