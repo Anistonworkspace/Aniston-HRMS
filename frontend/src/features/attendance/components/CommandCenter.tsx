@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
@@ -34,7 +33,6 @@ const TABS = [
 type TabKey = typeof TABS[number]['key'];
 
 export default function CommandCenter() {
-  const navigate = useNavigate();
   const user = useAppSelector((s) => s.auth.user);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { download: authDownload, downloading: exportDownloading } = useAuthDownload();
@@ -55,6 +53,8 @@ export default function CommandCenter() {
     regularizationStatus: '',
     employeeType: '',
   });
+  // KPI-only filters that must NOT go into the filters object (FilterToolbar crashes on non-string values)
+  const [kpiFilter, setKpiFilter] = useState<{ isLate?: boolean; workMode?: string } | null>(null);
 
   // Stats query
   const { data: statsRes, isLoading: statsLoading } = useGetCommandCenterStatsQuery({ date: filters.date });
@@ -68,7 +68,7 @@ export default function CommandCenter() {
     endDate: filters.date,
     department: filters.department || undefined,
     status: filters.status || undefined,
-    workMode: (filters as any).workMode || undefined,
+    workMode: kpiFilter?.workMode || filters.workMode || undefined,
     search: filters.search || undefined,
     shiftType: filters.shiftType || undefined,
     anomalyType: filters.anomalyType || undefined,
@@ -76,7 +76,7 @@ export default function CommandCenter() {
     employeeType: filters.employeeType || undefined,
     sortBy: sortBy || undefined,
     sortOrder: sortOrder || undefined,
-    isLate: (filters as any).isLate || undefined,
+    isLate: kpiFilter?.isLate || undefined,
   });
   const records = recordsRes?.data || [];
   const meta = recordsRes?.meta;
@@ -99,15 +99,14 @@ export default function CommandCenter() {
     setPage(1);
   }, []);
 
-  // KPI card click — apply status / anomalyType / workMode / isLate filter, null clears it
+  // KPI card click — apply status / anomalyType filter into filters; isLate/workMode go into kpiFilter (never into filters, FilterToolbar crashes on non-string values)
   const handleKpiCardClick = useCallback((filter: { status?: string; anomalyType?: string; workMode?: string; isLate?: boolean } | null) => {
     setFilters((prev) => ({
       ...prev,
       status: filter?.status ?? '',
       anomalyType: filter?.anomalyType ?? '',
-      workMode: filter?.workMode ?? prev.workMode,
-      isLate: filter?.isLate ?? false,
     }));
+    setKpiFilter(filter ? { isLate: filter.isLate, workMode: filter.workMode } : null);
     setPage(1);
     setActiveTab('today');
   }, []);
@@ -158,21 +157,21 @@ export default function CommandCenter() {
       <KpiStrip
         stats={stats}
         isLoading={statsLoading}
-        activeFilter={(filters.status || filters.anomalyType || (filters as any).workMode || (filters as any).isLate)
-          ? { status: filters.status || undefined, anomalyType: filters.anomalyType || undefined, workMode: (filters as any).workMode || undefined, isLate: (filters as any).isLate || undefined }
+        activeFilter={(filters.status || filters.anomalyType || kpiFilter?.workMode || kpiFilter?.isLate)
+          ? { status: filters.status || undefined, anomalyType: filters.anomalyType || undefined, workMode: kpiFilter?.workMode, isLate: kpiFilter?.isLate }
           : null}
         onCardClick={handleKpiCardClick}
       />
 
       {/* Clear KPI filter badge */}
-      {(filters.status || filters.anomalyType || (filters as any).isLate) && (
+      {(filters.status || filters.anomalyType || kpiFilter?.isLate || kpiFilter?.workMode) && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Filtered by:</span>
           <button
             onClick={() => handleKpiCardClick(null)}
             className="flex items-center gap-1 text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-1 rounded-full hover:bg-brand-100 transition-colors"
           >
-            {(filters as any).isLate ? 'LATE ARRIVAL' : filters.status || filters.anomalyType?.replace(/_/g, ' ')}
+            {kpiFilter?.isLate ? 'LATE ARRIVAL' : kpiFilter?.workMode ? 'FIELD ACTIVE' : filters.status || filters.anomalyType?.replace(/_/g, ' ')}
             <X size={11} />
           </button>
         </div>

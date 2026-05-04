@@ -2711,9 +2711,9 @@ export class AttendanceService {
       wfhActive,
       onLeaveToday,
     ] = await Promise.all([
-      // Total active (non-system) employees
+      // Total active (non-system) employees — must match the employee set in getAllAttendanceEnhanced
       prisma.employee.count({
-        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] } },
       }),
       // All attendance records for the date
       prisma.attendanceRecord.findMany({
@@ -2833,8 +2833,8 @@ export class AttendanceService {
       organizationId, deletedAt: null,
       isSystemAccount: { not: true },
       status: employeeType
-        ? { in: employeeType === 'PROBATION' ? ['PROBATION'] : employeeType === 'INTERN' ? ['ACTIVE'] : ['ACTIVE', 'PROBATION'] }
-        : { in: ['ACTIVE', 'PROBATION'] },
+        ? { in: employeeType === 'PROBATION' ? ['PROBATION'] : employeeType === 'INTERN' ? ['INTERN'] : ['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] }
+        : { in: ['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] },
     };
     if (department) empWhere.departmentId = department;
     if (designation) empWhere.designationId = designation;
@@ -2896,7 +2896,7 @@ export class AttendanceService {
         },
       }),
       prisma.employee.count({
-        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] } },
       }),
     ]);
 

@@ -176,8 +176,9 @@ function AdminDashboard() {
   }
 
   const att = hrStats?.todayAttendance;
+  // att.present now includes PRESENT + WFH + HALF_DAY (totalCheckedIn) — no need to add workFromHome again
   const presentPct = att && att.totalActive > 0
-    ? Math.round(((att.present + att.workFromHome) / att.totalActive) * 100)
+    ? Math.round((att.present / att.totalActive) * 100)
     : 0;
 
   return (

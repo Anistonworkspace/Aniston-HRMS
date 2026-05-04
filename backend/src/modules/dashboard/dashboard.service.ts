@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
+import { EmployeeStatus } from '@prisma/client';
 import type { DashboardAlert, AttentionItem } from '@aniston/shared';
 
 const CACHE_TTL = 60; // 60 seconds cache for dashboard data
@@ -386,9 +387,10 @@ export class DashboardService {
     today.setHours(0, 0, 0, 0);
     const now = new Date();
 
-    // Active employees count
+    // Work-eligible employees — same scope as attendance records (ACTIVE + PROBATION + INTERN can all mark attendance)
+    const WORK_STATUSES: EmployeeStatus[] = [EmployeeStatus.ACTIVE, EmployeeStatus.PROBATION, EmployeeStatus.INTERN];
     const activeCount = await prisma.employee.count({
-      where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } },
+      where: { organizationId, status: { in: WORK_STATUSES }, deletedAt: null, isSystemAccount: { not: true } },
     });
 
     // === TODAY'S ATTENDANCE (parallel) ===
@@ -423,6 +425,7 @@ export class DashboardService {
     ]);
 
     const totalCheckedIn = presentCount + wfhCount + halfDayCount;
+    // notCheckedIn = work-eligible employees who have no attendance record and are not on approved leave today
     const notCheckedIn = Math.max(activeCount - totalCheckedIn - onLeaveCount, 0);
 
     // Late arrivals — employees who checked in after shift grace period
@@ -450,9 +453,9 @@ export class DashboardService {
         },
       }),
       prisma.shift.findFirst({ where: { organizationId, isDefault: true, isActive: true }, select: { startTime: true, graceMinutes: true, lateGraceMinutes: true } }),
-      // Present employees list for popup
+      // Present employees list for popup (include WFH too)
       prisma.attendanceRecord.findMany({
-        where: { date: today, status: { in: ['PRESENT', 'HALF_DAY'] }, employee: { organizationId } },
+        where: { date: today, status: { in: ['PRESENT', 'HALF_DAY', 'WORK_FROM_HOME'] }, employee: { organizationId } },
         select: { employee: { select: { id: true, firstName: true, lastName: true } } },
         take: 100,
       }),
@@ -488,7 +491,7 @@ export class DashboardService {
     // For absent: fetch active employees, subtract checked-in and on-leave
     const [allActiveEmps, onLeaveEmpIds] = await Promise.all([
       prisma.employee.findMany({
-        where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } },
+        where: { organizationId, status: { in: WORK_STATUSES }, deletedAt: null, isSystemAccount: { not: true } },
         select: { id: true, firstName: true, lastName: true },
       }),
       prisma.leaveRequest.findMany({
@@ -517,12 +520,14 @@ export class DashboardService {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     const todayAttendance = {
-      present: presentCount,
+      present: totalCheckedIn,   // all checked-in (PRESENT + WFH + HALF_DAY)
+      presentOnly: presentCount, // strict PRESENT only (for detailed breakdown if needed)
       absent: absentCount,
       late: lateCount,
       onLeave: onLeaveCount,
       notCheckedIn,
       workFromHome: wfhCount,
+      halfDay: halfDayCount,
       totalActive: activeCount,
       presentEmployees: presentEmployeesList,
       absentEmployees: absentEmployeesList,
