@@ -550,13 +550,28 @@ export class DashboardService {
         where: { status: 'PENDING', attendance: { employee: { organizationId } } },
       }),
       prisma.ticket.count({ where: { organizationId, status: { in: ['OPEN', 'IN_PROGRESS'] }, ...(role === 'HR' && userId ? { assignedTo: userId } : {}) } }),
-      prisma.document.count({ where: { status: 'PENDING', deletedAt: null, employee: { organizationId } } }),
+      // Count distinct employees (not documents) with pending docs
+      prisma.document.findMany({
+        where: {
+          status: 'PENDING',
+          deletedAt: null,
+          employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
+          employeeId: { not: null },
+        },
+        select: { employeeId: true },
+        distinct: ['employeeId'],
+      }).then(rows => rows.length),
       prisma.employee.count({
         where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, onboardingComplete: false, status: 'ACTIVE' },
       }),
-      // Employees with unverified documents (distinct by employee)
+      // Employees with unverified documents — only real, non-deleted employees
       prisma.document.findMany({
-        where: { status: 'PENDING', deletedAt: null, employee: { organizationId } },
+        where: {
+          status: 'PENDING',
+          deletedAt: null,
+          employeeId: { not: null },
+          employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
+        },
         select: { employee: { select: { id: true, firstName: true, lastName: true } } },
         distinct: ['employeeId'],
         take: 50,
@@ -577,7 +592,8 @@ export class DashboardService {
     ]);
 
     const unverifiedDocEmployees = unverifiedDocRecords
-      .map((d: any) => ({ id: d.employee.id, name: `${d.employee.firstName} ${d.employee.lastName}` }))
+      .filter((d: any) => d.employee?.id)
+      .map((d: any) => ({ id: d.employee.id, name: `${d.employee.firstName} ${d.employee.lastName}`.trim() }))
       .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     const openTicketsList = openTicketsRecords.map((t: any) => ({
