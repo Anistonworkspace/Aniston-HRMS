@@ -722,9 +722,18 @@ function AttendancePersonalView() {
   };
 
   const [showRegModal, setShowRegModal] = useState(false);
+  const [regDate, setRegDate] = useState<string | null>(null); // null = today
   const [regReason, setRegReason] = useState('');
   const [regCheckIn, setRegCheckIn] = useState('');
   const [regCheckOut, setRegCheckOut] = useState('');
+
+  const openRegModal = (dateStr?: string) => {
+    setRegDate(dateStr || null);
+    setRegReason('');
+    setRegCheckIn('');
+    setRegCheckOut('');
+    setShowRegModal(true);
+  };
 
   const regSubmitLockRef = useRef(false);
   const handleSubmitRegularization = async () => {
@@ -732,16 +741,18 @@ function AttendancePersonalView() {
     if (regReason.trim().length < 10) { toast.error('Reason must be at least 10 characters.'); return; }
     regSubmitLockRef.current = true;
     try {
-      const attendanceId = today?.record?.id;
-      const todayDate = new Date().toISOString().split('T')[0];
+      const isToday = !regDate;
+      const attendanceId = isToday ? today?.record?.id : undefined;
+      const dateForRequest = regDate || new Date().toISOString().split('T')[0];
       await submitRegularization({
-        ...(attendanceId ? { attendanceId } : { date: todayDate }),
+        ...(attendanceId ? { attendanceId } : { date: dateForRequest }),
         reason: regReason.trim(),
         ...(regCheckIn ? { requestedCheckIn: new Date(regCheckIn).toISOString() } : {}),
         ...(regCheckOut ? { requestedCheckOut: new Date(regCheckOut).toISOString() } : {}),
       }).unwrap();
       toast.success('Regularization request submitted. HR will review it shortly.');
       setShowRegModal(false);
+      setRegDate(null);
       setRegReason('');
       setRegCheckIn('');
       setRegCheckOut('');
@@ -958,10 +969,10 @@ function AttendancePersonalView() {
       monthData?.holidays?.map((h: any) => new Date(h.date).toISOString().split('T')[0]) || []
     );
 
-    const days: Array<{ date: number; status: string; isToday: boolean; record: any }> = [];
+    const days: Array<{ date: number; dateStr: string; status: string; isToday: boolean; record: any }> = [];
 
     for (let i = 0; i < firstDay; i++) {
-      days.push({ date: 0, status: '', isToday: false, record: null });
+      days.push({ date: 0, dateStr: '', status: '', isToday: false, record: null });
     }
 
     // IST-aware today string — prevents off-by-one when browser clock crosses UTC midnight before IST midnight
@@ -988,6 +999,7 @@ function AttendancePersonalView() {
 
       days.push({
         date: d,
+        dateStr,
         status,
         isToday: dateStr === todayStr,
         record,
@@ -999,6 +1011,9 @@ function AttendancePersonalView() {
 
   const calendarDays = buildCalendar();
   const monthName = currentMonth.toLocaleString(locale, { month: 'long', year: 'numeric' });
+  const _now = new Date();
+  const _ist = new Date(_now.getTime() + _now.getTimezoneOffset() * 60000 + 5.5 * 3600000);
+  const calTodayStr = `${_ist.getUTCFullYear()}-${String(_ist.getUTCMonth() + 1).padStart(2, '0')}-${String(_ist.getUTCDate()).padStart(2, '0')}`;
 
   // Detect work mode from today's status
   const workMode = today?.workMode || 'OFFICE';
@@ -1487,7 +1502,7 @@ function AttendancePersonalView() {
                 {/* Checked out — prompt for regularization */}
                 {perms.canMarkAttendance && today?.isCheckedOut && (
                   <button
-                    onClick={() => setShowRegModal(true)}
+                    onClick={() => openRegModal()}
                     className="mt-3 w-full p-3 bg-amber-50 hover:bg-amber-100 rounded-xl border border-amber-200 text-center transition-colors"
                   >
                     <p className="text-xs text-amber-700 font-semibold flex items-center justify-center gap-1.5">
@@ -1500,7 +1515,7 @@ function AttendancePersonalView() {
                 {/* Not checked in at all — allow regularization for missed attendance (no record = full absent) */}
                 {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && (
                   <button
-                    onClick={() => setShowRegModal(true)}
+                    onClick={() => openRegModal()}
                     className="mt-3 w-full p-3 bg-orange-50 hover:bg-orange-100 rounded-xl border border-orange-200 text-center transition-colors"
                   >
                     <p className="text-xs text-orange-700 font-semibold flex items-center justify-center gap-1.5">
@@ -1593,46 +1608,64 @@ function AttendancePersonalView() {
 
           {/* Calendar grid */}
           <div className="grid grid-cols-7 gap-0.5">
-            {calendarDays.map((day, idx) => (
-              <div
-                key={idx}
-                className={cn(
-                  'rounded-md p-1 flex flex-col items-center justify-center transition-colors relative',
-                  'min-h-[36px]',
-                  day.date === 0 && 'invisible',
-                  day.isToday && 'ring-2 ring-brand-500 ring-offset-1',
-                  day.status === 'PRESENT' && 'bg-emerald-50',
-                  day.status === 'ABSENT' && 'bg-red-50',
-                  day.status === 'HALF_DAY' && 'bg-amber-50',
-                  day.status === 'HOLIDAY' && 'bg-blue-50',
-                  day.status === 'WEEKEND' && 'bg-gray-50',
-                  day.status === 'ON_LEAVE' && 'bg-purple-50',
-                  day.status === 'WORK_FROM_HOME' && 'bg-teal-50',
-                  !day.status && day.date > 0 && 'bg-white',
-                )}
-              >
-                <span className={cn(
-                  'text-xs font-medium leading-none',
-                  day.isToday ? 'text-brand-600' : 'text-gray-700',
-                  day.status === 'WEEKEND' && 'text-gray-400',
-                )}>
-                  {day.date > 0 ? day.date : ''}
-                </span>
-                {day.status && day.date > 0 && (
-                  <div className="flex items-center gap-0.5 mt-0.5">
-                    <div className={cn('w-1 h-1 rounded-full', STATUS_COLORS[day.status])} />
-                    {day.record?.geofenceViolation && (
-                      <Flag size={6} className="text-red-500" aria-label="Outside geofence" />
-                    )}
-                  </div>
-                )}
-                {day.record?.totalHours && (
-                  <span className="text-[8px] font-mono text-gray-400 leading-none mt-0.5 hidden sm:block" data-mono>
-                    {Number(day.record.totalHours).toFixed(1)}h
+            {calendarDays.map((day, idx) => {
+              const canRegularize = day.date > 0
+                && day.dateStr < calTodayStr
+                && day.status !== 'WEEKEND'
+                && day.status !== 'HOLIDAY';
+              return (
+                <div
+                  key={idx}
+                  className={cn(
+                    'rounded-md p-1 flex flex-col items-center justify-center transition-colors relative group',
+                    'min-h-[36px]',
+                    day.date === 0 && 'invisible',
+                    day.isToday && 'ring-2 ring-brand-500 ring-offset-1',
+                    day.status === 'PRESENT' && 'bg-emerald-50',
+                    day.status === 'ABSENT' && 'bg-red-50',
+                    day.status === 'HALF_DAY' && 'bg-amber-50',
+                    day.status === 'HOLIDAY' && 'bg-blue-50',
+                    day.status === 'WEEKEND' && 'bg-gray-50',
+                    day.status === 'ON_LEAVE' && 'bg-purple-50',
+                    day.status === 'WORK_FROM_HOME' && 'bg-teal-50',
+                    !day.status && day.date > 0 && 'bg-white',
+                  )}
+                >
+                  <span className={cn(
+                    'text-xs font-medium leading-none',
+                    day.isToday ? 'text-brand-600' : 'text-gray-700',
+                    day.status === 'WEEKEND' && 'text-gray-400',
+                  )}>
+                    {day.date > 0 ? day.date : ''}
                   </span>
-                )}
-              </div>
-            ))}
+                  {day.status && day.date > 0 && (
+                    <div className="flex items-center gap-0.5 mt-0.5">
+                      <div className={cn('w-1 h-1 rounded-full', STATUS_COLORS[day.status])} />
+                      {day.record?.geofenceViolation && (
+                        <Flag size={6} className="text-red-500" aria-label="Outside geofence" />
+                      )}
+                    </div>
+                  )}
+                  {day.record?.totalHours && (
+                    <span className="text-[8px] font-mono text-gray-400 leading-none mt-0.5 hidden sm:block" data-mono>
+                      {Number(day.record.totalHours).toFixed(1)}h
+                    </span>
+                  )}
+                  {/* Per-day Regularize button — shown on hover for past eligible days */}
+                  {canRegularize && (
+                    <button
+                      onClick={() => openRegModal(day.dateStr)}
+                      title={`Regularize ${day.dateStr}`}
+                      className="absolute inset-0 w-full h-full flex items-end justify-center pb-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <span className="text-[7px] font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 leading-tight">
+                        Reg
+                      </span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Legend */}
@@ -1700,7 +1733,7 @@ function AttendancePersonalView() {
                 </div>
               </div>
               <button
-                onClick={() => { setShowRegModal(false); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
+                onClick={() => { setShowRegModal(false); setRegDate(null); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
                 className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400"
               >
                 <X size={18} />
@@ -1711,10 +1744,10 @@ function AttendancePersonalView() {
             <div className="px-5 py-4 space-y-4">
               {/* Info row */}
               <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-700">
-                {today?.isCheckedOut
-                  ? 'You have already checked in and checked out today. Re-marking is not allowed.'
-                  : 'You missed check-in today. Re-marking is not allowed.'}
-                {' '}Submit a regularization request — HR will review and approve it.
+                {regDate
+                  ? <>For <strong>{new Date(regDate + 'T00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</strong>. Submit a regularization request — HR will review and approve it.</>
+                  : <>{today?.isCheckedOut ? 'You have already checked in and checked out today. Re-marking is not allowed.' : 'You missed check-in today. Re-marking is not allowed.'}{' '}Submit a regularization request — HR will review and approve it.</>
+                }
               </div>
 
               {/* Reason */}
@@ -1761,7 +1794,7 @@ function AttendancePersonalView() {
             {/* Footer */}
             <div className="px-5 pb-5 flex gap-3">
               <button
-                onClick={() => { setShowRegModal(false); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
+                onClick={() => { setShowRegModal(false); setRegDate(null); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel

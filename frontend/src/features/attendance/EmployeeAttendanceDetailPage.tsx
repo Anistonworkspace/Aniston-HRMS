@@ -664,21 +664,26 @@ export default function EmployeeAttendanceDetailPage() {
                     {isHR && markingDate === day.dateStr && (
                       <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg p-1.5 min-w-[90px]" onClick={e => e.stopPropagation()}>
                         <p className="text-[8px] text-gray-400 font-medium px-1 mb-1">Mark as</p>
-                        {['PRESENT', 'HALF_DAY', 'ABSENT'].map(s => (
+                        {([
+                          { s: 'PRESENT', label: 'Present', cls: 'text-emerald-600' },
+                          { s: 'HALF_DAY', label: 'Half Day', cls: 'text-amber-600' },
+                          { s: 'ABSENT', label: 'Absent', cls: 'text-red-500' },
+                          { s: 'WEEKEND', label: 'Week Off', cls: 'text-gray-400' },
+                        ] as const).map(({ s, label, cls }) => (
                           <button key={s}
                             disabled={isMarking}
                             onClick={async () => {
                               try {
                                 await markAttendance({ employeeId: employeeId!, date: day.dateStr, status: s }).unwrap();
-                                toast.success(`Marked ${s.replace(/_/g, ' ')} for ${day.dateStr}`);
+                                toast.success(`Marked ${label} for ${day.dateStr}`);
                                 setMarkingDate(null);
                               } catch { toast.error('Failed to mark attendance'); }
                             }}
                             className={cn(
                               'w-full text-left text-[9px] font-medium px-1.5 py-1 rounded-lg hover:bg-gray-50 transition-colors',
-                              s === 'PRESENT' ? 'text-emerald-600' : s === 'HALF_DAY' ? 'text-amber-600' : 'text-red-500'
+                              cls
                             )}>
-                            {s === 'PRESENT' ? 'Present' : s === 'HALF_DAY' ? 'Half Day' : 'Absent'}
+                            {label}
                           </button>
                         ))}
                       </div>

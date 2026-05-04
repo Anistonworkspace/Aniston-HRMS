@@ -1771,6 +1771,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
                       { status: 'ABSENT', label: 'Absent', color: STATUS_COLORS.ABSENT },
                       { status: 'HALF_DAY', label: 'Half Day', color: STATUS_COLORS.HALF_DAY },
                       { status: 'ON_LEAVE', label: 'On Leave', color: STATUS_COLORS.ON_LEAVE },
+                      { status: 'WEEKEND', label: 'Week Off', color: '#9ca3af' },
                     ].map(opt => (
                       <button key={opt.status} onClick={() => handleMarkStatus(opt.status)} disabled={marking}
                         className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] text-gray-700 hover:bg-surface-2 transition-colors text-left">
