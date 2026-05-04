@@ -93,8 +93,8 @@ export default function MapSection({
   // ── FIELD SALES: full GPS trail view ──────────────────────────────────────
   if (gpsTrail.length > 0) {
     const positions: [number, number][] = gpsTrail.map((p: any) => [
-      p.lat ?? p.latitude,
-      p.lng ?? p.longitude,
+      Number(p.lat ?? p.latitude),
+      Number(p.lng ?? p.longitude),
     ]);
 
     // Jitter-filtered distance: skip a segment if its length is smaller than the GPS accuracy
@@ -169,8 +169,8 @@ export default function MapSection({
 
             {/* One CircleMarker per GPS point */}
             {gpsTrail.map((p: any, i: number) => {
-              const lat = p.lat ?? p.latitude;
-              const lng = p.lng ?? p.longitude;
+              const lat = Number(p.lat ?? p.latitude);
+              const lng = Number(p.lng ?? p.longitude);
               const ts = p.timestamp ?? p.time ?? p.recordedAt;
               const isFirst = i === 0;
               const isLast = i === gpsTrail.length - 1;
@@ -198,7 +198,7 @@ export default function MapSection({
                       <br />
                       🕐 {fmtTime(ts)}
                       <br />
-                      {lat?.toFixed(5)}, {lng?.toFixed(5)}
+                      {lat.toFixed(5)}, {lng.toFixed(5)}
                       <br />
                       🎯 Accuracy: ±{p.accuracy != null ? Math.round(p.accuracy) : '--'}m
                       {speedKmh != null && (
@@ -215,9 +215,9 @@ export default function MapSection({
 
             {/* Visit stop markers (orange ring) */}
             {gpsVisits.map((v: any, i: number) => {
-              const lat = v.lat;
-              const lng = v.lng;
-              if (lat == null || lng == null) return null;
+              const lat = Number(v.lat);
+              const lng = Number(v.lng);
+              if (!v.lat || !v.lng) return null;
               const dwellMs = v.durationMinutes != null ? v.durationMinutes * 60 * 1000 : 0;
               return (
                 <CircleMarker
@@ -299,8 +299,8 @@ export default function MapSection({
                 <FitTrail positions={positions} />
                 <Polyline positions={positions} pathOptions={{ color: '#6366f1', weight: 3, opacity: 0.65 }} />
                 {gpsTrail.map((p: any, i: number) => {
-                  const lat = p.lat ?? p.latitude;
-                  const lng = p.lng ?? p.longitude;
+                  const lat = Number(p.lat ?? p.latitude);
+                  const lng = Number(p.lng ?? p.longitude);
                   const ts = p.timestamp ?? p.time ?? p.recordedAt;
                   const isFirst = i === 0;
                   const isLast = i === gpsTrail.length - 1;
@@ -313,7 +313,7 @@ export default function MapSection({
                         <div style={{ fontSize: 11, minWidth: 165, lineHeight: 1.6 }}>
                           <strong>{isFirst ? '🟢 Start' : isLast ? '🔴 End' : `📍 Point ${i + 1}`}</strong>
                           <br />🕐 {fmtTime(ts)}
-                          <br />{lat?.toFixed(5)}, {lng?.toFixed(5)}
+                          <br />{lat.toFixed(5)}, {lng.toFixed(5)}
                           <br />🎯 Accuracy: ±{p.accuracy != null ? Math.round(p.accuracy) : '--'}m
                           {speedKmh != null && <><br />🚀 Speed: {speedKmh} km/h</>}
                         </div>
@@ -322,10 +322,10 @@ export default function MapSection({
                   );
                 })}
                 {gpsVisits.map((v: any, i: number) => {
-                  if (v.lat == null || v.lng == null) return null;
+                  if (!v.lat || !v.lng) return null;
                   const dwellMs = v.durationMinutes != null ? v.durationMinutes * 60 * 1000 : 0;
                   return (
-                    <CircleMarker key={`vf-${i}`} center={[v.lat, v.lng]} radius={16}
+                    <CircleMarker key={`vf-${i}`} center={[Number(v.lat), Number(v.lng)]} radius={16}
                       pathOptions={{ fillColor: '#f97316', color: '#ea580c', weight: 2, fillOpacity: 0.25 }}>
                       <Popup>
                         <div style={{ fontSize: 11, minWidth: 150, lineHeight: 1.6 }}>
@@ -351,8 +351,8 @@ export default function MapSection({
           <div className="max-h-44 overflow-y-auto space-y-0.5 pr-1">
             {gpsTrail.map((p: any, i: number) => {
               const ts = p.timestamp ?? p.time ?? p.recordedAt;
-              const lat = p.lat ?? p.latitude;
-              const lng = p.lng ?? p.longitude;
+              const lat = Number(p.lat ?? p.latitude);
+              const lng = Number(p.lng ?? p.longitude);
               const speedKmh =
                 p.speed != null ? (p.speed * 3.6).toFixed(1) : null;
               const isFirst = i === 0;
@@ -376,7 +376,7 @@ export default function MapSection({
                     {fmtTime(ts)}
                   </span>
                   <span className="text-gray-600 flex-1 truncate">
-                    {lat?.toFixed(4)}, {lng?.toFixed(4)}
+                    {lat.toFixed(4)}, {lng.toFixed(4)}
                     {speedKmh != null && (
                       <span className="text-gray-400 ml-1">· {speedKmh} km/h</span>
                     )}
@@ -574,7 +574,7 @@ export default function MapSection({
                   <Popup>
                     <div style={{ fontSize: 11, lineHeight: 1.6 }}>
                       <strong>📍 Check-in Point</strong>
-                      <br />{checkInLoc.lat?.toFixed(5)}, {checkInLoc.lng?.toFixed(5)}
+                      <br />{Number(checkInLoc.lat).toFixed(5)}, {Number(checkInLoc.lng).toFixed(5)}
                     </div>
                   </Popup>
                 </CircleMarker>
