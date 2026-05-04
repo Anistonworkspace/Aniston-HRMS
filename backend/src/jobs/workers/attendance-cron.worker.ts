@@ -81,19 +81,22 @@ async function autoCloseStaleRecords() {
       }
 
       const checkIn = new Date(record.checkIn!);
-      const totalHours = Math.round(((autoCheckOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60)) * 100) / 100;
+      const rawHours = Math.round(((autoCheckOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60)) * 100) / 100;
       const fullDayHours = shift ? Number(shift.fullDayHours) : 8;
       const halfDayHours = shift ? Number(shift.halfDayHours) : 4;
+      // Cap at 9h: employee forgot to checkout, don't credit OT or inflated hours
+      const MAX_AUTO_HOURS = 9;
+      const totalHours = Math.min(rawHours, MAX_AUTO_HOURS);
       const status = totalHours < halfDayHours ? 'HALF_DAY' : 'PRESENT';
 
       await prisma.attendanceRecord.update({
         where: { id: record.id },
         data: {
           checkOut: autoCheckOut,
-          totalHours: Math.min(totalHours, fullDayHours), // cap at shift hours
+          totalHours,
           status,
           source: 'SYSTEM_AUTO_CLOSE',
-          notes: `${record.notes || ''} [Auto-closed: employee did not clock out. Set to shift end ${shift?.endTime || '18:00'}]`.trim(),
+          notes: `${record.notes || ''} [Auto-closed: employee did not clock out. Set to shift end ${shift?.endTime || '18:00'}. Hours capped at ${MAX_AUTO_HOURS}h]`.trim(),
         },
       });
 
@@ -516,6 +519,35 @@ async function shiftEndCheckoutReminder() {
   return { reminded };
 }
 
+/**
+ * Purge GPS trail data older than 90 days.
+ * Runs weekly on Sunday at 02:00 IST to keep DB lean.
+ */
+async function purgeOldGPSTrailData() {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const ist = new Date(utc + IST_OFFSET_MS);
+  const cutoffDate = new Date(ist.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const cutoffStr = `${cutoffDate.getUTCFullYear()}-${String(cutoffDate.getUTCMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getUTCDate()).padStart(2, '0')}T00:00:00.000Z`;
+  const cutoff = new Date(cutoffStr);
+
+  logger.info(`[GPS Purge] Purging GPS trail data older than ${cutoff.toISOString().split('T')[0]}…`);
+
+  try {
+    const trailResult = await prisma.gPSTrailPoint.deleteMany({
+      where: { date: { lt: cutoff } },
+    });
+    const visitResult = await prisma.locationVisit.deleteMany({
+      where: { arrivalTime: { lt: cutoff } },
+    });
+    logger.info(`[GPS Purge] Deleted ${trailResult.count} GPS points, ${visitResult.count} location visits.`);
+    return { points: trailResult.count, visits: visitResult.count };
+  } catch (err) {
+    logger.error('[GPS Purge] Failed:', err);
+    return { points: 0, visits: 0 };
+  }
+}
+
 export function startAttendanceCronWorker() {
   const worker = new Worker(
     'attendance-cron',
@@ -531,6 +563,8 @@ export function startAttendanceCronWorker() {
           return gpsHeartbeatMonitor();
         case 'shift-end-reminder':
           return shiftEndCheckoutReminder();
+        case 'purge-gps-trail':
+          return purgeOldGPSTrailData();
         default:
           logger.warn(`[Attendance Cron] Unknown job name: ${job.name}`);
       }

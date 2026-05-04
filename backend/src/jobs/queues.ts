@@ -82,6 +82,10 @@ logger.info('✅ BullMQ queues initialized');
     await attendanceCronQueue.add('shift-end-reminder', {}, {
       repeat: { every: 15 * 60 * 1000 }, // every 15 minutes
     });
+    // GPS trail purge — every Sunday at 02:00 IST (20:30 UTC Saturday)
+    await attendanceCronQueue.add('purge-gps-trail', {}, {
+      repeat: { pattern: '30 20 * * 0' }, // 20:30 UTC Sunday = 02:00 IST Monday
+    });
     logger.info('✅ Attendance cron jobs scheduled');
   } catch (err) {
     logger.warn('Failed to schedule attendance cron jobs:', err);

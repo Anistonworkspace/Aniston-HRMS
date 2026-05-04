@@ -271,7 +271,7 @@ export default function MapSection({
 
         {/* GPS Trail Fullscreen Modal */}
         {trailFullscreen && (
-          <div className="fixed inset-0 z-[80] flex flex-col bg-gray-900">
+          <div className="fixed inset-0 z-[1000] flex flex-col bg-gray-900">
             <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Activity size={15} className="text-green-400" />
@@ -537,7 +537,7 @@ export default function MapSection({
 
         {/* Office Check-in Fullscreen Modal */}
         {officeFullscreen && (
-          <div className="fixed inset-0 z-[80] flex flex-col bg-gray-900">
+          <div className="fixed inset-0 z-[1000] flex flex-col bg-gray-900">
             <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <MapPin size={15} className="text-brand-400" />

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { MapPin, Clock, Edit2, Check, X, Navigation, AlertTriangle, Search, ChevronLeft, ChevronRight, Map, Activity, User } from 'lucide-react';
+import { MapPin, Clock, Edit2, Check, X, Navigation, AlertTriangle, Search, ChevronLeft, ChevronRight, Map, Activity, User, Maximize2, Minimize2, Bookmark, Plus, Trash2 } from 'lucide-react';
 import { useGetGeoLocationsQuery, useUpdateLocationVisitNameMutation, useGetEmployeeGPSTrailQuery } from '../attendanceApi';
 import { cn, formatDate } from '../../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
@@ -28,11 +28,12 @@ function EmployeeTrailModal({ employee, date, onClose }: {
   const trail = trailData?.data;
   const gpsPoints = trail?.points ?? [];
   const gpsVisits = trail?.visits ?? [];
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className={cn('relative bg-white shadow-2xl flex flex-col overflow-hidden', isFullscreen ? 'w-full h-full' : 'rounded-2xl w-full max-w-2xl max-h-[90vh]')}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -46,9 +47,14 @@ function EmployeeTrailModal({ employee, date, onClose }: {
               <p className="text-[10px] text-gray-400">{employee.employeeCode} · {formatDate(date)}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
-            <X size={15} className="text-gray-500" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setIsFullscreen(f => !f)} className="p-1.5 rounded-lg hover:bg-gray-100" title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+              {isFullscreen ? <Minimize2 size={15} className="text-gray-500" /> : <Maximize2 size={15} className="text-gray-500" />}
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
+              <X size={15} className="text-gray-500" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -131,6 +137,7 @@ function EmployeeTrailModal({ employee, date, onClose }: {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function GeoLocationsTab() {
   const today = new Date().toISOString().split('T')[0];
+  const [activeTab, setActiveTab] = useState<'visits' | 'saved'>('visits');
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [search, setSearch] = useState('');
@@ -139,6 +146,20 @@ export default function GeoLocationsTab() {
   const [editValue, setEditValue] = useState('');
   const [mapPreview, setMapPreview] = useState<{ lat: number; lng: number; name: string } | null>(null);
   const [trailModal, setTrailModal] = useState<{ employee: any; date: string } | null>(null);
+
+  // Saved locations (persisted in localStorage)
+  const [savedLocations, setSavedLocations] = useState<Array<{
+    id: string; name: string; lat: number; lng: number;
+    employeeName?: string; savedAt: string; notes?: string;
+  }>>(() => {
+    try { return JSON.parse(localStorage.getItem('aniston_saved_locations') || '[]'); } catch { return []; }
+  });
+  const [showAddSaved, setShowAddSaved] = useState(false);
+  const [newSavedName, setNewSavedName] = useState('');
+  const [newSavedLat, setNewSavedLat] = useState('');
+  const [newSavedLng, setNewSavedLng] = useState('');
+  const [newSavedNotes, setNewSavedNotes] = useState('');
+  const [savedMapPreview, setSavedMapPreview] = useState<{ lat: number; lng: number; name: string } | null>(null);
 
   const { data, isLoading, refetch } = useGetGeoLocationsQuery({ startDate, endDate, page, limit: 30 });
   const [updateName] = useUpdateLocationVisitNameMutation();
@@ -170,8 +191,44 @@ export default function GeoLocationsTab() {
     } catch { toast.error('Failed to save name'); }
   };
 
+  const persistSaved = (locs: typeof savedLocations) => {
+    setSavedLocations(locs);
+    try { localStorage.setItem('aniston_saved_locations', JSON.stringify(locs)); } catch { /* quota */ }
+  };
+
+  const handleAddSaved = () => {
+    const lat = parseFloat(newSavedLat);
+    const lng = parseFloat(newSavedLng);
+    if (!newSavedName.trim() || isNaN(lat) || isNaN(lng)) {
+      toast.error('Enter a valid name and coordinates');
+      return;
+    }
+    const newLoc = { id: crypto.randomUUID(), name: newSavedName.trim(), lat, lng, notes: newSavedNotes.trim() || undefined, savedAt: new Date().toISOString() };
+    persistSaved([...savedLocations, newLoc]);
+    setNewSavedName(''); setNewSavedLat(''); setNewSavedLng(''); setNewSavedNotes('');
+    setShowAddSaved(false);
+    toast.success('Location saved');
+  };
+
+  const handleDeleteSaved = (id: string) => {
+    persistSaved(savedLocations.filter(l => l.id !== id));
+    toast.success('Location removed');
+  };
+
   return (
     <div className="space-y-4">
+      {/* Tab switcher */}
+      <div className="flex items-center gap-1 border-b border-gray-100">
+        {(['visits', 'saved'] as const).map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={cn('px-4 py-2 text-xs font-medium transition-colors relative', activeTab === tab ? 'text-brand-600' : 'text-gray-500 hover:text-gray-700')}>
+            {tab === 'visits' ? 'Geo Locations' : `Saved Locations (${savedLocations.length})`}
+            {activeTab === tab && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600 rounded-full" />}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'visits' && (<>
       {/* Filters */}
       <div className="layer-card p-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -360,6 +417,26 @@ export default function GeoLocationsTab() {
                             >
                               <Edit2 size={11} className="text-gray-500" />
                             </button>
+                            <button
+                              onClick={() => {
+                                const emp = v.attendance?.employee;
+                                const newLoc = {
+                                  id: crypto.randomUUID(),
+                                  name: displayName,
+                                  lat: Number(v.latitude),
+                                  lng: Number(v.longitude),
+                                  employeeName: emp ? `${emp.firstName} ${emp.lastName}` : undefined,
+                                  savedAt: new Date().toISOString(),
+                                };
+                                const updated = [...savedLocations, newLoc];
+                                persistSaved(updated);
+                                toast.success(`"${displayName}" saved to locations`);
+                              }}
+                              className="p-1 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
+                              title="Save this location"
+                            >
+                              <Bookmark size={11} className="text-amber-500" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -415,6 +492,131 @@ export default function GeoLocationsTab() {
           </div>
         </div>
       </div>
+      </>)}
+
+      {activeTab === 'saved' && (
+        <div className="space-y-3">
+          {/* Add new */}
+          <div className="layer-card p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                <Bookmark size={12} className="text-amber-500" /> Saved Locations
+              </p>
+              <button onClick={() => setShowAddSaved(s => !s)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
+                <Plus size={11} /> Add Location
+              </button>
+            </div>
+
+            {showAddSaved && (
+              <div className="bg-gray-50 rounded-xl p-3 space-y-2 mb-2">
+                <p className="text-[11px] font-semibold text-gray-600">New Saved Location</p>
+                <input placeholder="Location name (e.g. Client Office - Rohini)" value={newSavedName} onChange={e => setNewSavedName(e.target.value)}
+                  className="input-glass w-full text-xs px-2.5 py-1.5 rounded-lg" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input placeholder="Latitude (e.g. 28.7041)" value={newSavedLat} onChange={e => setNewSavedLat(e.target.value)}
+                    className="input-glass w-full text-xs px-2.5 py-1.5 rounded-lg font-mono" />
+                  <input placeholder="Longitude (e.g. 77.1025)" value={newSavedLng} onChange={e => setNewSavedLng(e.target.value)}
+                    className="input-glass w-full text-xs px-2.5 py-1.5 rounded-lg font-mono" />
+                </div>
+                <input placeholder="Notes (optional)" value={newSavedNotes} onChange={e => setNewSavedNotes(e.target.value)}
+                  className="input-glass w-full text-xs px-2.5 py-1.5 rounded-lg" />
+                <div className="flex gap-2">
+                  <button onClick={handleAddSaved}
+                    className="flex-1 py-1.5 text-[11px] font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
+                    Save
+                  </button>
+                  <button onClick={() => setShowAddSaved(false)}
+                    className="flex-1 py-1.5 text-[11px] font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Saved map preview */}
+          {savedMapPreview && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/40" onClick={() => setSavedMapPreview(null)} />
+              <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={13} className="text-amber-500" />
+                    <span className="text-sm font-semibold text-gray-800">{savedMapPreview.name}</span>
+                  </div>
+                  <button onClick={() => setSavedMapPreview(null)} className="p-1 rounded-lg hover:bg-gray-100">
+                    <X size={14} className="text-gray-500" />
+                  </button>
+                </div>
+                <div style={{ height: 320 }}>
+                  <Suspense fallback={<div className="h-full bg-gray-50 animate-pulse" />}>
+                    <MiniMap lat={savedMapPreview.lat} lng={savedMapPreview.lng} name={savedMapPreview.name} />
+                  </Suspense>
+                </div>
+                <div className="px-4 py-2.5 bg-gray-50 text-[11px] text-gray-500 font-mono">
+                  {savedMapPreview.lat.toFixed(6)}, {savedMapPreview.lng.toFixed(6)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Saved list */}
+          <div className="layer-card overflow-hidden">
+            {savedLocations.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 gap-2">
+                <Bookmark size={24} className="text-gray-300" />
+                <p className="text-sm text-gray-500">No saved locations yet</p>
+                <p className="text-xs text-gray-400 text-center max-w-xs">
+                  Save locations from the Geo Locations tab, or add one manually above.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/50">
+                      <th className="text-left text-[10px] font-semibold text-gray-500 px-4 py-2">Name</th>
+                      <th className="text-left text-[10px] font-semibold text-gray-500 px-4 py-2">Coordinates</th>
+                      <th className="text-left text-[10px] font-semibold text-gray-500 px-4 py-2">Saved From</th>
+                      <th className="text-left text-[10px] font-semibold text-gray-500 px-4 py-2">Notes</th>
+                      <th className="text-left text-[10px] font-semibold text-gray-500 px-4 py-2">Saved On</th>
+                      <th className="text-left text-[10px] font-semibold text-gray-500 px-4 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {savedLocations.map(loc => (
+                      <tr key={loc.id} className="border-b border-gray-50 hover:bg-surface-2 transition-colors">
+                        <td className="px-4 py-2 font-medium text-gray-800">{loc.name}</td>
+                        <td className="px-4 py-2 font-mono text-gray-400 text-[10px]" data-mono>
+                          {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
+                        </td>
+                        <td className="px-4 py-2 text-gray-500">{loc.employeeName || '—'}</td>
+                        <td className="px-4 py-2 text-gray-500 max-w-[160px] truncate">{loc.notes || '—'}</td>
+                        <td className="px-4 py-2 text-gray-400 text-[10px]">
+                          {new Date(loc.savedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => setSavedMapPreview({ lat: loc.lat, lng: loc.lng, name: loc.name })}
+                              className="p-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors" title="View on map">
+                              <Map size={11} className="text-indigo-500" />
+                            </button>
+                            <button onClick={() => handleDeleteSaved(loc.id)}
+                              className="p-1 rounded-lg bg-red-50 hover:bg-red-100 transition-colors" title="Remove">
+                              <Trash2 size={11} className="text-red-400" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
