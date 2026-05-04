@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -87,7 +88,10 @@ export default function LeavePage() {
 
 function LeaveManagementView() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'employee-leaves' | 'policy'>('approvals');
+  const [searchParams] = useSearchParams();
+  const initialTab = (['approvals', 'types', 'holidays', 'employee-leaves', 'policy'] as const)
+    .find(k => k === searchParams.get('tab')) ?? 'approvals';
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'employee-leaves' | 'policy'>(initialTab);
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);

@@ -363,7 +363,6 @@ function AdminDashboard() {
           <EmployeeListWidget
             items={(saStats?.upcomingBirthdays || hrStats?.upcomingBirthdays || [])}
             type="birthday"
-            clickable={false}
             emptyText="No upcoming birthdays"
           />
         </DashboardSection>
@@ -549,7 +548,11 @@ function AdminDashboard() {
                   const d = new Date(h.date);
                   const daysLeft = Math.ceil((d.getTime() - new Date().setHours(0,0,0,0)) / 86400000);
                   return (
-                    <div key={h.id} className="flex items-center justify-between py-2 px-3 bg-surface-2 rounded-lg">
+                    <div
+                      key={h.id}
+                      onClick={() => navigate('/leaves?tab=holidays')}
+                      className="flex items-center justify-between py-2 px-3 bg-surface-2 rounded-lg cursor-pointer hover:bg-surface-3 transition-colors"
+                    >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 truncate">{h.name}</p>
                         <p className="text-xs text-gray-400 font-mono" data-mono>
