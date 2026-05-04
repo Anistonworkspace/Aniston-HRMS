@@ -1,7 +1,8 @@
 import { useState, useMemo, lazy, Suspense, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getUploadUrl } from '../../lib/utils';
-import { useAppSelector } from '../../app/store';
+import { useAppSelector, useAppDispatch } from '../../app/store';
+import { api } from '../../app/api';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, Activity,
@@ -73,6 +74,7 @@ const SHIFT_BADGE: Record<string, string> = {
 export default function EmployeeAttendanceDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const accessToken = useAppSelector(s => s.auth.accessToken);
   const user = useAppSelector(s => s.auth.user);
   const isHR = user && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role);
@@ -146,6 +148,19 @@ export default function EmployeeAttendanceDetailPage() {
     return () => offSocketEvent('gps:trail-updated', handler);
   }, [isToday, shiftType, employeeId, selectedDate]);
 
+  // Socket: HR manual mark → invalidate Attendance cache so all calendars re-render instantly
+  const dispatchRef = useRef(dispatch);
+  dispatchRef.current = dispatch;
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (data?.employeeId === employeeId) {
+        dispatchRef.current(api.util.invalidateTags(['Attendance'] as any));
+      }
+    };
+    onSocketEvent('attendance:marked', handler);
+    return () => offSocketEvent('attendance:marked', handler);
+  }, [employeeId]);
+
   // C3 — detect tracking gap for HR: compare last GPS point to now
   const trackingIntervalMs = (shift?.trackingIntervalMinutes || 60) * 60_000;
   const lastGpsTs = gpsTrail.length > 0
@@ -192,6 +207,14 @@ export default function EmployeeAttendanceDetailPage() {
       holidays.map((h: any) => new Date(h.date).toISOString().split('T')[0])
     );
     const todayStr = new Date().toISOString().split('T')[0];
+    // Today counts as absent only after shift start grace window (or default 9:30 + 30 min = 10:00)
+    const nowHHMM = new Date().getHours() * 60 + new Date().getMinutes();
+    const shiftStartMins = shift?.startTime
+      ? (() => { const [h, m] = shift.startTime.split(':').map(Number); return h * 60 + m; })()
+      : 9 * 60 + 30;
+    const graceEnd = shiftStartMins + (shift?.graceMinutes || shift?.lateGraceMinutes || 30);
+    const todayShiftStarted = nowHHMM >= graceEnd;
+
     const days: any[] = [];
     for (let i = 0; i < firstDay; i++) days.push({ date: 0, status: '' });
     for (let d = 1; d <= daysInMonth; d++) {
@@ -199,16 +222,26 @@ export default function EmployeeAttendanceDetailPage() {
       const dayOfWeek = new Date(year, month, d).getDay();
       const record = recordMap.get(dateStr);
       let status = '';
-      if (record) status = record.status;
-      else if (holidayDates.has(dateStr)) status = 'HOLIDAY';
-      else if (weekOffDays.includes(dayOfWeek)) status = 'WEEKEND';
-      else if (new Date(dateStr) < new Date(todayStr)) status = 'ABSENT';
+      if (record) {
+        status = record.status;
+      } else if (holidayDates.has(dateStr)) {
+        status = 'HOLIDAY';
+      } else if (weekOffDays.includes(dayOfWeek)) {
+        status = 'WEEKEND';
+      } else if (dateStr < todayStr) {
+        // Past days with no record = absent
+        status = 'ABSENT';
+      } else if (dateStr === todayStr && todayShiftStarted) {
+        // Today, only mark red after grace window has passed and employee still hasn't checked in
+        status = 'ABSENT';
+      }
       const hasAnomaly = record?.geofenceViolation || (record?.clockInCount || 0) > 1;
       const isMissingPunch = record?.checkIn && !record?.checkOut && record?.status === 'PRESENT';
-      days.push({ date: d, dateStr, status, record, isToday: dateStr === todayStr, isSelected: dateStr === selectedDate, hasAnomaly, isMissingPunch });
+      const isManualHR = record?.source === 'MANUAL_HR';
+      days.push({ date: d, dateStr, status, record, isToday: dateStr === todayStr, isSelected: dateStr === selectedDate, hasAnomaly, isMissingPunch, isManualHR });
     }
     return days;
-  }, [currentMonth, records, holidays, selectedDate, weekOffDays]);
+  }, [currentMonth, records, holidays, selectedDate, weekOffDays, shift]);
 
   // Helpers
   const formatTime = (d: string | null) => {
@@ -582,6 +615,8 @@ export default function EmployeeAttendanceDetailPage() {
                   <div key={i} className="text-center text-[8px] font-semibold text-gray-400 py-0.5">{d}</div>
                 ))}
               </div>
+              {/* Dismiss backdrop for marking popover */}
+              {markingDate && <div className="fixed inset-0 z-20" onClick={() => setMarkingDate(null)} />}
               <div className="grid grid-cols-7 gap-0.5">
                 {calendarDays.map((day: any, idx: number) => (
                   <div key={idx} className="relative">
@@ -589,7 +624,7 @@ export default function EmployeeAttendanceDetailPage() {
                       onClick={() => {
                         if (!day.dateStr) return;
                         setSelectedDate(day.dateStr);
-                        // HR can mark past/today dates only
+                        // HR can mark past/today dates only (not holidays or weekends)
                         if (isHR && day.dateStr <= new Date().toISOString().split('T')[0] && day.status !== 'HOLIDAY' && day.status !== 'WEEKEND') {
                           setMarkingDate(markingDate === day.dateStr ? null : day.dateStr);
                         } else {
@@ -597,7 +632,7 @@ export default function EmployeeAttendanceDetailPage() {
                         }
                       }}
                       className={cn(
-                        'w-full rounded-md flex flex-col items-center justify-center text-[9px] transition-all py-1.5 px-0.5',
+                        'w-full rounded-md flex flex-col items-center justify-center text-[9px] transition-all py-1.5 px-0.5 relative',
                         day.date === 0 && 'invisible',
                         day.isSelected && 'ring-1.5 ring-brand-500 ring-offset-1',
                         day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
@@ -618,6 +653,10 @@ export default function EmployeeAttendanceDetailPage() {
                         )}>
                           {STATUS_LABEL[day.status] || ''}
                         </span>
+                      )}
+                      {/* HR manual mark indicator — small shield dot in top-right corner */}
+                      {day.isManualHR && day.date > 0 && (
+                        <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-400" title="HR Manual" />
                       )}
                     </button>
                     {/* HR marking popover */}
@@ -661,6 +700,9 @@ export default function EmployeeAttendanceDetailPage() {
               ].map(i => (
                 <span key={i.l} className={cn('text-[7px] font-bold px-1 py-0.5 rounded cursor-default', i.c)} title={i.d}>{i.l}</span>
               ))}
+              <span className="flex items-center gap-0.5 text-[7px] text-indigo-500 cursor-default" title="HR Manual Mark">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" /> HR
+              </span>
             </div>
           </div>
 

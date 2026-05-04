@@ -2454,6 +2454,16 @@ export class AttendanceService {
       });
     } catch { /* non-blocking */ }
 
+    // Emit socket so all open attendance views (command center + employee detail) update instantly
+    try {
+      emitToOrg(employee.organizationId, 'attendance:marked', {
+        employeeId: data.employeeId,
+        date: data.date,
+        status: data.status,
+        source: 'MANUAL_HR',
+      });
+    } catch { /* non-blocking */ }
+
     return record;
   }
 

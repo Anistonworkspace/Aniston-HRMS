@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
+import { useAppDispatch } from '../../../app/store';
+import { api } from '../../../app/api';
 import {
   useGetCommandCenterStatsQuery,
   useGetEnhancedAttendanceQuery,
@@ -33,6 +35,7 @@ const TABS = [
 type TabKey = typeof TABS[number]['key'];
 
 export default function CommandCenter() {
+  const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { download: authDownload, downloading: exportDownloading } = useAuthDownload();
@@ -87,11 +90,19 @@ export default function CommandCenter() {
   // WebSocket refresh — use ref to avoid listener re-registration on every refetch change
   const refetchRef = useRef(refetch);
   refetchRef.current = refetch;
+  const dispatchRef = useRef(dispatch);
+  dispatchRef.current = dispatch;
   useEffect(() => {
     const handler = () => refetchRef.current();
+    const markedHandler = () => dispatchRef.current(api.util.invalidateTags(['Attendance'] as any));
     onSocketEvent('attendance:checkin', handler);
     onSocketEvent('attendance:checkout', handler);
-    return () => { offSocketEvent('attendance:checkin', handler); offSocketEvent('attendance:checkout', handler); };
+    onSocketEvent('attendance:marked', markedHandler);
+    return () => {
+      offSocketEvent('attendance:checkin', handler);
+      offSocketEvent('attendance:checkout', handler);
+      offSocketEvent('attendance:marked', markedHandler);
+    };
   }, []);
 
   const handleFiltersChange = useCallback((newFilters: AttendanceFilters) => {
