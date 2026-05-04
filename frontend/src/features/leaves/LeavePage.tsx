@@ -869,7 +869,11 @@ function HolidayManagementTab() {
   const handleCreate = async () => {
     if (!form.name || !form.date) return;
     try {
-      await createHoliday(form).unwrap();
+      const payload = {
+        ...form,
+        halfDaySession: form.isHalfDay && form.halfDaySession ? form.halfDaySession : undefined,
+      };
+      await createHoliday(payload).unwrap();
       toast.success(`${form.type === 'EVENT' ? 'Event' : 'Holiday'} created! ${form.notifyEmployees ? 'Emails sent to employees.' : ''}`);
       resetForm();
     } catch (err: any) {
@@ -1307,14 +1311,16 @@ function EmployeeLeaveDetailModal({
   ];
 
   const handleSubmitAdj = async () => {
-    const days = Number(adjForm.days);
+    const rawDays = Number(adjForm.days);
     if (!adjForm.leaveTypeId) return toast.error('Select a leave type');
-    if (!days || days === 0) return toast.error('Days must be non-zero');
+    if (!rawDays || rawDays <= 0) return toast.error('Enter a positive number of days to deduct');
     if (!adjForm.reason.trim() || adjForm.reason.trim().length < 3) return toast.error('Reason required (min 3 chars)');
+
+    const days = -rawDays; // Always deduct
 
     // Live preview guard
     const selectedBal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
-    if (selectedBal && days < 0) {
+    if (selectedBal) {
       const effectiveAlloc = (selectedBal.policyAllocated ?? selectedBal.allocated) + (selectedBal.manualAdjustment ?? 0);
       const cf = Number(selectedBal.carriedForward ?? 0);
       const used = Number(selectedBal.used ?? 0);
@@ -1322,7 +1328,7 @@ function EmployeeLeaveDetailModal({
       const newEffective = Math.max(0, effectiveAlloc + days);
       const remainingAfter = newEffective + cf - used - pending;
       if (remainingAfter < 0) {
-        return toast.error(`Deduction of ${Math.abs(days)}d would make remaining balance negative (${remainingAfter}d). Reduce the amount.`, { duration: 6000 });
+        return toast.error(`Deducting ${rawDays}d would make remaining balance negative (${remainingAfter}d). Reduce the amount.`, { duration: 6000 });
       }
     }
 
@@ -1335,7 +1341,7 @@ function EmployeeLeaveDetailModal({
         days,
         reason: adjForm.reason.trim(),
       }).unwrap();
-      toast.success(days > 0 ? `+${days} days added to quota` : `${days} days deducted from quota`);
+      toast.success(`${rawDays} day${rawDays !== 1 ? 's' : ''} deducted from quota`);
       setAdjForm({ leaveTypeId: '', days: '', reason: '' });
       setShowAdjForm(false);
     } catch (e: any) {
@@ -1635,7 +1641,7 @@ function EmployeeLeaveDetailModal({
                         <SlidersHorizontal size={13} /> Adjust Leave Quota
                       </p>
                       <p className="text-[10px] text-indigo-500">
-                        Positive days add to quota. Negative days deduct from quota. Does not create a leave request.
+                        Enter days to deduct from this employee's leave quota. Does not create a leave request.
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
@@ -1653,15 +1659,15 @@ function EmployeeLeaveDetailModal({
                         </div>
                         <div>
                           <label className="block text-xs text-gray-600 mb-1 font-medium">
-                            Days <span className="text-gray-400 font-normal">(+add / −deduct)</span>
-                            <span className="text-red-400"> *</span>
+                            Days to Deduct <span className="text-red-400">*</span>
                           </label>
                           <input
                             type="number"
                             step="0.5"
+                            min="0.5"
                             value={adjForm.days}
                             onChange={(e) => setAdjForm((f) => ({ ...f, days: e.target.value }))}
-                            placeholder="e.g. +3 or -2"
+                            placeholder="e.g. 1"
                             className="input-glass text-xs w-full"
                           />
                         </div>
@@ -1678,9 +1684,10 @@ function EmployeeLeaveDetailModal({
                       </div>
                       {/* Live preview */}
                       {(() => {
-                        const daysNum = Number(adjForm.days);
+                        const rawDaysNum = Number(adjForm.days);
                         const bal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
-                        if (!bal || !adjForm.leaveTypeId || !daysNum) return null;
+                        if (!bal || !adjForm.leaveTypeId || !rawDaysNum || rawDaysNum <= 0) return null;
+                        const daysNum = -rawDaysNum; // always deduct
                         const effectiveAlloc = (bal.policyAllocated ?? bal.allocated) + (bal.manualAdjustment ?? 0);
                         const cf = Number(bal.carriedForward ?? 0);
                         const used = Number(bal.used ?? 0);
@@ -1690,8 +1697,8 @@ function EmployeeLeaveDetailModal({
                         const isNeg = remainingAfter < 0;
                         return (
                           <p className={cn('text-[11px] font-medium px-3 py-2 rounded-lg', isNeg ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700')}>
-                            {isNeg ? '⚠ ' : '→ '}Remaining after: <strong>{remainingAfter}d</strong>
-                            {isNeg ? ' — server will reject this' : ''}
+                            {isNeg ? '⚠ ' : '→ '}Remaining after deduction: <strong>{remainingAfter}d</strong>
+                            {isNeg ? ' — cannot deduct this much' : ''}
                           </p>
                         );
                       })()}

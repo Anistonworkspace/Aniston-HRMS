@@ -638,16 +638,23 @@ export class EmployeeService {
         // Shift assignment: end current active assignment, create new one
         if (shiftId !== undefined) {
           if (shiftId) {
-            // End any current active assignment
+            // End any current active assignment — capture its locationId first so we don't lose it
+            const currentAssignment = await tx.shiftAssignment.findFirst({
+              where: { employeeId: id, endDate: null },
+              select: { locationId: true },
+            });
             await tx.shiftAssignment.updateMany({
               where: { employeeId: id, endDate: null },
               data: { endDate: new Date() },
             });
-            // Create new assignment
+            // Create new assignment — preserve the existing locationId (falls back to employee.officeLocationId)
+            const preservedLocationId = currentAssignment?.locationId ?? existing.officeLocationId ?? null;
             await tx.shiftAssignment.create({
               data: {
                 employeeId: id,
                 shiftId,
+                locationId: preservedLocationId,
+                organizationId,
                 startDate: new Date(),
                 assignedBy: updatedBy,
               },

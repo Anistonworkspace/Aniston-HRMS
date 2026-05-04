@@ -848,6 +848,9 @@ router.post(
       if (adjustmentType === 'PREVIOUS_USED' && days < 0) {
         return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'days must be positive for PREVIOUS_USED' } });
       }
+      if (adjustmentType === 'BALANCE_CORRECTION' && days > 0) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'Leave quota additions are not permitted. Only deductions (negative days) are allowed.' } });
+      }
       if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
         return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'reason is required (min 3 chars)' } });
       }
