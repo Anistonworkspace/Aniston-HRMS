@@ -9,6 +9,7 @@ import { createAuditLog } from '../../utils/auditLogger.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
+import { leavePolicyService } from '../leave/leave-policy.service.js';
 import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery, SubmitResignationInput, ApproveExitInput, InitiateTerminationInput, ExitQuery } from './employee.validation.js';
 
 export class EmployeeService {
@@ -713,30 +714,76 @@ export class EmployeeService {
         },
       });
 
-      // On status change TO ACTIVE: ensure leave balances exist for all active leave types.
-      // Covers the PROBATION → ACTIVE and ONBOARDING → ACTIVE transitions where some
-      // leave types may have been excluded from the initial seeding.
-      if (data.status === 'ACTIVE') {
+      // On any status change that affects leave eligibility:
+      // 1. Remove LeaveBalance rows for leave types that no longer apply to the new status
+      //    (only if the balance is unused — preserve any used/pending days)
+      // 2. Call the policy engine to create/update balances for the new status
+      // 3. For PROBATION/INTERN → ACTIVE graduations, apply prorata ACTIVE allocation
+      const LEAVE_ELIGIBLE_STATUSES = ['ACTIVE', 'PROBATION', 'INTERN'];
+      const newStatus = data.status;
+      const oldStatus = existing.status;
+
+      if (LEAVE_ELIGIBLE_STATUSES.includes(newStatus) || LEAVE_ELIGIBLE_STATUSES.includes(oldStatus)) {
         try {
           const currentYear = new Date().getFullYear();
-          const leaveTypes = await prisma.leaveType.findMany({
-            where: { organizationId, isActive: true, deletedAt: null },
-            select: { id: true, defaultBalance: true },
-          });
-          if (leaveTypes.length > 0) {
-            await prisma.leaveBalance.createMany({
-              data: leaveTypes.map((lt) => ({
-                employeeId: id,
-                leaveTypeId: lt.id,
-                organizationId,
-                year: currentYear,
-                allocated: lt.defaultBalance,
-              })),
-              skipDuplicates: true, // won't overwrite existing balances — only fills gaps
+          const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
+
+          // Step A: Determine which leave types are NO LONGER applicable under new status
+          if (LEAVE_ELIGIBLE_STATUSES.includes(oldStatus) && LEAVE_ELIGIBLE_STATUSES.includes(newStatus) && oldStatus !== newStatus) {
+            const isNewTrainee = newStatus === 'PROBATION' || newStatus === 'INTERN';
+            const isNewActive = newStatus === 'ACTIVE';
+
+            // Find balances whose leave type audience conflicts with the new status
+            const staleCandidates = await prisma.leaveBalance.findMany({
+              where: { employeeId: id, year: currentYear, deletedAt: null },
+              include: { leaveType: { select: { id: true, applicableTo: true, isActive: true } } },
             });
+
+            for (const bal of staleCandidates) {
+              const lt = bal.leaveType;
+              if (!lt || !POLICY_MANAGED_AUDIENCES.includes(lt.applicableTo as string)) continue;
+
+              const app = lt.applicableTo as string;
+              const isApplicableUnderNew =
+                app === 'ALL_ELIGIBLE' ||
+                (app === 'ACTIVE_ONLY' && isNewActive) ||
+                (app === 'TRAINEE_ONLY' && isNewTrainee);
+
+              if (!isApplicableUnderNew) {
+                const used = Number(bal.used);
+                const pending = Number(bal.pending);
+                if (used === 0 && pending === 0) {
+                  // Safe to remove — no history for this employee on this type
+                  await prisma.leaveBalance.delete({ where: { id: bal.id } });
+                  logger.info(`[Employee] Removed stale ${lt.applicableTo} LeaveBalance for employee ${id} (status ${oldStatus}→${newStatus})`);
+                } else {
+                  // Has history — zero out the allocation instead of deleting
+                  await (prisma.leaveBalance.update as any)({
+                    where: { id: bal.id },
+                    data: { policyAllocated: 0, allocated: used + pending },
+                  });
+                  logger.info(`[Employee] Zeroed stale ${lt.applicableTo} LeaveBalance (has ${used}u/${pending}p) for employee ${id}`);
+                }
+              }
+            }
+          }
+
+          // Step B: Apply prorata graduation if moving from trainee → ACTIVE
+          const isGraduation = (oldStatus === 'PROBATION' || oldStatus === 'INTERN') && newStatus === 'ACTIVE';
+          if (isGraduation) {
+            const graduation = await leavePolicyService.applyProbationGraduation(id, currentYear, updatedBy);
+            if (graduation.adjusted.length > 0) {
+              logger.info(`[Employee] Probation graduation prorata for ${id}: ${JSON.stringify(graduation.adjusted)}`);
+            }
+          }
+
+          // Step C: Allocate new status leave types via policy engine
+          if (LEAVE_ELIGIBLE_STATUSES.includes(newStatus)) {
+            const result = await leavePolicyService.allocateForEmployee(id, currentYear, { triggeredBy: updatedBy });
+            logger.info(`[Employee] Policy re-allocation after status change for ${id}: created=${result.created}, updated=${result.updated}, skipped=${result.skipped}`);
           }
         } catch (err: any) {
-          logger.warn(`[Employee] update() leave balance re-seeding on ACTIVE transition failed (non-blocking): ${err.message}`);
+          logger.warn(`[Employee] Leave balance re-allocation on status change failed (non-blocking): ${err.message}`);
         }
       }
     }

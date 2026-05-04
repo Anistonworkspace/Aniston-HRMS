@@ -652,13 +652,51 @@ export class LeaveService {
       where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: data.leaveTypeId, year } },
     });
 
+    // ── Balance check with unpaid-overflow auto-split ──────────────────────────
+    let paidDays = days;
+    let unpaidDays = 0;
+    let lwpLeaveType: any = null;
+    let lwpBalance: any = null;
+
     if (leaveType.isPaid) {
       if (!balance) {
         throw new BadRequestError(`No ${leaveType.name} balance allocated for this year. Please contact HR.`);
       }
-      const available = Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending);
+
+      // Enforce maxCarryForward — carried-forward days should not exceed policy cap
+      const maxCf = (leaveType as any).maxCarryForward != null ? Number((leaveType as any).maxCarryForward) : null;
+      const effectiveCf = maxCf !== null
+        ? Math.min(Number(balance.carriedForward), maxCf)
+        : Number(balance.carriedForward);
+
+      const available = Number(balance.allocated) + effectiveCf - Number(balance.used) - Number(balance.pending);
+
       if (days > available) {
-        throw new BadRequestError(`Insufficient ${leaveType.name} balance. Available: ${available} day(s), Requested: ${days} day(s). You may apply for Leave Without Pay (LWP) instead.`);
+        // Try auto-split: use whatever paid balance is left, mark the rest as LWP
+        if (available > 0) {
+          lwpLeaveType = await prisma.leaveType.findFirst({
+            where: { organizationId: employee.organizationId, isPaid: false, isActive: true, deletedAt: null },
+            orderBy: { createdAt: 'asc' },
+          });
+        }
+
+        if (available <= 0 || !lwpLeaveType) {
+          // No paid balance left at all, or no LWP type configured
+          const hint = lwpLeaveType
+            ? `You have 0 paid ${leaveType.name} days remaining.`
+            : `No Leave Without Pay (LWP) type is configured in your organisation. Contact HR.`;
+          throw new BadRequestError(
+            `Insufficient ${leaveType.name} balance. Available: ${available} day(s), Requested: ${days} day(s). ${hint}`
+          );
+        }
+
+        // Split: first N days paid, remainder as LWP
+        paidDays = available;
+        unpaidDays = days - available;
+
+        lwpBalance = await prisma.leaveBalance.findUnique({
+          where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: lwpLeaveType.id, year } },
+        });
       }
     }
 
@@ -668,7 +706,7 @@ export class LeaveService {
 
     // Create leave request — overlap check is INSIDE the transaction to prevent
     // TOCTOU race where two concurrent applications for the same dates both pass (G-02).
-    const request = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // G-02: Re-check overlap inside the transaction to close the TOCTOU race window
       const overlapping = await tx.leaveRequest.findFirst({
         where: {
@@ -680,15 +718,38 @@ export class LeaveService {
       if (overlapping) {
         throw new BadRequestError('You already have a leave request for these dates. Cancel the existing request first or choose different dates.');
       }
+
+      // Helper: create attendance records for a date range
+      const markAttendance = async (label: string) => {
+        const orgHolidays = await tx.holiday.findMany({
+          where: { organizationId: employee.organizationId, date: { gte: startDate, lte: endDate }, type: { in: ['PUBLIC', 'CUSTOM'] } },
+          select: { date: true },
+        });
+        const holidayDateSet = new Set(orgHolidays.map(h => new Date(h.date).toISOString().split('T')[0]));
+        const cur = new Date(startDate);
+        while (cur <= endDate) {
+          if (workingDays.has(cur.getDay()) && !holidayDateSet.has(cur.toISOString().split('T')[0])) {
+            const dateOnly = new Date(cur); dateOnly.setHours(0, 0, 0, 0);
+            await tx.attendanceRecord.upsert({
+              where: { employeeId_date: { employeeId, date: dateOnly } },
+              update: { status: 'ON_LEAVE', source: 'MANUAL_HR', notes: `Leave: ${label}` },
+              create: { employeeId, date: dateOnly, status: 'ON_LEAVE', source: 'MANUAL_HR', notes: `Leave: ${label}`, workMode: 'OFFICE' },
+            });
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+      };
+
+      // Primary leave request (paid portion, or full unpaid if leaveType is already unpaid)
       const leaveRequest = await tx.leaveRequest.create({
         data: {
           employeeId,
           leaveTypeId: data.leaveTypeId,
           startDate,
           endDate,
-          days,
-          isHalfDay: data.isHalfDay,
-          halfDaySession: data.halfDaySession || null,
+          days: paidDays,
+          isHalfDay: data.isHalfDay && unpaidDays === 0,
+          halfDaySession: (data.isHalfDay && unpaidDays === 0) ? (data.halfDaySession || null) : null,
           reason: data.reason,
           attachmentUrl: data.attachmentUrl || null,
           status: finalStatus,
@@ -698,44 +759,49 @@ export class LeaveService {
 
       if (balance) {
         if (autoApprove) {
-          // Auto-approved — deduct from used directly
-          await tx.leaveBalance.update({ where: { id: balance.id }, data: { used: { increment: days } } });
-
-          // Create ON_LEAVE attendance records
-          const orgHolidays = await tx.holiday.findMany({
-            where: { organizationId: employee.organizationId, date: { gte: startDate, lte: endDate }, type: { in: ['PUBLIC', 'CUSTOM'] } },
-            select: { date: true },
-          });
-          const holidayDateSet = new Set(orgHolidays.map(h => new Date(h.date).toISOString().split('T')[0]));
-          const cur = new Date(startDate);
-          while (cur <= endDate) {
-            if (workingDays.has(cur.getDay()) && !holidayDateSet.has(cur.toISOString().split('T')[0])) {
-              const dateOnly = new Date(cur);
-              dateOnly.setHours(0, 0, 0, 0);
-              await tx.attendanceRecord.upsert({
-                where: { employeeId_date: { employeeId, date: dateOnly } },
-                update: { status: 'ON_LEAVE', source: 'MANUAL_HR', notes: `Leave: ${leaveRequest.leaveType?.name}` },
-                create: { employeeId, date: dateOnly, status: 'ON_LEAVE', source: 'MANUAL_HR', notes: `Leave: ${leaveRequest.leaveType?.name}`, workMode: 'OFFICE' },
-              });
-            }
-            cur.setDate(cur.getDate() + 1);
-          }
+          await tx.leaveBalance.update({ where: { id: balance.id }, data: { used: { increment: paidDays } } });
+          await markAttendance(leaveRequest.leaveType?.name || leaveType.name);
         } else {
-          // Normal flow — increment pending
-          await tx.leaveBalance.update({ where: { id: balance.id }, data: { pending: { increment: days } } });
+          await tx.leaveBalance.update({ where: { id: balance.id }, data: { pending: { increment: paidDays } } });
         }
       }
 
-      return leaveRequest;
+      // LWP split request — created automatically when paid balance was partially exhausted
+      let lwpRequest: any = null;
+      if (unpaidDays > 0 && lwpLeaveType) {
+        lwpRequest = await tx.leaveRequest.create({
+          data: {
+            employeeId,
+            leaveTypeId: lwpLeaveType.id,
+            startDate,
+            endDate,
+            days: unpaidDays,
+            isHalfDay: false,
+            halfDaySession: null,
+            reason: `[Auto LWP split from ${leaveType.name}] ${data.reason}`,
+            attachmentUrl: null,
+            status: finalStatus,
+          },
+          include: { leaveType: { select: { name: true, code: true } } },
+        });
+        // LWP is unpaid — track pending days in LWP balance if it exists
+        if (lwpBalance) {
+          await tx.leaveBalance.update({ where: { id: lwpBalance.id }, data: { pending: { increment: unpaidDays } } });
+        }
+      }
+
+      return { leaveRequest, lwpRequest, paidDays, unpaidDays };
     });
 
     emitToOrg(employee.organizationId, 'leave:applied', {
       employeeId, employeeName: `${employee.firstName} ${employee.lastName}`,
-      leaveType: request.leaveType?.name, days: request.days, startDate: request.startDate,
+      leaveType: result.leaveRequest.leaveType?.name, days: result.leaveRequest.days, startDate: result.leaveRequest.startDate,
+      ...(result.unpaidDays > 0 ? { lwpDays: result.unpaidDays, splitApplied: true } : {}),
     });
     invalidateDashboardCache(employee.organizationId).catch(() => {});
 
-    return request;
+    // Return primary request; attach lwpRequest info so the frontend can show the split notice
+    return { ...result.leaveRequest, lwpSplit: result.lwpRequest ? { days: result.unpaidDays, leaveTypeId: lwpLeaveType?.id, leaveTypeName: lwpLeaveType?.name } : null };
   }
 
   /**
@@ -1288,13 +1354,7 @@ export class LeaveService {
       }
     }
 
-    // 17. Overlap check
-    const overlapping = await prisma.leaveRequest.findFirst({
-      where: { employeeId, id: { not: requestId }, status: { in: ['DRAFT', 'PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] }, OR: [{ startDate: { lte: endDate }, endDate: { gte: startDate } }] },
-    });
-    if (overlapping) throw new BadRequestError('Overlapping leave request exists. Cancel the existing request first.');
-
-    // 18. Balance check (full — including missing-record case)
+    // 17. Balance check (full — including missing-record case)
     const year = startDate.getFullYear();
     const balance = await prisma.leaveBalance.findUnique({
       where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: leaveType.id, year } },
@@ -1303,7 +1363,9 @@ export class LeaveService {
       if (!balance) {
         throw new BadRequestError(`No ${leaveType.name} balance allocated for this year. Please contact HR.`);
       }
-      const available = Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending);
+      const maxCf = (leaveType as any).maxCarryForward != null ? Number((leaveType as any).maxCarryForward) : null;
+      const effectiveCf = maxCf !== null ? Math.min(Number(balance.carriedForward), maxCf) : Number(balance.carriedForward);
+      const available = Number(balance.allocated) + effectiveCf - Number(balance.used) - Number(balance.pending);
       if (days > available) {
         throw new BadRequestError(`Insufficient ${leaveType.name} balance. Available: ${available}, Requested: ${days}`);
       }
@@ -1328,6 +1390,17 @@ export class LeaveService {
 
     // ===== TRANSITION DRAFT → PENDING (or APPROVED) =====
     const updated = await prisma.$transaction(async (tx) => {
+      // G-02: Overlap check INSIDE transaction to close TOCTOU race window for concurrent submits
+      const overlapping = await tx.leaveRequest.findFirst({
+        where: {
+          employeeId,
+          id: { not: requestId },
+          status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
+          OR: [{ startDate: { lte: endDate }, endDate: { gte: startDate } }],
+        },
+      });
+      if (overlapping) throw new BadRequestError('Overlapping leave request exists. Cancel the existing request first.');
+
       const noticeHours = Math.max(0, Math.round((startDate.getTime() - Date.now()) / (1000 * 60 * 60)));
 
       const result = await tx.leaveRequest.update({
