@@ -44,7 +44,7 @@ router.get('/gps-consent', requireEmpPerm('canMarkAttendance'), (req, res, next)
 router.get('/geo-locations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   (req, res, next) => attendanceController.getGeoLocations(req, res, next)
 );
-router.patch('/location-visits/:id/name', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+router.patch('/location-visits/:id/name', authenticate,
   (req, res, next) => attendanceController.updateLocationVisitName(req, res, next)
 );
 // Employee tags a stop manually from their current position during field tracking

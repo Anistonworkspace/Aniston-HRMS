@@ -825,9 +825,14 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
                       localStorage.setItem(LOCATION_PERM_GRANTED_KEY, '1');
                       setShowLocationDenied(false);
                     } else {
-                      // Guide user to settings
-                      const { App } = await import('@capacitor/app');
-                      (App as any).openUrl?.({ url: 'app-settings:' }).catch(() => {});
+                      // Permanently denied — open app settings via Capacitor native bridge
+                      try {
+                        const { Capacitor, registerPlugin } = await import('@capacitor/core');
+                        if (Capacitor.isNativePlatform()) {
+                          const NativeSettings = registerPlugin<any>('NativeSettings');
+                          NativeSettings.openAppSettings?.().catch(() => {});
+                        }
+                      } catch { /* fallback: do nothing if plugin unavailable */ }
                     }
                   } catch { /* ok */ }
                 }}

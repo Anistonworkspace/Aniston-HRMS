@@ -200,10 +200,12 @@ export class AttendanceController {
   async getPendingRegularizations(req: Request, res: Response, next: NextFunction) {
     try {
       const { prisma } = await import('../../lib/prisma.js');
-      // Show PENDING for managers, PENDING + MANAGER_REVIEWED for HR/Admin
       const isHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
       const regs = await prisma.attendanceRegularization.findMany({
-        where: { status: { in: isHR ? ['PENDING', 'MANAGER_REVIEWED'] : ['PENDING'] } },
+        where: {
+          status: { in: isHR ? ['PENDING', 'MANAGER_REVIEWED'] : ['PENDING'] },
+          attendance: { employee: { organizationId: req.user!.organizationId } },
+        },
         include: {
           attendance: {
             include: { employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, email: true } } },

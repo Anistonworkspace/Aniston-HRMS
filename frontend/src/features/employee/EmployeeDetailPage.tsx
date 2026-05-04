@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useGetEmployeeMfaStatusQuery, useAdminToggleMfaMutation } from '../auth/authApi';
-import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery, useGetEmployeeGPSTrailQuery } from '../attendance/attendanceApi';
+import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useGetHybridScheduleQuery, useGetEmployeeGPSTrailQuery } from '../attendance/attendanceApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery, useSaveSalaryStructureDynamicMutation } from '../payroll/payrollApi';
 import { useGetComponentsQuery } from '../payroll/componentMasterApi';
@@ -1391,8 +1391,6 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [popupCell, setPopupCell] = useState<{ date: string; x: number; y: number; record?: any } | null>(null);
-  const [showRegForm, setShowRegForm] = useState(false);
-  const [regReason, setRegReason] = useState('');
   const popupRef = useRef<HTMLDivElement>(null);
 
   const startDate = `${selectedYear - 1}-12-01`;
@@ -1401,7 +1399,6 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
   const { data: holidaysRes } = useGetHolidaysQuery({ year: selectedYear });
   const { data: hybridRes } = useGetHybridScheduleQuery(employeeId);
   const [markAttendance, { isLoading: marking }] = useMarkAttendanceMutation();
-  const [submitReg, { isLoading: submittingReg }] = useSubmitRegularizationMutation();
 
   const records = response?.data?.records || [];
   const summary = response?.data?.summary;
@@ -1469,8 +1466,6 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
     const rec = dateStatusMap[dateStr];
     const holiday = holidayMap[dateStr];
     setPopupCell({ date: dateStr, x: rect.left, y: rect.bottom + 4, record: rec || holiday || null });
-    setShowRegForm(false);
-    setRegReason('');
   };
 
   const handleMarkStatus = async (status: string) => {
@@ -1480,15 +1475,6 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
       toast.success(`Marked as ${STATUS_LABELS[status] || status}`);
       setPopupCell(null);
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to mark attendance'); }
-  };
-
-  const handleSubmitReg = async () => {
-    if (!popupCell?.record?.id || !regReason.trim()) return;
-    try {
-      await submitReg({ attendanceId: popupCell.record.id, reason: regReason.trim() }).unwrap();
-      toast.success('Regularization request submitted');
-      setPopupCell(null);
-    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to submit'); }
   };
 
   useEffect(() => {
@@ -1695,30 +1681,6 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
               );
               return null;
             })()}
-
-            {/* Regularization for HALF_DAY/LATE */}
-            {popupCell.record && (popupCell.record.status === 'HALF_DAY' || popupCell.record.notes?.includes('Late')) && !showRegForm && (
-              <button onClick={() => setShowRegForm(true)}
-                className="w-full text-xs text-brand-600 hover:text-brand-700 font-medium py-1.5 px-2 rounded-lg hover:bg-brand-50 transition-colors text-left mb-1">
-                📝 Request Regularization (Half Day → Full Day)
-              </button>
-            )}
-
-            {showRegForm && (
-              <div className="bg-brand-50 border border-brand-200 rounded-lg p-2 mb-2">
-                <p className="text-[10px] font-medium text-brand-700 mb-1">Regularization Request</p>
-                <textarea value={regReason} onChange={e => setRegReason(e.target.value)}
-                  placeholder="Reason for regularization..." rows={2}
-                  className="w-full text-xs border border-brand-200 rounded-lg p-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-brand-300" />
-                <div className="flex gap-1.5 mt-1.5">
-                  <button onClick={handleSubmitReg} disabled={submittingReg || !regReason.trim()}
-                    className="flex-1 text-[10px] bg-brand-600 text-white rounded-lg py-1 font-medium disabled:opacity-50">
-                    {submittingReg ? 'Submitting...' : 'Submit'}
-                  </button>
-                  <button onClick={() => setShowRegForm(false)} className="text-[10px] text-gray-500 px-2">Cancel</button>
-                </div>
-              </div>
-            )}
 
             {/* HR Mark Attendance options — only visible to management */}
             {isManagement && popupCell.date <= todayStr && (

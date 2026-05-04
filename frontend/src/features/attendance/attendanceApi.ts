@@ -141,7 +141,7 @@ export const attendanceApi = api.injectEndpoints({
       providesTags: ['Attendance'],
     }),
 
-    submitRegularization: builder.mutation<any, { attendanceId: string; reason: string; requestedCheckIn?: string; requestedCheckOut?: string }>({
+    submitRegularization: builder.mutation<any, { attendanceId?: string; date?: string; reason: string; requestedCheckIn?: string; requestedCheckOut?: string }>({
       query: (body) => ({ url: '/attendance/regularization', method: 'POST', body }),
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),

@@ -726,13 +726,16 @@ function AttendancePersonalView() {
   const [regCheckIn, setRegCheckIn] = useState('');
   const [regCheckOut, setRegCheckOut] = useState('');
 
+  const regSubmitLockRef = useRef(false);
   const handleSubmitRegularization = async () => {
-    const attendanceId = today?.record?.id;
-    if (!attendanceId) { toast.error('No attendance record found for today.'); return; }
+    if (regSubmitLockRef.current) return;
     if (regReason.trim().length < 10) { toast.error('Reason must be at least 10 characters.'); return; }
+    regSubmitLockRef.current = true;
     try {
+      const attendanceId = today?.record?.id;
+      const todayDate = new Date().toISOString().split('T')[0];
       await submitRegularization({
-        attendanceId,
+        ...(attendanceId ? { attendanceId } : { date: todayDate }),
         reason: regReason.trim(),
         ...(regCheckIn ? { requestedCheckIn: new Date(regCheckIn).toISOString() } : {}),
         ...(regCheckOut ? { requestedCheckOut: new Date(regCheckOut).toISOString() } : {}),
@@ -744,6 +747,8 @@ function AttendancePersonalView() {
       setRegCheckOut('');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to submit regularization request.');
+    } finally {
+      regSubmitLockRef.current = false;
     }
   };
 
@@ -1492,8 +1497,8 @@ function AttendancePersonalView() {
                   </button>
                 )}
 
-                {/* Not checked in at all — allow regularization for missed attendance */}
-                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && today?.record?.id && (
+                {/* Not checked in at all — allow regularization for missed attendance (no record = full absent) */}
+                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && (
                   <button
                     onClick={() => setShowRegModal(true)}
                     className="mt-3 w-full p-3 bg-orange-50 hover:bg-orange-100 rounded-xl border border-orange-200 text-center transition-colors"
