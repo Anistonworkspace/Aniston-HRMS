@@ -173,6 +173,7 @@ export interface EmployeeDetail extends EmployeeListItem {
   } | null;
   bankAccountNumber?: string | null;
   bankName?: string | null;
+  bankBranchName?: string | null;
   ifscCode?: string | null;
   accountHolderName?: string | null;
   accountType?: string | null;
@@ -296,6 +297,11 @@ export interface HRDashboardStats {
     notCheckedIn: number;
     workFromHome: number;
     totalActive: number;
+    // Employee lists for popup drill-down (alphabetical)
+    presentEmployees: { id: string; name: string }[];
+    absentEmployees: { id: string; name: string }[];
+    lateEmployees: { id: string; name: string }[];
+    onLeaveEmployees: { id: string; name: string }[];
   };
 
   // Action Center — pending counts
@@ -305,6 +311,9 @@ export interface HRDashboardStats {
     helpdeskTickets: number;
     documentsToVerify: number;
     pendingOnboarding: number;
+    // Drill-down lists for popup
+    unverifiedDocEmployees: { id: string; name: string }[];
+    openTicketsList: { id: string; ticketCode: string; subject: string; employeeName: string }[];
   };
 
   // Attention Required

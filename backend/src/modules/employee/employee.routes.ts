@@ -270,4 +270,61 @@ router.post(
   (req, res, next) => employeeController.uploadProfilePhoto(req, res, next)
 );
 
+// Bank branch name campaign — sends email to all employees missing bankBranchName
+router.post('/bank-branch-campaign', requirePermission('employee', 'manage'), async (req, res, next) => {
+  try {
+    const { prisma } = await import('../../lib/prisma.js');
+    const { enqueueEmail } = await import('../../jobs/queues.js');
+    const orgId = req.user!.organizationId;
+
+    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+    const orgName = org?.name || 'Aniston Technologies';
+
+    // Find all active employees without a branch name who have an email
+    const employees = await prisma.employee.findMany({
+      where: {
+        organizationId: orgId,
+        deletedAt: null,
+        status: { in: ['ACTIVE', 'PROBATION'] },
+        bankBranchName: null,
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeCode: true,
+        bankName: true,
+        email: true,
+      },
+    });
+
+    if (employees.length === 0) {
+      res.json({ success: true, data: { sent: 0, message: 'All employees already have branch name filled.' } });
+      return;
+    }
+
+    const profileBase = 'https://hr.anistonav.com/profile';
+    let sent = 0;
+    for (const emp of employees) {
+      const email = emp.email;
+      if (!email) continue;
+      await enqueueEmail({
+        to: email,
+        subject: `Action Required: Update Your Bank Branch Name — ${orgName}`,
+        template: 'bank-branch-update',
+        context: {
+          employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
+          employeeCode: emp.employeeCode,
+          bankName: emp.bankName || null,
+          orgName,
+          profileUrl: profileBase,
+        },
+      });
+      sent++;
+    }
+
+    res.json({ success: true, data: { sent, total: employees.length, message: `Campaign emails queued for ${sent} employee(s).` } });
+  } catch (err) { next(err); }
+});
+
 export { router as employeeRouter };

@@ -39,7 +39,7 @@ function EmployeeListWidgetInner({ items, type, emptyText = 'No items', clickabl
       {items.map((item) => (
         <div
           key={item.id}
-          onClick={clickable ? () => navigate(`/employees/${item.id}`) : undefined}
+          onClick={clickable ? () => type === 'exit' ? navigate('/exit-management') : navigate(`/employees/${item.id}`) : undefined}
           className={`flex items-center gap-3 py-1.5 ${clickable ? 'cursor-pointer hover:bg-gray-50' : ''} rounded-lg px-1 transition-colors`}
         >
           <div className={`w-7 h-7 rounded-lg ${cfg.bg} flex items-center justify-center ${cfg.text} font-semibold text-[10px]`}>

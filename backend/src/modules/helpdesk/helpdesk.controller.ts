@@ -57,6 +57,13 @@ export class HelpdeskController {
       res.status(201).json({ success: true, data: comment });
     } catch (err) { next(err); }
   }
+
+  async deleteTicket(req: Request, res: Response, next: NextFunction) {
+    try {
+      await helpdeskService.deleteTicket(req.params.id, req.user!.organizationId);
+      res.json({ success: true, data: null, message: 'Ticket deleted' });
+    } catch (err) { next(err); }
+  }
 }
 
 export const helpdeskController = new HelpdeskController();

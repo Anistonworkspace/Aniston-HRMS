@@ -13,6 +13,7 @@ import {
   useChangeEmployeeRoleMutation,
   useUpdateEmployeeMutation,
   useSendActivationInviteMutation,
+  useSendBankBranchCampaignMutation,
 } from './employeeApi';
 import {
   useCreateDeletionRequestMutation,
@@ -75,6 +76,7 @@ export default function EmployeeListPage() {
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [updateEmployee] = useUpdateEmployeeMutation();
   const [sendActivationInvite] = useSendActivationInviteMutation();
+  const [sendBankBranchCampaign, { isLoading: isCampaignSending }] = useSendBankBranchCampaignMutation();
 
   // Deletion state — Super Admin direct delete
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; code: string; email: string } | null>(null);
@@ -217,6 +219,24 @@ export default function EmployeeListPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canManage && (
+            <button
+              onClick={async () => {
+                if (!window.confirm('Send bank branch update emails to all active employees who haven\'t filled their branch name?')) return;
+                try {
+                  const res = await sendBankBranchCampaign().unwrap();
+                  toast.success(res.data?.message || `Emails sent to ${res.data?.sent} employee(s)`);
+                } catch {
+                  toast.error('Failed to send campaign emails');
+                }
+              }}
+              disabled={isCampaignSending}
+              className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium disabled:opacity-50"
+            >
+              {isCampaignSending ? <Loader2 size={15} className="animate-spin" /> : <Mail size={15} />}
+              Bank Branch Campaign
+            </button>
+          )}
           {canInvite && (
             <button
               onClick={() => setShowInviteModal(true)}

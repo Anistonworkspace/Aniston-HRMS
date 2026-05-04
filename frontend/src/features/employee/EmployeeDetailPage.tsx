@@ -463,6 +463,7 @@ export default function EmployeeDetailPage() {
                       <dl className="space-y-2.5">
                         <InfoRow label="Account Holder" value={employee.accountHolderName || '—'} />
                         <InfoRow label="Bank" value={employee.bankName || '—'} />
+                        <InfoRow label="Branch" value={(employee as any).bankBranchName || '—'} />
                         <InfoRow label="Account No." value={isReadableAccountNumber(employee.bankAccountNumber) ? employee.bankAccountNumber : '⚠ Re-entry required'} mono />
                         <InfoRow label="IFSC" value={employee.ifscCode || '—'} mono />
                         <InfoRow label="Account Type" value={employee.accountType || '—'} />
@@ -1352,22 +1353,30 @@ const MONTH_LABELS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'S
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 // Build month-grouped weeks for ERPNext-style calendar
-function buildMonthGroups(year: number) {
-  const groups: { month: number; label: string; weeks: Date[][] }[] = [];
+// Financial year starts April. fyYear = the year the FY starts (e.g. 2026 = Apr 2026–Mar 2027).
+// selectedMonth: 0-based month index, or null for full year (Apr–Mar).
+function buildMonthGroups(fyYear: number, selectedMonth: number | null = null) {
+  const groups: { month: number; label: string; calYear: number; weeks: Date[][] }[] = [];
 
-  // Start from previous December
-  for (let m = -1; m < 12; m++) {
-    const actualMonth = m === -1 ? 11 : m;
-    const actualYear = m === -1 ? year - 1 : year;
-    const label = m === -1 ? 'DEC' : MONTH_LABELS[m];
+  // FY months: Apr(3), May(4), Jun(5), Jul(6), Aug(7), Sep(8), Oct(9), Nov(10), Dec(11), Jan(0), Feb(1), Mar(2)
+  const FY_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2];
 
-    const firstDay = new Date(actualYear, actualMonth, 1);
-    const lastDay = new Date(actualYear, actualMonth + 1, 0);
+  const monthsToRender = selectedMonth !== null
+    ? [selectedMonth]
+    : FY_MONTHS;
+
+  for (const m of monthsToRender) {
+    // Jan(0), Feb(1), Mar(2) belong to fyYear+1
+    const actualYear = (m === 0 || m === 1 || m === 2) ? fyYear + 1 : fyYear;
+    const label = MONTH_LABELS[m];
+
+    const firstDay = new Date(actualYear, m, 1);
+    const lastDay = new Date(actualYear, m + 1, 0);
 
     // Find Monday on or before the 1st
     const startDow = firstDay.getDay();
     const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
-    const weekStart = new Date(actualYear, actualMonth, 1 + mondayOffset);
+    const weekStart = new Date(actualYear, m, 1 + mondayOffset);
 
     const weeks: Date[][] = [];
     const current = new Date(weekStart);
@@ -1381,28 +1390,62 @@ function buildMonthGroups(year: number) {
       weeks.push(week);
     }
 
-    groups.push({ month: actualMonth, label, weeks });
+    groups.push({ month: m, label, calYear: actualYear, weeks });
   }
 
   return groups;
 }
 
+// FY months list for dropdown: Apr=3..Mar=2
+const FY_MONTH_OPTIONS = [
+  { value: 3, label: 'April' }, { value: 4, label: 'May' }, { value: 5, label: 'June' },
+  { value: 6, label: 'July' }, { value: 7, label: 'August' }, { value: 8, label: 'September' },
+  { value: 9, label: 'October' }, { value: 10, label: 'November' }, { value: 11, label: 'December' },
+  { value: 0, label: 'January' }, { value: 1, label: 'February' }, { value: 2, label: 'March' },
+];
+
+function getCurrentFyYear() {
+  const now = new Date();
+  // FY starts April — if current month < April (0,1,2), FY year is previous calendar year
+  return now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
+}
+
 function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { employeeId: string; employeeName: string; isManagement: boolean }) {
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const currentFyYear = getCurrentFyYear();
+  const [selectedFyYear, setSelectedFyYear] = useState(currentFyYear);
+  // null = full year view; number = specific month (0-based)
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [popupCell, setPopupCell] = useState<{ date: string; x: number; y: number; record?: any } | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
-  const startDate = `${selectedYear - 1}-12-01`;
-  const endDate = `${selectedYear}-12-31`;
+  // Date range: FY Apr 1 → Mar 31; if specific month selected, clamp to that month
+  const fyStartYear = selectedFyYear;
+  const fyEndYear = selectedFyYear + 1;
+  const startDate = useMemo(() => {
+    if (selectedMonth !== null) {
+      const calYear = (selectedMonth === 0 || selectedMonth === 1 || selectedMonth === 2) ? fyEndYear : fyStartYear;
+      return `${calYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
+    }
+    return `${fyStartYear}-04-01`;
+  }, [selectedMonth, fyStartYear, fyEndYear]);
+  const endDate = useMemo(() => {
+    if (selectedMonth !== null) {
+      const calYear = (selectedMonth === 0 || selectedMonth === 1 || selectedMonth === 2) ? fyEndYear : fyStartYear;
+      const lastDay = new Date(calYear, selectedMonth + 1, 0).getDate();
+      return `${calYear}-${String(selectedMonth + 1).padStart(2, '0')}-${lastDay}`;
+    }
+    return `${fyEndYear}-03-31`;
+  }, [selectedMonth, fyStartYear, fyEndYear]);
+
   const { data: response, isLoading } = useGetEmployeeAttendanceQuery({ employeeId, startDate, endDate });
-  const { data: holidaysRes } = useGetHolidaysQuery({ year: selectedYear });
+  const { data: holidaysRes } = useGetHolidaysQuery({ year: selectedFyYear });
+  const { data: holidaysNextRes } = useGetHolidaysQuery({ year: fyEndYear });
   const { data: hybridRes } = useGetHybridScheduleQuery(employeeId);
   const [markAttendance, { isLoading: marking }] = useMarkAttendanceMutation();
 
   const records = response?.data?.records || [];
   const summary = response?.data?.summary;
-  const holidays = holidaysRes?.data || [];
+  const holidays = [...(holidaysRes?.data || []), ...(holidaysNextRes?.data || [])];
   const hybridSchedule = hybridRes?.data;
 
   // Build lookup maps
@@ -1421,7 +1464,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
   const hybridOfficeDays = useMemo(() => new Set((hybridSchedule?.officeDays as number[]) || []), [hybridSchedule]);
   const hybridWfhDays = useMemo(() => new Set((hybridSchedule?.wfhDays as number[]) || []), [hybridSchedule]);
 
-  const monthGroups = useMemo(() => buildMonthGroups(selectedYear), [selectedYear]);
+  const monthGroups = useMemo(() => buildMonthGroups(selectedFyYear, selectedMonth), [selectedFyYear, selectedMonth]);
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
 
@@ -1489,12 +1532,28 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
       <div className="layer-card p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="font-display font-bold text-gray-900">{employeeName} — Attendance</h3>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setSelectedYear(y => y - 1)} className="p-1.5 hover:bg-surface-2 rounded-lg"><ChevronLeft size={16} className="text-gray-500" /></button>
-            <span className="text-sm font-bold font-mono text-gray-800 min-w-[4ch] text-center" data-mono>{selectedYear}</span>
-            <button onClick={() => setSelectedYear(y => Math.min(y + 1, currentYear))} disabled={selectedYear >= currentYear} className="p-1.5 hover:bg-surface-2 rounded-lg disabled:opacity-30"><ChevronRight size={16} className="text-gray-500" /></button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Month selector */}
+            <select
+              value={selectedMonth ?? ''}
+              onChange={e => setSelectedMonth(e.target.value === '' ? null : Number(e.target.value))}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            >
+              <option value="">Full Year</option>
+              {FY_MONTH_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {/* FY year selector */}
+            <div className="flex items-center gap-1">
+              <button onClick={() => setSelectedFyYear(y => y - 1)} className="p-1.5 hover:bg-surface-2 rounded-lg"><ChevronLeft size={16} className="text-gray-500" /></button>
+              <span className="text-sm font-bold font-mono text-gray-800 min-w-[7ch] text-center" data-mono>
+                FY {selectedFyYear}–{String(selectedFyYear + 1).slice(-2)}
+              </span>
+              <button onClick={() => setSelectedFyYear(y => Math.min(y + 1, currentFyYear))} disabled={selectedFyYear >= currentFyYear} className="p-1.5 hover:bg-surface-2 rounded-lg disabled:opacity-30"><ChevronRight size={16} className="text-gray-500" /></button>
+            </div>
           </div>
         </div>
 
@@ -4432,18 +4491,13 @@ function ConnectionsCards({ employeeId, records }: { employeeId: string; records
       <h3 className="text-sm font-semibold text-gray-800 mb-3">Connections</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map(card => (
-          <div key={card.key} className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
+          <div key={card.key} onClick={() => setOpenModal(card.key)}
+            className="bg-surface-2 rounded-xl p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors">
             <div className="flex items-center gap-3">
               <div className={`w-8 h-8 rounded-lg ${card.c} flex items-center justify-center`}><card.i size={16} className={card.t} /></div>
               <div><p className="text-sm font-medium text-gray-700">{card.l}</p><p className="text-xs text-gray-400">{card.n} records</p></div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold font-mono text-gray-500" data-mono>{card.n}</span>
-              <button onClick={() => setOpenModal(card.key)}
-                className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
-                <Plus size={12} className="text-gray-500" />
-              </button>
-            </div>
+            <span className="text-lg font-bold font-mono text-gray-500" data-mono>{card.n}</span>
           </div>
         ))}
       </div>

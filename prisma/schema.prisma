@@ -146,6 +146,7 @@ model Employee {
   // Bank Details (salary account)
   bankAccountNumber   String?
   bankName            String?
+  bankBranchName      String?       // Branch name of the bank
   ifscCode            String?
   accountHolderName   String?
   accountType         String?       // SAVINGS / CURRENT

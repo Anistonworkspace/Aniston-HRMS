@@ -198,6 +198,11 @@ export const employeeApi = api.injectEndpoints({
       query: () => '/employees/peers',
       providesTags: ['EmployeeList'],
     }),
+
+    // Bank branch name campaign — sends email to all employees missing bankBranchName
+    sendBankBranchCampaign: builder.mutation<{ success: boolean; data: { sent: number; total: number; message: string } }, void>({
+      query: () => ({ url: '/employees/bank-branch-campaign', method: 'POST' }),
+    }),
   }),
 });
 
@@ -215,6 +220,7 @@ export const {
   useChangeEmployeeRoleMutation,
   useSendActivationInviteMutation,
   useUpdateEmployeeManagerMutation,
+  useSendBankBranchCampaignMutation,
   useSendEnhancedBulkEmailMutation,
   useGetBulkEmailPreviewQuery,
   useSendUnifiedBulkEmailMutation,

@@ -1,10 +1,10 @@
-import { memo, useMemo, lazy, Suspense, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useMemo, lazy, Suspense, useEffect, useCallback, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, UserPlus,
   AlertTriangle, Building2, Cake, UserCheck, UserX,
-  Clock, CalendarOff, Home, ShieldAlert, FileCheck,
-  Ticket, ChevronRight, CalendarDays, ListChecks,
+  Clock, CalendarOff, ShieldAlert, FileCheck,
+  Ticket, ChevronRight, CalendarDays, ListChecks, X, ExternalLink,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -87,17 +87,20 @@ function AdminDashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? t('dashboard.goodMorning') : hour < 17 ? t('dashboard.goodAfternoon') : t('dashboard.goodEvening');
 
+  // ─── Popup state (attendance cards + action center) ───────────
+  const [activePopup, setActivePopup] = useState<string | null>(null);
+  const [actionPopup, setActionPopup] = useState<string | null>(null);
+
   // ─── Today's Attendance Cards (from HR stats) ─────────────────
   const attendanceCards = useMemo(() => {
     if (!hrStats) return [];
     const att = hrStats.todayAttendance;
     return [
-      { label: 'Present', value: att.present, icon: UserCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-      { label: 'Absent', value: att.absent, icon: UserX, color: 'text-red-600', bg: 'bg-red-50' },
-      { label: 'Late', value: att.late, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-      { label: 'On Leave', value: att.onLeave, icon: CalendarOff, color: 'text-purple-600', bg: 'bg-purple-50' },
-      { label: 'Not Checked In', value: att.notCheckedIn, icon: ShieldAlert, color: 'text-gray-600', bg: 'bg-gray-50' },
-      { label: 'WFH', value: att.workFromHome, icon: Home, color: 'text-blue-600', bg: 'bg-blue-50' },
+      { label: 'Total', value: att.totalActive, icon: Users, color: 'text-indigo-600', bg: 'bg-indigo-50', employees: [] },
+      { label: 'Present', value: att.present, icon: UserCheck, color: 'text-emerald-600', bg: 'bg-emerald-50', employees: att.presentEmployees || [] },
+      { label: 'Absent', value: att.absent, icon: UserX, color: 'text-red-600', bg: 'bg-red-50', employees: att.absentEmployees || [] },
+      { label: 'Late', value: att.late, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50', employees: att.lateEmployees || [] },
+      { label: 'On Leave', value: att.onLeave, icon: CalendarOff, color: 'text-purple-600', bg: 'bg-purple-50', employees: att.onLeaveEmployees || [] },
     ];
   }, [hrStats]);
 
@@ -105,19 +108,18 @@ function AdminDashboard() {
   const actionItems = useMemo(() => {
     if (!hrStats) return [];
     const pa = hrStats.pendingActions;
-    // System Admin only sees helpdesk tickets (IT-related); HR/SuperAdmin see all
     if (isSystemAdmin) {
       return [
-        { label: 'Helpdesk Tickets', count: pa.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', path: '/helpdesk' },
+        { label: 'Helpdesk Tickets', count: pa.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', path: '/helpdesk', popup: 'helpdesk' },
       ].filter((a) => a.count > 0);
     }
     return [
-      { label: 'Leave Requests', count: pa.leaveRequests, icon: CalendarOff, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', path: '/pending-approvals' },
-      { label: 'Regularizations', count: pa.regularizations, icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', path: '/attendance' },
-      { label: 'Helpdesk Tickets', count: pa.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', path: '/helpdesk' },
-      { label: 'Documents to Verify', count: pa.documentsToVerify, icon: FileCheck, color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-200', path: '/employees' },
-      { label: 'Pending Onboarding', count: pa.pendingOnboarding, icon: UserPlus, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', path: '/employees' },
-      { label: 'Profile Edit Requests', count: pendingProfileEdits, icon: UserCog, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200', path: '/employees' },
+      { label: 'Leave Requests', count: pa.leaveRequests, icon: CalendarOff, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', path: '/pending-approvals', popup: null },
+      { label: 'Regularizations', count: pa.regularizations, icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', path: '/attendance', popup: null },
+      { label: 'Helpdesk Tickets', count: pa.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', path: '/helpdesk', popup: 'helpdesk' },
+      { label: 'Documents to Verify', count: pa.documentsToVerify, icon: FileCheck, color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-200', path: '/employees', popup: 'docs' },
+      { label: 'Pending Onboarding', count: pa.pendingOnboarding, icon: UserPlus, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', path: '/employees', popup: null },
+      { label: 'Profile Edit Requests', count: pendingProfileEdits, icon: UserCog, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200', path: '/employees', popup: null },
     ].filter((a) => a.count > 0);
   }, [hrStats, isSystemAdmin]);
 
@@ -213,7 +215,7 @@ function AdminDashboard() {
       {/* ═══ ALERTS (Admin / Super Admin only) ══════════════════ */}
       {!isHR && saStats && <AlertBanner alerts={saStats.alerts} />}
 
-      {/* ═══ TODAY'S ATTENDANCE STATUS (HR) ══════════════════════ */}
+      {/* ═══ TODAY'S ATTENDANCE STATUS ════════════════════════════ */}
       {hrStats && att && (
         <motion.div variants={container} initial="hidden" animate="show" className="mb-6">
           <div className="flex items-center justify-between mb-3">
@@ -225,9 +227,13 @@ function AdminDashboard() {
               View All <ChevronRight size={12} />
             </button>
           </div>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
             {attendanceCards.map((card) => (
-              <StatusCard key={card.label} {...card} onClick={() => navigate('/attendance')} />
+              <StatusCard
+                key={card.label}
+                {...card}
+                onClick={card.label === 'Total' ? undefined : () => setActivePopup(card.label)}
+              />
             ))}
           </div>
           <div className="mt-3 flex items-center gap-3">
@@ -241,6 +247,66 @@ function AdminDashboard() {
               {presentPct}% present
             </span>
           </div>
+
+          {/* ── Attendance Popup ── */}
+          <AnimatePresence>
+            {activePopup && (() => {
+              const card = attendanceCards.find((c) => c.label === activePopup);
+              if (!card) return null;
+              const Icon = card.icon;
+              return (
+                <motion.div
+                  key="att-popup"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+                  onClick={() => setActivePopup(null)}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 12 }}
+                    transition={{ duration: 0.18 }}
+                    className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className={`${card.bg} px-5 py-4 flex items-center justify-between`}>
+                      <div className="flex items-center gap-3">
+                        <Icon size={18} className={card.color} />
+                        <div>
+                          <p className={`text-sm font-semibold ${card.color}`}>{card.label}</p>
+                          <p className="text-xs text-gray-500">{card.value} employee{card.value !== 1 ? 's' : ''}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActivePopup(null)}
+                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+                      {card.employees.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-8">No employees</p>
+                      ) : (
+                        card.employees.map((emp) => (
+                          <div key={emp.id} className="px-5 py-2.5 flex items-center gap-3 hover:bg-gray-50 transition-colors">
+                            <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                              <span className="text-xs font-semibold text-gray-500">
+                                {emp.name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <span className="text-sm text-gray-700">{emp.name}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                </motion.div>
+              );
+            })()}
+          </AnimatePresence>
         </motion.div>
       )}
 
@@ -316,7 +382,24 @@ function AdminDashboard() {
             {actionItems.length > 0 ? (
               <div className="space-y-2">
                 {actionItems.map((ai) => (
-                  <ActionCard key={ai.label} {...ai} />
+                  ai.popup
+                    ? (
+                      <div
+                        key={ai.label}
+                        onClick={() => setActionPopup(ai.popup!)}
+                        className={`flex items-center justify-between py-2.5 px-3 ${ai.bg} rounded-lg border ${ai.border} cursor-pointer hover:shadow-sm transition-all`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <ai.icon size={15} className={ai.color} />
+                          <span className="text-sm text-gray-700">{ai.label}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-bold text-gray-800" data-mono>{ai.count}</span>
+                          <ExternalLink size={12} className="text-gray-400" />
+                        </div>
+                      </div>
+                    )
+                    : <ActionCard key={ai.label} {...ai} />
                 ))}
               </div>
             ) : (
@@ -326,6 +409,101 @@ function AdminDashboard() {
               </div>
             )}
           </DashboardSection>
+
+          {/* ACTION CENTER POPUP — Documents / Helpdesk */}
+          <AnimatePresence>
+            {actionPopup && hrStats && (() => {
+              const isDocs = actionPopup === 'docs';
+              const isHelpdesk = actionPopup === 'helpdesk';
+              const title = isDocs ? 'Documents to Verify' : 'Open Helpdesk Tickets';
+              const Icon = isDocs ? FileCheck : Ticket;
+              const iconColor = isDocs ? 'text-teal-600' : 'text-purple-600';
+              const bgColor = isDocs ? 'bg-teal-50' : 'bg-purple-50';
+
+              return (
+                <motion.div
+                  key="action-popup"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+                  onClick={() => setActionPopup(null)}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 12 }}
+                    transition={{ duration: 0.18 }}
+                    className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className={`${bgColor} px-5 py-4 flex items-center justify-between`}>
+                      <div className="flex items-center gap-3">
+                        <Icon size={18} className={iconColor} />
+                        <div>
+                          <p className={`text-sm font-semibold ${iconColor}`}>{title}</p>
+                          <p className="text-xs text-gray-500">
+                            {isDocs
+                              ? `${hrStats.pendingActions.unverifiedDocEmployees.length} employee${hrStats.pendingActions.unverifiedDocEmployees.length !== 1 ? 's' : ''}`
+                              : `${hrStats.pendingActions.openTicketsList.length} ticket${hrStats.pendingActions.openTicketsList.length !== 1 ? 's' : ''}`}
+                          </p>
+                        </div>
+                      </div>
+                      <button onClick={() => setActionPopup(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                        <X size={16} />
+                      </button>
+                    </div>
+
+                    <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                      {isDocs && (
+                        hrStats.pendingActions.unverifiedDocEmployees.length === 0
+                          ? <p className="text-sm text-gray-400 text-center py-8">No pending documents</p>
+                          : hrStats.pendingActions.unverifiedDocEmployees.map((emp) => (
+                            <div
+                              key={emp.id}
+                              onClick={() => { navigate(`/employees/${emp.id}?tab=documents`); setActionPopup(null); }}
+                              className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors cursor-pointer"
+                            >
+                              <div className="w-7 h-7 rounded-full bg-teal-50 flex items-center justify-center shrink-0">
+                                <span className="text-xs font-semibold text-teal-600">{emp.name.charAt(0).toUpperCase()}</span>
+                              </div>
+                              <span className="text-sm text-gray-700 flex-1">{emp.name}</span>
+                              <ChevronRight size={14} className="text-gray-300" />
+                            </div>
+                          ))
+                      )}
+                      {isHelpdesk && (
+                        hrStats.pendingActions.openTicketsList.length === 0
+                          ? <p className="text-sm text-gray-400 text-center py-8">No open tickets</p>
+                          : hrStats.pendingActions.openTicketsList.map((t) => (
+                            <div
+                              key={t.id}
+                              onClick={() => { navigate('/helpdesk'); setActionPopup(null); }}
+                              className="px-5 py-3 hover:bg-gray-50 transition-colors cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-[10px] font-mono text-gray-400">{t.ticketCode}</span>
+                                <span className="text-xs text-gray-500 truncate">{t.employeeName}</span>
+                              </div>
+                              <p className="text-sm text-gray-700 truncate">{t.subject}</p>
+                            </div>
+                          ))
+                      )}
+                    </div>
+
+                    <div className="px-5 py-3 border-t border-gray-100">
+                      <button
+                        onClick={() => { navigate(isDocs ? '/employees' : '/helpdesk'); setActionPopup(null); }}
+                        className="w-full text-xs text-brand-600 hover:text-brand-700 flex items-center justify-center gap-1"
+                      >
+                        View all in {isDocs ? 'Employees' : 'Helpdesk'} <ChevronRight size={12} />
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              );
+            })()}
+          </AnimatePresence>
 
           {/* ATTENTION REQUIRED */}
           <DashboardSection title="Attention Required" icon={ShieldAlert} iconColor="text-red-500">

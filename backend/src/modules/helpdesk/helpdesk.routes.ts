@@ -12,6 +12,7 @@ router.get('/all', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, 
 router.post('/', requireEmpPerm('canRaiseHelpdeskTickets'), (req, res, next) => helpdeskController.create(req, res, next));
 router.get('/:id', (req, res, next) => helpdeskController.getById(req, res, next));
 router.patch('/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => helpdeskController.update(req, res, next));
+router.delete('/:id', authorize(Role.SUPER_ADMIN), (req, res, next) => helpdeskController.deleteTicket(req, res, next));
 router.post('/:id/comment', (req, res, next) => helpdeskController.addComment(req, res, next));
 
 router.post('/:id/ai-analyze', authenticate, async (req, res, next) => {

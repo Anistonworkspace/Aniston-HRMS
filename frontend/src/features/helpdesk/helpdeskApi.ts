@@ -26,6 +26,10 @@ export const helpdeskApi = api.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/helpdesk/${id}/comment`, method: 'POST', body }),
       invalidatesTags: (result, error, { id }) => [{ type: 'Helpdesk', id }, 'Helpdesk'],
     }),
+    deleteTicket: builder.mutation<any, string>({
+      query: (id) => ({ url: `/helpdesk/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Helpdesk'],
+    }),
   }),
 });
 
@@ -36,4 +40,5 @@ export const {
   useGetTicketDetailQuery,
   useUpdateTicketMutation,
   useAddCommentMutation,
+  useDeleteTicketMutation,
 } = helpdeskApi;

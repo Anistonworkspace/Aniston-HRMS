@@ -19,7 +19,7 @@ const ALLOWED_FIELDS_BY_CATEGORY: Record<Category, string[]> = {
   PERSONAL_DETAILS: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'bloodGroup', 'maritalStatus', 'phone', 'personalEmail'],
   ADDRESS: ['line1', 'line2', 'city', 'state', 'pincode', 'country'],
   EMERGENCY_CONTACT: ['name', 'relationship', 'phone', 'email'],
-  BANK_DETAILS: ['accountHolderName', 'accountType', 'bankName', 'bankAccountNumber', 'ifscCode'],
+  BANK_DETAILS: ['accountHolderName', 'accountType', 'bankName', 'bankBranchName', 'bankAccountNumber', 'ifscCode'],
   EPF_DETAILS: ['epfMemberId', 'epfUan'],
 };
 
@@ -276,6 +276,7 @@ export class ProfileEditRequestService {
         accountHolderName: sanitized.accountHolderName,
         accountType: sanitized.accountType,
         bankName: sanitized.bankName,
+        bankBranchName: sanitized.bankBranchName,
         bankAccountNumber: sanitized.bankAccountNumber ? encrypt(sanitized.bankAccountNumber) : sanitized.bankAccountNumber,
         ifscCode: sanitized.ifscCode,
       };

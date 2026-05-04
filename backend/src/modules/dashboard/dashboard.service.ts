@@ -426,7 +426,7 @@ export class DashboardService {
     const notCheckedIn = Math.max(activeCount - totalCheckedIn - onLeaveCount, 0);
 
     // Late arrivals — employees who checked in after shift grace period
-    const [lateRecords, defaultOrgShift] = await Promise.all([
+    const [lateRecords, defaultOrgShift, presentRecords] = await Promise.all([
       prisma.attendanceRecord.findMany({
         where: {
           date: today,
@@ -450,10 +450,16 @@ export class DashboardService {
         },
       }),
       prisma.shift.findFirst({ where: { organizationId, isDefault: true, isActive: true }, select: { startTime: true, graceMinutes: true, lateGraceMinutes: true } }),
+      // Present employees list for popup
+      prisma.attendanceRecord.findMany({
+        where: { date: today, status: { in: ['PRESENT', 'HALF_DAY'] }, employee: { organizationId } },
+        select: { employee: { select: { id: true, firstName: true, lastName: true } } },
+        take: 100,
+      }),
     ]);
 
     let lateCount = 0;
-    const lateEmployees: { employeeId: string; employeeName: string }[] = [];
+    const lateEmployeesList: { id: string; name: string }[] = [];
     for (const rec of lateRecords) {
       if (!rec.checkIn) continue;
       const shift = rec.employee.shiftAssignments[0]?.shift;
@@ -464,23 +470,64 @@ export class DashboardService {
       deadline.setHours(sh, sm + grace, 0, 0);
       if (new Date(rec.checkIn) > deadline) {
         lateCount++;
-        lateEmployees.push({
-          employeeId: rec.employee.id,
-          employeeName: `${rec.employee.firstName} ${rec.employee.lastName}`,
+        lateEmployeesList.push({
+          id: rec.employee.id,
+          name: `${rec.employee.firstName} ${rec.employee.lastName}`,
         });
       }
     }
 
-    // absent = finalized count (only after 7 PM when day is done); notCheckedIn = real-time count
-    const isEndOfDay = now.getHours() >= 19;
+    // absent = notCheckedIn (real-time: employees who are active, not checked in, not on leave)
+    const absentCount = notCheckedIn;
+
+    // Build employee lists for popup drill-down — sorted alphabetically
+    const presentEmployeesList = presentRecords
+      .map((r) => ({ id: r.employee.id, name: `${r.employee.firstName} ${r.employee.lastName}` }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    // For absent: fetch active employees, subtract checked-in and on-leave
+    const [allActiveEmps, onLeaveEmpIds] = await Promise.all([
+      prisma.employee.findMany({
+        where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } },
+        select: { id: true, firstName: true, lastName: true },
+      }),
+      prisma.leaveRequest.findMany({
+        where: {
+          status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+          startDate: { lte: today },
+          endDate: { gte: today },
+          employee: { organizationId },
+        },
+        select: { employeeId: true },
+      }),
+    ]);
+
+    const checkedInSet = new Set(checkedInIds.map((r: { employeeId: string }) => r.employeeId));
+    const onLeaveSet = new Set(onLeaveEmpIds.map((r: { employeeId: string }) => r.employeeId));
+
+    const absentEmployeesList = allActiveEmps
+      .filter((e) => !checkedInSet.has(e.id) && !onLeaveSet.has(e.id))
+      .map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 100);
+
+    const onLeaveEmployeesList = allActiveEmps
+      .filter((e) => onLeaveSet.has(e.id))
+      .map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     const todayAttendance = {
       present: presentCount,
-      absent: isEndOfDay ? Math.max(activeCount - totalCheckedIn - onLeaveCount, 0) : 0,
+      absent: absentCount,
       late: lateCount,
       onLeave: onLeaveCount,
       notCheckedIn,
       workFromHome: wfhCount,
       totalActive: activeCount,
+      presentEmployees: presentEmployeesList,
+      absentEmployees: absentEmployeesList,
+      lateEmployees: lateEmployeesList.sort((a, b) => a.name.localeCompare(b.name)),
+      onLeaveEmployees: onLeaveEmployeesList,
     };
 
     // === ACTION CENTER ===
@@ -490,31 +537,64 @@ export class DashboardService {
       helpdeskTickets,
       documentsToVerify,
       pendingOnboarding,
+      unverifiedDocRecords,
+      openTicketsRecords,
     ] = await Promise.all([
       prisma.leaveRequest.count({ where: { status: 'PENDING', employee: { organizationId } } }),
       prisma.attendanceRegularization.count({
         where: { status: 'PENDING', attendance: { employee: { organizationId } } },
       }),
       prisma.ticket.count({ where: { organizationId, status: { in: ['OPEN', 'IN_PROGRESS'] }, ...(role === 'HR' && userId ? { assignedTo: userId } : {}) } }),
-      prisma.document.count({ where: { status: 'PENDING', employee: { organizationId } } }),
+      prisma.document.count({ where: { status: 'PENDING', deletedAt: null, employee: { organizationId } } }),
       prisma.employee.count({
         where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, onboardingComplete: false, status: 'ACTIVE' },
       }),
+      // Employees with unverified documents (distinct by employee)
+      prisma.document.findMany({
+        where: { status: 'PENDING', deletedAt: null, employee: { organizationId } },
+        select: { employee: { select: { id: true, firstName: true, lastName: true } } },
+        distinct: ['employeeId'],
+        take: 50,
+        orderBy: { employee: { firstName: 'asc' } },
+      }),
+      // Open/In-Progress tickets for popup
+      prisma.ticket.findMany({
+        where: { organizationId, status: { in: ['OPEN', 'IN_PROGRESS'] }, ...(role === 'HR' && userId ? { assignedTo: userId } : {}) },
+        select: {
+          id: true,
+          ticketCode: true,
+          subject: true,
+          employee: { select: { firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
     ]);
 
-    const pendingActions = { leaveRequests, regularizations, helpdeskTickets, documentsToVerify, pendingOnboarding };
+    const unverifiedDocEmployees = unverifiedDocRecords
+      .map((d: any) => ({ id: d.employee.id, name: `${d.employee.firstName} ${d.employee.lastName}` }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+    const openTicketsList = openTicketsRecords.map((t: any) => ({
+      id: t.id,
+      ticketCode: t.ticketCode,
+      subject: t.subject,
+      employeeName: `${t.employee?.firstName || ''} ${t.employee?.lastName || ''}`.trim(),
+    }));
+
+    const pendingActions = { leaveRequests, regularizations, helpdeskTickets, documentsToVerify, pendingOnboarding, unverifiedDocEmployees, openTicketsList };
 
     // === ATTENTION ITEMS ===
     const attentionItems: AttentionItem[] = [];
 
     // Late employees
-    for (const le of lateEmployees.slice(0, 5)) {
+    for (const le of lateEmployeesList.slice(0, 5)) {
       attentionItems.push({
         type: 'late',
         title: 'Late Arrival',
-        description: `${le.employeeName} checked in late today`,
-        employeeId: le.employeeId,
-        employeeName: le.employeeName,
+        description: `${le.name} checked in late today`,
+        employeeId: le.id,
+        employeeName: le.name,
         action: '/attendance',
       });
     }

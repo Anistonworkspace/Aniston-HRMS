@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   HelpCircle, Plus, X, MessageCircle, CheckCircle, AlertTriangle,
-  Loader2, Search, ChevronLeft, ChevronRight, Send, User, Users, ShieldCheck,
+  Loader2, Search, ChevronLeft, ChevronRight, Send, User, Users, ShieldCheck, Trash2,
 } from 'lucide-react';
 import {
   useGetMyTicketsQuery, useGetAllTicketsQuery, useCreateTicketMutation,
-  useGetTicketDetailQuery, useUpdateTicketMutation, useAddCommentMutation,
+  useGetTicketDetailQuery, useUpdateTicketMutation, useAddCommentMutation, useDeleteTicketMutation,
 } from './helpdeskApi';
 import { cn, formatDate, getInitials } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -51,6 +51,22 @@ function HelpdeskManagementView() {
   const [page, setPage] = useState(1);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [deleteTicket, { isLoading: deleting }] = useDeleteTicketMutation();
+
+  const handleDelete = async (e: React.MouseEvent, ticketId: string, status: string) => {
+    e.stopPropagation();
+    if (status !== 'CLOSED') {
+      toast.error('Please close the ticket first before deleting.');
+      return;
+    }
+    if (!window.confirm('Delete this closed ticket permanently? This cannot be undone.')) return;
+    try {
+      await deleteTicket(ticketId).unwrap();
+      toast.success('Ticket deleted');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to delete ticket');
+    }
+  };
 
   const { data: res, isLoading, refetch } = useGetAllTicketsQuery({
     page, limit: 20,
@@ -154,15 +170,16 @@ function HelpdeskManagementView() {
                 {isSuperAdmin && <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Dept</th>}
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Status</th>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Date</th>
+                {isSuperAdmin && <th className="px-5 py-3 w-10" />}
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={isSuperAdmin ? 7 : 6} className="text-center py-12">
+                <tr><td colSpan={isSuperAdmin ? 8 : 6} className="text-center py-12">
                   <Loader2 size={24} className="animate-spin mx-auto text-brand-500" />
                 </td></tr>
               ) : filteredTickets.length === 0 ? (
-                <tr><td colSpan={isSuperAdmin ? 7 : 6} className="text-center py-12">
+                <tr><td colSpan={isSuperAdmin ? 8 : 6} className="text-center py-12">
                   <HelpCircle size={40} className="mx-auto text-gray-200 mb-3" />
                   <p className="text-sm text-gray-400">No tickets found</p>
                 </td></tr>
@@ -206,6 +223,23 @@ function HelpdeskManagementView() {
                     <p className="text-xs text-gray-400">{formatDate(ticket.createdAt)}</p>
                     <p className="text-[10px] text-gray-300 flex items-center gap-1"><MessageCircle size={10} /> {ticket._count?.comments || 0}</p>
                   </td>
+                  {isSuperAdmin && (
+                    <td className="px-3 py-3.5">
+                      <button
+                        onClick={(e) => handleDelete(e, ticket.id, ticket.status)}
+                        disabled={deleting}
+                        title={ticket.status === 'CLOSED' ? 'Delete ticket' : 'Close ticket first to delete'}
+                        className={cn(
+                          'p-1.5 rounded-lg transition-colors',
+                          ticket.status === 'CLOSED'
+                            ? 'text-red-400 hover:text-red-600 hover:bg-red-50'
+                            : 'text-gray-200 cursor-not-allowed'
+                        )}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

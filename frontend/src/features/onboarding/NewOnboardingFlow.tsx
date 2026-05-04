@@ -871,7 +871,7 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
 // ==================
 function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
   const { t } = useTranslation();
-  const [form, setForm] = useState({ accountHolderName: '', accountType: 'SAVINGS' as 'SAVINGS' | 'CURRENT', bankName: '', bankAccountNumber: '', ifscCode: '', epfMemberId: '' });
+  const [form, setForm] = useState({ accountHolderName: '', accountType: 'SAVINGS' as 'SAVINGS' | 'CURRENT', bankName: '', bankBranchName: '', bankAccountNumber: '', ifscCode: '', epfMemberId: '' });
   const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
@@ -880,6 +880,7 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
         accountHolderName: initialData.accountHolderName || '',
         accountType: (initialData.accountType as 'SAVINGS' | 'CURRENT') || 'SAVINGS',
         bankName: initialData.bankName || '',
+        bankBranchName: initialData.bankBranchName || '',
         bankAccountNumber: initialData.bankAccountNumber || '',
         ifscCode: initialData.ifscCode || '',
         epfMemberId: initialData.epfMemberId || '',
@@ -892,7 +893,8 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
   const acctValid = acctDigits.length >= 9 && acctDigits.length <= 18;
   const holderNameValid = form.accountHolderName.trim().length >= 2 && /[a-zA-Z]/.test(form.accountHolderName);
   const bankNameValid = form.bankName.trim().length >= 2;
-  const isValid = !!(holderNameValid && bankNameValid && acctValid && ifscValid);
+  const branchNameValid = form.bankBranchName.trim().length >= 2;
+  const isValid = !!(holderNameValid && bankNameValid && branchNameValid && acctValid && ifscValid);
   const err = (cond: boolean) => showErrors && !cond ? 'border-red-400 ring-1 ring-red-200' : '';
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
@@ -929,6 +931,15 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
             <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validBankName')}</p>
           )}
         </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Branch Name <span className="text-red-500">*</span></label>
+          <input value={form.bankBranchName} onChange={e => set('bankBranchName', e.target.value)} placeholder="e.g. Connaught Place Branch" className={cn('input-glass w-full text-sm', err(branchNameValid))} />
+          {showErrors && form.bankBranchName.trim() && !branchNameValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid branch name</p>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.ifscCode')} <span className="text-red-500">*</span></label>
           <input value={form.ifscCode} onChange={e => set('ifscCode', e.target.value.toUpperCase())} placeholder="SBIN0001234" className={cn('input-glass w-full text-sm font-mono', err(ifscValid))} />

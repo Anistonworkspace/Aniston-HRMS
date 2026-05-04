@@ -202,6 +202,12 @@ export default function Sidebar() {
                   {whatsAppUnreadCount > 99 ? '99+' : whatsAppUnreadCount}
                 </span>
               )}
+              {/* Tooltip — only shown when sidebar is collapsed */}
+              {collapsed && (
+                <span className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
+                  {label}
+                </span>
+              )}
             </NavLink>
           );
         })}

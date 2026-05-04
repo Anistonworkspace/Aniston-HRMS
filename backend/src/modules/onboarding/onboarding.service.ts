@@ -516,8 +516,8 @@ export class OnboardingService {
 
     // Step 4: Bank Details
     if (step === 4) {
-      if (!stepData.bankAccountNumber || !stepData.bankName || !stepData.ifscCode || !stepData.accountHolderName) {
-        throw new BadRequestError('All bank detail fields are required');
+      if (!stepData.bankAccountNumber || !stepData.bankName || !stepData.bankBranchName || !stepData.ifscCode || !stepData.accountHolderName) {
+        throw new BadRequestError('All bank detail fields are required including branch name');
       }
       const ifscNorm = String(stepData.ifscCode).toUpperCase().trim();
       if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscNorm)) {
@@ -528,6 +528,7 @@ export class OnboardingService {
         data: {
           bankAccountNumber: encrypt(stepData.bankAccountNumber),
           bankName: stepData.bankName,
+          bankBranchName: stepData.bankBranchName,
           ifscCode: ifscNorm,
           accountHolderName: stepData.accountHolderName,
           accountType: stepData.accountType || 'SAVINGS',

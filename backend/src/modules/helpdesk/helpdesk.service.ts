@@ -310,6 +310,14 @@ export class HelpdeskService {
     return comment;
   }
 
+  async deleteTicket(id: string, organizationId: string) {
+    const ticket = await prisma.ticket.findFirst({ where: { id, organizationId } });
+    if (!ticket) throw new NotFoundError('Ticket');
+    if (ticket.status !== 'CLOSED') throw new BadRequestError('Only CLOSED tickets can be deleted. Please close the ticket first.');
+    await prisma.ticketComment.deleteMany({ where: { ticketId: id } });
+    await prisma.ticket.delete({ where: { id } });
+  }
+
   async analyzeTicket(ticketId: string, organizationId: string) {
     const ticket = await prisma.ticket.findFirst({ where: { id: ticketId, organizationId } });
     if (!ticket) throw new NotFoundError('Ticket');

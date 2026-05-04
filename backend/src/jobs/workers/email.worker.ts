@@ -1474,6 +1474,55 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.orgName || 'Aniston Technologies')
   ),
 
+  'bank-branch-update': (ctx) => emailLayout(
+    '#059669', '🏦', 'Action Required: Update Your Bank Branch Name',
+    `${esc(ctx.orgName || 'Aniston Technologies')}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">
+      Hello <strong>${esc(ctx.employeeName || 'there')}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      We have updated our HR system to capture your <strong>bank branch name</strong> for accurate salary processing and payroll records. Your profile is currently missing this information.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#ECFDF5;border:1px solid #6EE7B7;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#065F46;font-weight:700;font-size:14px;margin:0 0 8px;">What you need to do:</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:5px 0;color:#047857;font-size:13px;vertical-align:top;width:20px;"><strong>1.</strong></td><td style="padding:5px 0;color:#065F46;font-size:13px;">Click the button below to go to your Profile</td></tr>
+          <tr><td style="padding:5px 0;color:#047857;font-size:13px;vertical-align:top;"><strong>2.</strong></td><td style="padding:5px 0;color:#065F46;font-size:13px;">Click <strong>Edit Profile</strong> and go to the <strong>Bank Details</strong> section</td></tr>
+          <tr><td style="padding:5px 0;color:#047857;font-size:13px;vertical-align:top;"><strong>3.</strong></td><td style="padding:5px 0;color:#065F46;font-size:13px;">Enter your <strong>bank branch name</strong> (e.g. "Connaught Place Branch")</td></tr>
+          <tr><td style="padding:5px 0;color:#047857;font-size:13px;vertical-align:top;"><strong>4.</strong></td><td style="padding:5px 0;color:#065F46;font-size:13px;">Save your changes</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:14px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;width:130px;">Employee</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.employeeName)}</td>
+          </tr>
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Employee Code</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.employeeCode)}</td>
+          </tr>
+          ${ctx.bankName ? `<tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Bank on file</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.bankName)}</td>
+          </tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.profileUrl || 'https://hr.anistonav.com/profile', 'Update Bank Branch Name')}
+
+    <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:16px 0 0;text-align:center;">
+      This is a one-time update. Your portal access is not affected. If you have any questions, please contact HR.
+    </p>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.profileUrl, 'If the button doesn\'t work, open this link in your browser:')
+  ),
+
 };
 
 /**
