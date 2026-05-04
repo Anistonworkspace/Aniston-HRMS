@@ -153,10 +153,13 @@ async function main() {
   });
 
   for (const acct of systemAccounts) {
-    const passwordHash = await bcrypt.hash(acct.password, 12);
+    // Only hash + set password on CREATE (first seed). Never overwrite on update
+    // so production passwords changed via the app are preserved.
+    const existingUser = await prisma.user.findUnique({ where: { email: acct.email } });
+    const passwordHash = existingUser ? existingUser.passwordHash : await bcrypt.hash(acct.password, 12);
     const user = await prisma.user.upsert({
       where: { email: acct.email },
-      update: { passwordHash, role: acct.role, status: 'ACTIVE' },
+      update: { role: acct.role, status: 'ACTIVE' },
       create: {
         email: acct.email,
         passwordHash,
@@ -190,47 +193,7 @@ async function main() {
     console.log(`  ✅ ${acct.role}: ${acct.email}`);
   }
 
-  // ---------- Demo Employee (visible on dashboard, can be deleted by HR) ----------
-  const sweDes = await prisma.designation.findFirst({
-    where: { name: 'Software Engineer', organizationId: org.id },
-  });
-
-  const demoPassword = await bcrypt.hash('Demo@1234', 12);
-  const demoUser = await prisma.user.upsert({
-    where: { email: 'demo@anistonav.com' },
-    update: { passwordHash: demoPassword, role: 'EMPLOYEE', status: 'ACTIVE' },
-    create: {
-      email: 'demo@anistonav.com',
-      passwordHash: demoPassword,
-      role: 'EMPLOYEE',
-      status: 'ACTIVE',
-      organizationId: org.id,
-    },
-  });
-
-  await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-001' },
-    update: { userId: demoUser.id, status: 'ACTIVE', deletedAt: null, isSystemAccount: false },
-    create: {
-      employeeCode: 'EMP-001',
-      userId: demoUser.id,
-      firstName: 'Demo',
-      lastName: 'Employee',
-      email: 'demo@anistonav.com',
-      phone: '+91-9876543210',
-      gender: 'MALE',
-      dateOfBirth: new Date('1998-06-15'),
-      departmentId: engDept?.id,
-      designationId: sweDes?.id,
-      workMode: 'OFFICE',
-      joiningDate: new Date('2026-03-01'),
-      status: 'ACTIVE',
-      onboardingComplete: true,
-      isSystemAccount: false,
-      organizationId: org.id,
-    },
-  });
-  console.log('  ✅ Demo Employee: demo@anistonav.com (EMPLOYEE — can be deleted by HR)');
+  // Demo employee removed — all real employees are created via invitation flow only.
 
   // NOTE: All other users are created via the invitation flow.
   // HR/Admin/SuperAdmin sends an invite → user sets password → onboarding wizard.
