@@ -51,6 +51,7 @@ const FORM_FIELDS: Record<Category, FieldDef[]> = {
   BANK_DETAILS: [
     { key: 'accountHolderName', label: 'Account Holder Name', type: 'text' },
     { key: 'bankName', label: 'Bank Name', type: 'text' },
+    { key: 'bankBranchName', label: 'Branch Name', type: 'text' },
     { key: 'bankAccountNumber', label: 'Account Number', type: 'text' },
     { key: 'ifscCode', label: 'IFSC Code', type: 'text' },
     { key: 'accountType', label: 'Account Type', type: 'select', options: [

@@ -97,7 +97,7 @@ export default function EmployeeDetailPage() {
       { label: t('employees.completionEmergency'), done: !!employee.emergencyContact },
       { label: t('employees.completionDept'), done: !!(employee.department && employee.designation) },
       { label: t('employees.completionDocuments'), done: (employee.documents?.length || 0) >= 3 },
-      { label: t('employees.completionBank'), done: !!employee.bankAccountNumber },
+      { label: t('employees.completionBank'), done: !!(employee.bankAccountNumber && (employee as any).bankBranchName) },
     ];
     const pct = Math.round((items.filter(i => i.done).length / items.length) * 100);
     return { items, pct };
@@ -585,7 +585,7 @@ export default function EmployeeDetailPage() {
                       { label: t('employees.completionEmergency'), done: !!employee.emergencyContact },
                       { label: t('employees.completionDept'), done: !!(employee.department && employee.designation) },
                       { label: t('employees.completionDocuments'), done: (employee.documents?.length || 0) >= 3 },
-                      { label: t('employees.completionBank'), done: !!employee.bankAccountNumber },
+                      { label: t('employees.completionBank'), done: !!(employee.bankAccountNumber && (employee as any).bankBranchName) },
                     ].map((item, i) => (
                       <div key={i} className="flex items-center justify-between text-sm">
                         <span className="text-gray-600">{item.label}</span>
@@ -853,6 +853,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
     },
     bankAccountNumber: isReadableAccountNumber(employee.bankAccountNumber) ? employee.bankAccountNumber! : '',
     bankName: employee.bankName || '',
+    bankBranchName: (employee as any).bankBranchName || '',
     ifscCode: employee.ifscCode || '',
     accountHolderName: employee.accountHolderName || '',
     accountType: employee.accountType || 'SAVINGS',
@@ -1263,6 +1264,11 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                 <label className="block text-xs text-gray-500 mb-1">Bank Name</label>
                 <input value={form.bankName} onChange={e => setForm({ ...form, bankName: e.target.value })}
                   className="input-glass w-full text-sm" placeholder="e.g. State Bank of India" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Branch Name</label>
+                <input value={(form as any).bankBranchName} onChange={e => setForm({ ...form, bankBranchName: e.target.value } as any)}
+                  className="input-glass w-full text-sm" placeholder="e.g. Connaught Place Branch" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Account Number</label>

@@ -370,6 +370,7 @@ export class ProfileEditRequestService {
       bankDetails: [
         ...(!emp.bankAccountNumber ? ['Account number'] : []),
         ...(!emp.bankName ? ['Bank name'] : []),
+        ...(!emp.bankBranchName ? ['Branch name'] : []),
         ...(!emp.ifscCode ? ['IFSC code'] : []),
         ...(!emp.accountHolderName ? ['Account holder name'] : []),
       ],

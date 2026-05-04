@@ -37,6 +37,7 @@ export const createEmployeeSchema = z.object({
   }).optional(),
   bankAccountNumber: z.string().optional(),
   bankName: z.string().optional(),
+  bankBranchName: z.string().optional().nullable(),
   ifscCode: z.string().optional(),
   accountHolderName: z.string().optional(),
   accountType: z.enum(['SAVINGS', 'CURRENT']).optional(),

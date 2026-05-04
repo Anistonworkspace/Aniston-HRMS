@@ -83,6 +83,7 @@ export default function ProfilePage() {
   const [bankForm, setBankForm] = useState({
     bankAccountNumber: '',
     bankName: '',
+    bankBranchName: '',
     ifscCode: '',
     accountHolderName: '',
     accountType: '',
@@ -134,6 +135,7 @@ export default function ProfilePage() {
       setBankForm({
         bankAccountNumber: employee.bankAccountNumber || '',
         bankName: employee.bankName || '',
+        bankBranchName: (employee as any).bankBranchName || '',
         ifscCode: employee.ifscCode || '',
         accountHolderName: employee.accountHolderName || '',
         accountType: employee.accountType || '',
@@ -168,11 +170,17 @@ export default function ProfilePage() {
     if (!user?.employeeId) return;
     setSavingBank(true);
     try {
-      // Strip empty accountType — Zod rejects '' for enum fields
-      const bankData: any = { ...bankForm };
-      if (!bankData.accountType) delete bankData.accountType;
+      let bankData: any;
+      if (isEmployeeRole) {
+        // Employees can only directly update branch name
+        bankData = { bankBranchName: bankForm.bankBranchName || null };
+      } else {
+        // HR/Admin can update all fields
+        bankData = { ...bankForm };
+        if (!bankData.accountType) delete bankData.accountType;
+      }
       await updateEmployee({ id: user.employeeId, data: bankData }).unwrap();
-      toast.success('Bank details saved');
+      toast.success(isEmployeeRole ? 'Branch name saved' : 'Bank details saved');
       setShowBankEdit(false);
     } catch { toast.error('Failed to save bank details'); }
     finally { setSavingBank(false); }
@@ -830,17 +838,27 @@ export default function ProfilePage() {
             </h3>
             {isEmployeeRole ? (() => {
               const bankReq = myEditRequests.find(r => r.category === 'BANK_DETAILS' && (r.status === 'PENDING' || r.status === 'APPROVED'));
-              return bankReq ? (
-                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${bankReq.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                  {bankReq.status === 'PENDING' ? 'Request pending' : 'Approved — apply now'}
-                </span>
-              ) : (
-                <button
-                  onClick={() => { setRequestDefaultCategory('BANK_DETAILS'); setShowRequestModal(true); }}
-                  className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
-                >
-                  <Edit2 size={12} /> Request to Update
-                </button>
+              return (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setShowBankEdit(!showBankEdit)}
+                    className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                  >
+                    {showBankEdit ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit Branch</>}
+                  </button>
+                  {bankReq ? (
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${bankReq.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {bankReq.status === 'PENDING' ? 'Request pending' : 'Approved — apply now'}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => { setRequestDefaultCategory('BANK_DETAILS'); setShowRequestModal(true); }}
+                      className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                    >
+                      <Edit2 size={12} /> Other Details
+                    </button>
+                  )}
+                </div>
               );
             })() : (
               <button onClick={() => setShowBankEdit(!showBankEdit)}
@@ -850,51 +868,70 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {(!isEmployeeRole && showBankEdit) ? (
+          {showBankEdit ? (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Account Holder Name</label>
-                  <input value={bankForm.accountHolderName} onChange={e => setBankForm(f => ({ ...f, accountHolderName: e.target.value }))}
-                    className="input-glass w-full text-sm" placeholder="Full name on account" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Account Type</label>
-                  <select value={bankForm.accountType} onChange={e => setBankForm(f => ({ ...f, accountType: e.target.value }))}
-                    className="input-glass w-full text-sm">
-                    <option value="">Select</option>
-                    <option value="SAVINGS">Savings</option>
-                    <option value="CURRENT">Current</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Bank Name</label>
-                <input value={bankForm.bankName} onChange={e => setBankForm(f => ({ ...f, bankName: e.target.value }))}
-                  className="input-glass w-full text-sm" placeholder="e.g. State Bank of India" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Account Number</label>
-                  <input value={bankForm.bankAccountNumber} onChange={e => setBankForm(f => ({ ...f, bankAccountNumber: e.target.value }))}
-                    className="input-glass w-full text-sm font-mono" placeholder="Account number" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">IFSC Code</label>
-                  <input value={bankForm.ifscCode} onChange={e => setBankForm(f => ({ ...f, ifscCode: e.target.value.toUpperCase() }))}
-                    className="input-glass w-full text-sm font-mono" placeholder="e.g. SBIN0001234" />
-                </div>
-              </div>
+              {isEmployeeRole ? (
+                <>
+                  <p className="text-xs text-gray-500">You can update your branch name directly. For other bank details, submit a request to HR.</p>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Branch Name</label>
+                    <input value={bankForm.bankBranchName} onChange={e => setBankForm(f => ({ ...f, bankBranchName: e.target.value }))}
+                      className="input-glass w-full text-sm" placeholder="e.g. Connaught Place Branch" />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Account Holder Name</label>
+                      <input value={bankForm.accountHolderName} onChange={e => setBankForm(f => ({ ...f, accountHolderName: e.target.value }))}
+                        className="input-glass w-full text-sm" placeholder="Full name on account" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Account Type</label>
+                      <select value={bankForm.accountType} onChange={e => setBankForm(f => ({ ...f, accountType: e.target.value }))}
+                        className="input-glass w-full text-sm">
+                        <option value="">Select</option>
+                        <option value="SAVINGS">Savings</option>
+                        <option value="CURRENT">Current</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Bank Name</label>
+                    <input value={bankForm.bankName} onChange={e => setBankForm(f => ({ ...f, bankName: e.target.value }))}
+                      className="input-glass w-full text-sm" placeholder="e.g. State Bank of India" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Branch Name</label>
+                    <input value={bankForm.bankBranchName} onChange={e => setBankForm(f => ({ ...f, bankBranchName: e.target.value }))}
+                      className="input-glass w-full text-sm" placeholder="e.g. Connaught Place Branch" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Account Number</label>
+                      <input value={bankForm.bankAccountNumber} onChange={e => setBankForm(f => ({ ...f, bankAccountNumber: e.target.value }))}
+                        className="input-glass w-full text-sm font-mono" placeholder="Account number" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">IFSC Code</label>
+                      <input value={bankForm.ifscCode} onChange={e => setBankForm(f => ({ ...f, ifscCode: e.target.value.toUpperCase() }))}
+                        className="input-glass w-full text-sm font-mono" placeholder="e.g. SBIN0001234" />
+                    </div>
+                  </div>
+                </>
+              )}
               <button onClick={handleSaveBankDetails} disabled={savingBank}
                 className="btn-primary flex items-center gap-2 text-sm">
                 {savingBank ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                Save Bank Details
+                {isEmployeeRole ? 'Save Branch Name' : 'Save Bank Details'}
               </button>
             </div>
           ) : employee?.bankAccountNumber ? (
             <dl className="space-y-3">
               <ProfileRow label="Account Holder" value={employee.accountHolderName} />
               <ProfileRow label="Bank" value={employee.bankName} />
+              <ProfileRow label="Branch" value={(employee as any).bankBranchName} />
               <ProfileRow label="Account Number" value={employee.bankAccountNumber ? `••••${employee.bankAccountNumber.slice(-4)}` : undefined} mono />
               <ProfileRow label="IFSC Code" value={employee.ifscCode} mono />
               <ProfileRow label="Account Type" value={employee.accountType} />
@@ -917,6 +954,12 @@ export default function ProfilePage() {
                 <button onClick={() => setShowBankEdit(true)}
                   className="mt-2 text-xs text-brand-600 hover:text-brand-700 font-medium">
                   + Add bank details
+                </button>
+              )}
+              {isEmployeeRole && (
+                <button onClick={() => setShowBankEdit(!showBankEdit)}
+                  className="mt-1 text-xs text-gray-500 hover:text-brand-600 font-medium block">
+                  {showBankEdit ? 'Cancel' : '+ Add branch name'}
                 </button>
               )}
             </div>
