@@ -74,6 +74,7 @@ model Organization {
   ticketComments       TicketComment[]
   notifications        Notification[]
   leaveAllocationLogs  LeaveAllocationLog[]
+  crashReports         CrashReport[]
 }
 
 model User {
@@ -254,6 +255,7 @@ model Employee {
   hybridSchedule         HybridSchedule?
   // Sunday / special-day work override
   allowSundayWork        Boolean               @default(false)  // Employee-level override for Sunday attendance
+  crashReports           CrashReport[]
 
   // Payroll statutory — EPF opt-in (off by default; employee opts in during onboarding or HR enables)
   epfEnabled             Boolean               @default(false) // EPF deduction active — false = not deducted in payroll
@@ -3648,4 +3650,30 @@ model ProfileEditRequest {
   @@index([employeeId, status])
   @@index([organizationId, status])
   @@index([organizationId, createdAt])
+}
+
+// =====================
+// CRASH REPORTS
+// =====================
+
+model CrashReport {
+  id             String    @id @default(uuid())
+  organizationId String
+  employeeId     String?
+  type           String    // JAVA_CRASH | JS_ERROR | NATIVE_CRASH | UNHANDLED_REJECTION
+  message        String
+  stack          String?   @db.Text
+  context        String?
+  appVersion     String?
+  platform       String?   // android | ios | web
+  osVersion      String?
+  device         String?
+  ipAddress      String?
+  createdAt      DateTime  @default(now())
+
+  employee     Employee?    @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, type])
 }

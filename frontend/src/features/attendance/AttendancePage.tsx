@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import { scheduleShiftReminder, cancelShiftReminder } from '../../lib/capacitorShiftReminder';
 import {
   Clock, LogIn, LogOut, MapPin, FileText,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
@@ -643,6 +644,17 @@ function AttendancePersonalView() {
   const { data: todayResponse, isLoading: statusLoading, refetch: refetchToday } = useGetTodayStatusQuery();
   const today = todayResponse?.data;
 
+  // Schedule shift reminder 15 min before shift start (Android only, once per day, skip if already checked in)
+  useEffect(() => {
+    if (!today?.shift?.startTime || today?.isCheckedIn) return;
+    const [h, m] = today.shift.startTime.split(':').map(Number);
+    const now = new Date();
+    const shiftStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+    if (shiftStart.getTime() > now.getTime()) {
+      scheduleShiftReminder(shiftStart.getTime(), today.shift.name || 'your shift').catch(() => {});
+    }
+  }, [today?.shift?.startTime, today?.isCheckedIn]);
+
   // Compute earliest checkout time from shift — updates every second via liveTime
   const checkoutGate = (() => {
     if (!today?.isCheckedIn || today?.isCheckedOut) return null;
@@ -848,6 +860,7 @@ function AttendancePersonalView() {
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
       toast.success(t('attendance.checkedIn'));
+      cancelShiftReminder().catch(() => {});
       // FIELD shift: start native background GPS service only when consent is already granted.
       // If consent is missing, FieldSalesView (rendered below) will show the consent modal
       // and start tracking after the employee accepts — no double-prompt needed here.

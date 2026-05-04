@@ -6,7 +6,7 @@ import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 
 export default function LiveAttendanceWidget() {
   const navigate = useNavigate();
-  const { data: res, isLoading, refetch } = useGetLiveBoardQuery();
+  const { data: res, isLoading, refetch } = useGetLiveBoardQuery(undefined, { pollingInterval: 30000 });
   const live = res?.data;
   const [pulse, setPulse] = useState(false);
 

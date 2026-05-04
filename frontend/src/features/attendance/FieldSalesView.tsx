@@ -16,6 +16,8 @@ import {
   stopNativeGpsService,
   updateNativeGpsToken,
   isNativeGpsRunning,
+  requestBatteryOptimizationExemption,
+  isBatteryOptimizationExempted,
 } from '../../lib/capacitorGPS';
 import type { RootState } from '../../app/store';
 import toast from 'react-hot-toast';
@@ -538,11 +540,15 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       toast.error(err?.data?.error?.message || 'Failed to start tracking');
     }
 
-    // Show battery optimization prompt once per session after tracking starts on Android
+    // Show battery optimization prompt once per week after tracking starts on Android
     if (isNativeAndroid) {
       const dismissed = localStorage.getItem(BATTERY_PROMPT_KEY);
       if (!dismissed || Date.now() - Number(dismissed) > 7 * 24 * 60 * 60 * 1000) {
-        setTimeout(() => setShowBatteryPrompt(true), 3000);
+        // Check if already exempted — if so, skip the prompt entirely
+        isBatteryOptimizationExempted().then(exempted => {
+          if (!exempted) setTimeout(() => setShowBatteryPrompt(true), 3000);
+          else localStorage.setItem(BATTERY_PROMPT_KEY, String(Date.now()));
+        }).catch(() => setTimeout(() => setShowBatteryPrompt(true), 3000));
       }
     }
   };
@@ -857,16 +863,28 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
             <div className="flex items-start gap-3">
               <Battery className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-sm font-medium text-amber-800 mb-1">Enable Unrestricted Battery for best GPS accuracy</p>
-                <p className="text-xs text-amber-700 mb-2">
-                  Some devices (Samsung, Xiaomi, Oppo) restrict background apps and may stop GPS tracking.
+                <p className="text-sm font-medium text-amber-800 mb-2">Allow Unrestricted Battery Access</p>
+                <p className="text-xs text-amber-700 mb-3">
+                  Samsung, Xiaomi, Oppo and OnePlus devices can kill background GPS tracking.
+                  Tap below to exempt Aniston HRMS — takes one tap.
                 </p>
-                <p className="text-xs text-amber-700 font-medium">
-                  Go to: <strong>Settings → Apps → Aniston HRMS → Battery → Unrestricted</strong>
-                </p>
-                <p className="text-xs text-amber-600 mt-1">
-                  (On MIUI: Settings → Apps → Manage Apps → Aniston HRMS → Battery Saver → No restriction)
-                </p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const result = await requestBatteryOptimizationExemption();
+                      if (result.alreadyExempted) {
+                        toast.success('Battery optimization already disabled — GPS will track reliably.');
+                      } else if (result.prompted) {
+                        toast('Select "Allow" in the dialog to ensure uninterrupted GPS tracking.', { icon: '🔋', duration: 5000 });
+                      }
+                    } catch { /* ok */ }
+                    localStorage.setItem(BATTERY_PROMPT_KEY, String(Date.now()));
+                    setShowBatteryPrompt(false);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors"
+                >
+                  Allow Unrestricted Battery — 1 tap
+                </button>
               </div>
               <button
                 onClick={() => {
@@ -876,7 +894,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
                 className="text-amber-400 hover:text-amber-600 p-1 flex-shrink-0"
                 aria-label="Dismiss"
               >
-                <Square className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
           </motion.div>

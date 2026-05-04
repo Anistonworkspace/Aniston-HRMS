@@ -27,6 +27,8 @@ interface GpsTrackingPluginDef {
   updateToken(opts: { token: string }): Promise<void>;
   updateInterval(opts: { minutes: number }): Promise<void>;
   isRunning(): Promise<{ running: boolean }>;
+  requestBatteryOptimizationExemption(): Promise<{ prompted: boolean; alreadyExempted?: boolean; error?: string }>;
+  isBatteryOptimizationExempted(): Promise<{ exempted: boolean }>;
 }
 
 // On web/iOS, all methods are no-ops (plugin is Android-only)
@@ -37,6 +39,8 @@ const GpsTrackingPlugin = registerPlugin<GpsTrackingPluginDef>('GpsTracking', {
     updateToken: async () => {},
     updateInterval: async () => {},
     isRunning: async () => ({ running: false }),
+    requestBatteryOptimizationExemption: async () => ({ prompted: false }),
+    isBatteryOptimizationExempted: async () => ({ exempted: true }),
   },
 });
 
@@ -198,6 +202,23 @@ export async function isNativeGpsRunning(): Promise<boolean> {
   if (!isNativeAndroid) return false;
   const { running } = await GpsTrackingPlugin.isRunning();
   return running;
+}
+
+/**
+ * Programmatically show the system battery optimization exemption dialog.
+ * On Samsung/Xiaomi/Oppo/OnePlus this opens the one-tap "Allow" dialog.
+ * No-op on web/iOS.
+ */
+export async function requestBatteryOptimizationExemption(): Promise<{ prompted: boolean; alreadyExempted?: boolean }> {
+  if (!isNativeAndroid) return { prompted: false };
+  return GpsTrackingPlugin.requestBatteryOptimizationExemption();
+}
+
+/** Returns true if the app is already exempted from battery optimizations. */
+export async function isBatteryOptimizationExempted(): Promise<boolean> {
+  if (!isNativeAndroid) return true;
+  const { exempted } = await GpsTrackingPlugin.isBatteryOptimizationExempted();
+  return exempted;
 }
 
 /**

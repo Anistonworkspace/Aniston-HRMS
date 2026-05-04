@@ -234,7 +234,7 @@ export default function EmployeeAttendanceDetailPage() {
     const shiftStartMins = shift?.startTime
       ? (() => { const [h, m] = shift.startTime.split(':').map(Number); return h * 60 + m; })()
       : 9 * 60 + 30;
-    const graceEnd = shiftStartMins + (shift?.graceMinutes || shift?.lateGraceMinutes || 30);
+    const graceEnd = shiftStartMins + (shift?.graceMinutes || 30);
     const todayShiftStarted = nowHHMM >= graceEnd;
 
     const days: any[] = [];

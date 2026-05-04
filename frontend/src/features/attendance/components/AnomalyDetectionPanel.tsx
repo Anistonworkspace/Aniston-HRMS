@@ -49,7 +49,7 @@ export default function AnomalyDetectionPanel({ selectedDate }: Props) {
     type: typeFilter || undefined,
     date: selectedDate || undefined,
     limit: 50,
-  });
+  }, { pollingInterval: 60000 });
   const anomalies = res?.data || [];
 
   const [resolve, { isLoading: resolving }] = useResolveAnomalyMutation();

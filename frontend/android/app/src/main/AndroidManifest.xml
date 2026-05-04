@@ -26,6 +26,9 @@
     <!-- Allow AlarmManager exact alarm (Android 12+) for service restart after task removal -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- Battery optimization exemption — required to keep GPS service alive on Samsung/Xiaomi/Oppo/OnePlus -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -78,6 +81,11 @@
                 <action android:name="com.anistonav.hrms.RESTART_GPS" />
             </intent-filter>
         </receiver>
+
+        <!-- ShiftReminderPlugin — receives AlarmManager alarm to fire shift-start notification -->
+        <receiver
+            android:name=".ShiftReminderPlugin$ShiftReminderReceiver"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

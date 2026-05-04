@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff, HardHat, FileText, XCircle } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff, HardHat, FileText, XCircle, Fingerprint } from 'lucide-react';
+import { isBiometricAvailable } from '../../lib/capacitorBiometric';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
@@ -65,6 +66,12 @@ export default function ProfilePage() {
   };
 
   const [showResignModal, setShowResignModal] = useState(false);
+
+  // Biometric lock state
+  const BIOMETRIC_KEY = 'aniston_biometric_enabled';
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(() => localStorage.getItem(BIOMETRIC_KEY) === '1');
+  useEffect(() => { isBiometricAvailable().then(setBiometricSupported); }, []);
   const [resignForm, setResignForm] = useState({ reason: '', lastWorkingDate: '' });
 
   const [form, setForm] = useState({
@@ -743,6 +750,36 @@ export default function ProfilePage() {
                 </button>
               )}
             </div>
+
+            {/* Biometric Lock Row — only shown when device supports it */}
+            {biometricSupported && (
+              <div className="flex items-center justify-between gap-3 py-3 px-4 bg-surface-2 rounded-lg">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <Fingerprint size={16} className={biometricEnabled ? 'text-emerald-500 shrink-0' : 'text-gray-400 shrink-0'} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-700 break-words">Biometric App Lock</p>
+                    <p className="text-xs text-gray-400 break-words">
+                      {biometricEnabled
+                        ? 'App locks after 10 min in background — fingerprint/face to unlock'
+                        : 'Lock app with fingerprint or face ID after 10 min idle'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = !biometricEnabled;
+                    setBiometricEnabled(next);
+                    localStorage.setItem(BIOMETRIC_KEY, next ? '1' : '0');
+                    toast.success(next ? 'Biometric lock enabled' : 'Biometric lock disabled');
+                  }}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${biometricEnabled ? 'bg-emerald-500' : 'bg-gray-200'}`}
+                  role="switch"
+                  aria-checked={biometricEnabled}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${biometricEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+            )}
           </div>
         </motion.div>
 

@@ -291,7 +291,7 @@ function AdminDashboard() {
                       {card.employees.length === 0 ? (
                         <p className="text-sm text-gray-400 text-center py-8">No employees</p>
                       ) : (
-                        card.employees.map((emp) => (
+                        card.employees.map((emp: { id: string; name: string }) => (
                           <div key={emp.id} className="px-5 py-2.5 flex items-center gap-3 hover:bg-gray-50 transition-colors">
                             <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
                               <span className="text-xs font-semibold text-gray-500">

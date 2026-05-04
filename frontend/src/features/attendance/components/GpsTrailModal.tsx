@@ -42,7 +42,7 @@ function haversineKm(positions: [number, number][]): number {
 export default function GpsTrailModal({ isOpen, onClose, employeeId, employeeName, date }: GpsTrailModalProps) {
   const { data, isLoading } = useGetEmployeeGPSTrailQuery(
     { employeeId, date },
-    { skip: !isOpen || !employeeId || !date }
+    { skip: !isOpen || !employeeId || !date, pollingInterval: isOpen ? 5000 : 0 }
   );
 
   const [updateName] = useUpdateLocationVisitNameMutation();

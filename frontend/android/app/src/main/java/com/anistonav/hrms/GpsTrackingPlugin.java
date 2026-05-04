@@ -3,7 +3,10 @@ package com.anistonav.hrms;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.util.Log;
 
 import com.getcapacitor.JSObject;
@@ -76,6 +79,8 @@ public class GpsTrackingPlugin extends Plugin {
         } catch (Exception e) {
             Log.w(TAG, "Stop service failed (already stopped?): " + e.getMessage());
         }
+        // Cancel watchdog — employee explicitly ended their field shift
+        GpsWatchdogWorker.cancel(ctx);
         call.resolve();
     }
 
@@ -115,6 +120,66 @@ public class GpsTrackingPlugin extends Plugin {
         // SharedPreferences can falsely say "running" if onDestroy was skipped by the OS.
         JSObject result = new JSObject();
         result.put("running", GpsTrackingService.sIsRunning);
+        call.resolve(result);
+    }
+
+    /**
+     * Programmatically request battery optimization exemption via system dialog.
+     * On Samsung/Xiaomi/Oppo/OnePlus this opens the one-tap "Allow" dialog directly,
+     * so employees don't have to navigate Settings manually.
+     * No-op on API < 23 (Doze mode didn't exist then).
+     */
+    @PluginMethod
+    public void requestBatteryOptimizationExemption(PluginCall call) {
+        Context ctx = getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(ctx.getPackageName())) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    intent.setData(Uri.parse("package:" + ctx.getPackageName()));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(intent);
+                    JSObject result = new JSObject();
+                    result.put("prompted", true);
+                    call.resolve(result);
+                } catch (Exception e) {
+                    Log.w(TAG, "Battery exemption dialog failed: " + e.getMessage());
+                    JSObject result = new JSObject();
+                    result.put("prompted", false);
+                    result.put("error", e.getMessage());
+                    call.resolve(result);
+                }
+            } else {
+                // Already exempted or not needed
+                JSObject result = new JSObject();
+                result.put("prompted", false);
+                result.put("alreadyExempted", pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName()));
+                call.resolve(result);
+            }
+        } else {
+            JSObject result = new JSObject();
+            result.put("prompted", false);
+            result.put("reason", "API level < 23, Doze not applicable");
+            call.resolve(result);
+        }
+    }
+
+    /**
+     * Check if app is already exempt from battery optimizations.
+     */
+    @PluginMethod
+    public void isBatteryOptimizationExempted(PluginCall call) {
+        Context ctx = getContext();
+        boolean exempted = false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+            exempted = pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+        } else {
+            exempted = true; // pre-Marshmallow: Doze doesn't apply
+        }
+        JSObject result = new JSObject();
+        result.put("exempted", exempted);
         call.resolve(result);
     }
 

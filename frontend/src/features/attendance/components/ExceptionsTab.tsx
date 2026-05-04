@@ -43,7 +43,7 @@ export default function ExceptionsTab({ selectedDate }: ExceptionsTabProps) {
     resolution: 'PENDING',
     page,
     limit: 20,
-  });
+  }, { pollingInterval: 60000 });
   const [resolveAnomaly] = useResolveAnomalyMutation();
 
   const anomalies = res?.data || [];

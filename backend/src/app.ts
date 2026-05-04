@@ -69,6 +69,7 @@ import { payrollDeletionRouter } from './modules/payroll-deletion/payroll-deleti
 import { profileEditRequestRouter } from './modules/profile-edit-request/profile-edit-request.routes.js';
 import { systemLogsRouter } from './modules/system-logs/system-logs.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
+import { crashReportRouter } from './modules/crash-report/crash-report.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
@@ -298,6 +299,7 @@ app.use('/api/employee-deletion-requests', employeeDeletionRouter);
 app.use('/api/payroll-deletion-requests', payrollDeletionRouter);
 app.use('/api/profile-edit-requests', profileEditRequestRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/crash-reports', crashReportRouter);
 
 // ── Native app downloads — APK served directly ────────────────────────────────
 // Place aniston-hrms.apk in backend/downloads/ and it becomes available at

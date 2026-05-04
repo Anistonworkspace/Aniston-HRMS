@@ -59,11 +59,11 @@ export default function CommandCenter() {
   // KPI-only filters that must NOT go into the filters object (FilterToolbar crashes on non-string values)
   const [kpiFilter, setKpiFilter] = useState<{ isLate?: boolean; workMode?: string } | null>(null);
 
-  // Stats query
-  const { data: statsRes, isLoading: statsLoading } = useGetCommandCenterStatsQuery({ date: filters.date });
+  // Stats query — poll every 30s for live KPI updates
+  const { data: statsRes, isLoading: statsLoading } = useGetCommandCenterStatsQuery({ date: filters.date }, { pollingInterval: 30000 });
   const stats = statsRes?.data;
 
-  // Records query
+  // Records query — poll every 15s so check-ins/outs reflect quickly
   const { data: recordsRes, isLoading: recordsLoading, refetch } = useGetEnhancedAttendanceQuery({
     page,
     limit: 30,
@@ -80,7 +80,7 @@ export default function CommandCenter() {
     sortBy: sortBy || undefined,
     sortOrder: sortOrder || undefined,
     isLate: kpiFilter?.isLate || undefined,
-  });
+  }, { pollingInterval: 15000 });
   const records = recordsRes?.data || [];
   const meta = recordsRes?.meta;
 

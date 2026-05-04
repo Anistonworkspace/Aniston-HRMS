@@ -169,6 +169,7 @@ export const api = createApi({
     'DocumentTemplates',
     'DocumentOcr',
     'GPSTrail',
+    'CrashReport',
   ],
   endpoints: () => ({}),
 });

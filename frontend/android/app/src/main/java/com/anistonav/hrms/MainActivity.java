@@ -13,7 +13,14 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(GpsTrackingPlugin.class);
+        registerPlugin(CrashReporterPlugin.class);
+        registerPlugin(InAppUpdatePlugin.class);
+        registerPlugin(NetworkQualityPlugin.class);
+        registerPlugin(BiometricPlugin.class);
+        registerPlugin(ShiftReminderPlugin.class);
         super.onCreate(savedInstanceState);
+        // Schedule GPS watchdog (no-op if already scheduled; KEEP policy prevents duplicates)
+        GpsWatchdogWorker.schedule(this);
         // Cold-start path: app was fully killed when user tapped the GPS notification.
         // onCreate() is called instead of onNewIntent(), so we read the launch intent here.
         // Delay is required — the Capacitor bridge and WebView need a moment to initialise

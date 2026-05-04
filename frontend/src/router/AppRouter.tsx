@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppUpdateGuard from '../features/app-update/AppUpdateGuard';
+import AppUpdateChecker from '../components/pwa/AppUpdateChecker';
+import BiometricLockGuard from '../components/security/BiometricLockGuard';
 import AppShell from '../components/layout/AppShell';
 import ProtectedRoute from './ProtectedRoute';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -147,6 +149,8 @@ export default function AppRouter() {
     <BrowserRouter>
       <AuthHydrator>
       <AppUpdateGuard>
+      <AppUpdateChecker />
+      <BiometricLockGuard>
       <ErrorBoundary>
       <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -239,6 +243,7 @@ export default function AppRouter() {
         </Routes>
       </Suspense>
       </ErrorBoundary>
+      </BiometricLockGuard>
       </AppUpdateGuard>
       </AuthHydrator>
     </BrowserRouter>

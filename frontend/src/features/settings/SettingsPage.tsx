@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, Shield, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText } from 'lucide-react';
+import { Settings, Building2, Shield, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText, Bug } from 'lucide-react';
 import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation } from './settingsApi';
 import { useGetAgentDownloadStatusQuery } from '../attendance/attendanceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
@@ -18,9 +18,10 @@ import DatabaseBackupTab from './DatabaseBackupTab';
 import DeletionRequestsTab from './DeletionRequestsTab';
 import SystemLogsTab from './SystemLogsTab';
 import PasswordResetTab from './PasswordResetTab';
+import CrashReportsTab from './CrashReportsTab';
 // LeaveSettingsTab removed — leave type management is now in Leave Management page
 
-type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates';
+type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates' | 'crash-reports';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -30,7 +31,7 @@ export default function SettingsPage() {
   const isHR = user?.role === 'HR';
 
   // Tabs visible to ADMIN system account only
-  const ADMIN_VISIBLE_TABS: Tab[] = ['organization', 'email', 'roles', 'api-integration', 'ai-config', 'agent-setup', 'audit', 'system', 'database-backup', 'system-logs'];
+  const ADMIN_VISIBLE_TABS: Tab[] = ['organization', 'email', 'roles', 'api-integration', 'ai-config', 'agent-setup', 'audit', 'system', 'database-backup', 'system-logs', 'crash-reports'];
   // Tabs visible to HR users only
   const HR_VISIBLE_TABS: Tab[] = ['organization', 'email', 'whatsapp', 'password-reset'];
 
@@ -72,6 +73,7 @@ export default function SettingsPage() {
     { key: 'database-backup', label: 'Database Backup', icon: Database },
     { key: 'deletion-requests', label: 'Deletion Requests', icon: UserMinus },
     { key: 'system-logs', label: 'System Logs', icon: Terminal },
+    { key: 'crash-reports', label: 'Crash Reports', icon: Bug },
   ];
 
   const tabs = isSuperAdmin
@@ -141,6 +143,7 @@ export default function SettingsPage() {
             {activeTab === 'database-backup' && <DatabaseBackupTab />}
             {activeTab === 'deletion-requests' && isSuperAdmin && <DeletionRequestsTab />}
             {activeTab === 'system-logs'       && isSuperAdmin && <SystemLogsTab />}
+            {activeTab === 'crash-reports'     && (isSuperAdmin || isAdmin) && <CrashReportsTab />}
           </div>
         </div>
       </div>
