@@ -387,8 +387,9 @@ export class DashboardService {
     today.setHours(0, 0, 0, 0);
     const now = new Date();
 
-    // Work-eligible employees — same scope as attendance records (ACTIVE + PROBATION + INTERN can all mark attendance)
-    const WORK_STATUSES: EmployeeStatus[] = [EmployeeStatus.ACTIVE, EmployeeStatus.PROBATION, EmployeeStatus.INTERN];
+    // Work-eligible employees — must exactly match attendance command center scope
+    // NOTICE_PERIOD employees still mark attendance during their notice period
+    const WORK_STATUSES: EmployeeStatus[] = [EmployeeStatus.ACTIVE, EmployeeStatus.PROBATION, EmployeeStatus.INTERN, EmployeeStatus.NOTICE_PERIOD];
     const activeCount = await prisma.employee.count({
       where: { organizationId, status: { in: WORK_STATUSES }, deletedAt: null, isSystemAccount: { not: true } },
     });
