@@ -47,6 +47,10 @@ router.get('/geo-locations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Ro
 router.patch('/location-visits/:id/name', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => attendanceController.updateLocationVisitName(req, res, next)
 );
+// Employee tags a stop manually from their current position during field tracking
+router.post('/tag-stop', requireEmpPerm('canMarkAttendance'),
+  (req, res, next) => attendanceController.tagStop(req, res, next)
+);
 
 // Regularization
 router.post('/regularization', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.submitRegularization(req, res, next));

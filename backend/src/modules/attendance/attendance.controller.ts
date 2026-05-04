@@ -371,6 +371,25 @@ export class AttendanceController {
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+
+  async tagStop(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = req.user!.employeeId;
+      if (!employeeId) {
+        res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const { lat, lng, name, timestamp } = req.body;
+      if (!lat || !lng || !name || typeof name !== 'string') {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'lat, lng, and name are required' } });
+        return;
+      }
+      const result = await attendanceService.tagStop(employeeId, req.user!.organizationId, {
+        lat: Number(lat), lng: Number(lng), name: name.trim(), timestamp,
+      });
+      res.status(201).json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const attendanceController = new AttendanceController();

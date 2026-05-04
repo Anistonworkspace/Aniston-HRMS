@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { MapPin, Clock, Edit2, Check, X, Navigation, AlertTriangle, Search, ChevronLeft, ChevronRight, Map } from 'lucide-react';
-import { useGetGeoLocationsQuery, useUpdateLocationVisitNameMutation } from '../attendanceApi';
+import { MapPin, Clock, Edit2, Check, X, Navigation, AlertTriangle, Search, ChevronLeft, ChevronRight, Map, Activity, User } from 'lucide-react';
+import { useGetGeoLocationsQuery, useUpdateLocationVisitNameMutation, useGetEmployeeGPSTrailQuery } from '../attendanceApi';
 import { cn, formatDate } from '../../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 import toast from 'react-hot-toast';
 
 const MiniMap = lazy(() => import('./GeoLocationMiniMap'));
+const MapSection = lazy(() => import('./MapSection'));
 
 function fmtTime(ts: any): string {
   if (!ts) return '--';
@@ -17,6 +18,117 @@ function fmtDur(mins: number): string {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
+// ── Employee trail modal ─────────────────────────────────────────────────────
+function EmployeeTrailModal({ employee, date, onClose }: {
+  employee: { id: string; firstName: string; lastName: string; employeeCode: string };
+  date: string;
+  onClose: () => void;
+}) {
+  const { data: trailData, isLoading } = useGetEmployeeGPSTrailQuery({ employeeId: employee.id, date });
+  const trail = trailData?.data;
+  const gpsPoints = trail?.points ?? [];
+  const gpsVisits = trail?.visits ?? [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-[10px] font-bold text-indigo-700">
+                {employee.firstName[0]}{employee.lastName[0]}
+              </span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">{employee.firstName} {employee.lastName}</p>
+              <p className="text-[10px] text-gray-400">{employee.employeeCode} · {formatDate(date)}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
+            <X size={15} className="text-gray-500" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : gpsPoints.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-2">
+              <Activity size={28} className="text-gray-300" />
+              <p className="text-sm text-gray-500">No GPS trail found for this date</p>
+            </div>
+          ) : (
+            <div className="p-4 space-y-4">
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-indigo-50 rounded-xl px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-indigo-600 font-mono" data-mono>{gpsPoints.length}</p>
+                  <p className="text-[9px] text-gray-500">GPS Points</p>
+                </div>
+                <div className="bg-emerald-50 rounded-xl px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-emerald-600 font-mono" data-mono>{gpsVisits.length}</p>
+                  <p className="text-[9px] text-gray-500">Stops</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-amber-600 font-mono" data-mono>
+                    {gpsVisits.filter((v: any) => v.isSignificant).length}
+                  </p>
+                  <p className="text-[9px] text-gray-500">Named Stops</p>
+                </div>
+              </div>
+
+              {/* Map with full trail */}
+              <Suspense fallback={<div className="h-64 bg-gray-50 rounded-xl animate-pulse" />}>
+                <MapSection
+                  checkInLoc={null}
+                  geofenceCoords={null}
+                  geofence={null}
+                  shiftType="FIELD"
+                  gpsTrail={gpsPoints}
+                  gpsVisits={gpsVisits}
+                  selectedDate={date}
+                />
+              </Suspense>
+
+              {/* Named stops list */}
+              {gpsVisits.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                    <Navigation size={10} className="text-orange-400" /> Location Stops
+                  </p>
+                  <div className="space-y-1.5">
+                    {gpsVisits.map((v: any, i: number) => (
+                      <div key={v.id ?? i} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2 text-[11px]">
+                        <div className={cn('w-2 h-2 rounded-full flex-shrink-0', v.isSignificant ? 'bg-red-400' : 'bg-orange-400')} />
+                        <span className={cn('flex-1 font-medium truncate', v.customName ? 'text-gray-800' : v.locationName ? 'text-gray-700' : 'text-gray-400 italic')}>
+                          {v.customName || v.locationName || 'Unnamed Stop'}
+                        </span>
+                        {v.customName && (
+                          <span className="text-[8px] bg-green-50 text-green-600 border border-green-200 rounded px-1 flex-shrink-0">custom</span>
+                        )}
+                        <span className="text-gray-400 flex-shrink-0">{fmtTime(v.arrivalTime)}</span>
+                        <span className={cn('font-semibold font-mono flex-shrink-0', v.isSignificant ? 'text-red-600' : 'text-orange-600')} data-mono>
+                          {fmtDur(v.durationMinutes)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function GeoLocationsTab() {
   const today = new Date().toISOString().split('T')[0];
   const [startDate, setStartDate] = useState(today);
@@ -26,12 +138,11 @@ export default function GeoLocationsTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [mapPreview, setMapPreview] = useState<{ lat: number; lng: number; name: string } | null>(null);
+  const [trailModal, setTrailModal] = useState<{ employee: any; date: string } | null>(null);
 
   const { data, isLoading, refetch } = useGetGeoLocationsQuery({ startDate, endDate, page, limit: 30 });
   const [updateName] = useUpdateLocationVisitNameMutation();
 
-  // Live refresh: when a field employee uploads a GPS batch the backend emits
-  // gps:trail-updated via Socket.io — refetch so the table updates in real-time
   const refetchRef = useRef(refetch);
   refetchRef.current = refetch;
   useEffect(() => {
@@ -92,7 +203,7 @@ export default function GeoLocationsTab() {
         </div>
       </div>
 
-      {/* Map Preview Modal */}
+      {/* Map Preview Modal (single point) */}
       {mapPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMapPreview(null)} />
@@ -116,6 +227,15 @@ export default function GeoLocationsTab() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Employee Trail Modal */}
+      {trailModal && (
+        <EmployeeTrailModal
+          employee={trailModal.employee}
+          date={trailModal.date}
+          onClose={() => setTrailModal(null)}
+        />
       )}
 
       {/* Table */}
@@ -156,21 +276,31 @@ export default function GeoLocationsTab() {
                     const displayName = v.customName || v.locationName || 'Unnamed Location';
                     const isEditing = editingId === v.id;
                     const isSignificant = v.isSignificant;
+                    const visitDate = v.attendance?.date ? v.attendance.date.split('T')[0] : today;
 
                     return (
                       <tr key={v.id} className="border-b border-gray-50 hover:bg-surface-2 transition-colors">
                         <td className="px-4 py-2">
-                          <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => emp && setTrailModal({ employee: emp, date: visitDate })}
+                            className="flex items-center gap-2 group text-left"
+                            title="Click to view full GPS trail"
+                          >
                             <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
                               <span className="text-[9px] font-bold text-green-700">
                                 {emp ? `${emp.firstName?.[0]}${emp.lastName?.[0]}` : '?'}
                               </span>
                             </div>
                             <div>
-                              <p className="font-medium text-gray-800">{emp ? `${emp.firstName} ${emp.lastName}` : '—'}</p>
-                              <p className="text-[9px] text-gray-400">{emp?.employeeCode}</p>
+                              <p className="font-medium text-gray-800 group-hover:text-indigo-600 transition-colors">
+                                {emp ? `${emp.firstName} ${emp.lastName}` : '—'}
+                              </p>
+                              <p className="text-[9px] text-gray-400 flex items-center gap-0.5">
+                                {emp?.employeeCode}
+                                {emp && <Activity size={7} className="text-indigo-400 ml-0.5" />}
+                              </p>
                             </div>
-                          </div>
+                          </button>
                         </td>
                         <td className="px-4 py-2 text-gray-600">
                           {v.attendance?.date ? formatDate(v.attendance.date) : '—'}
@@ -217,7 +347,7 @@ export default function GeoLocationsTab() {
                         <td className="px-4 py-2">
                           <div className="flex items-center gap-1">
                             <button
-                              onClick={() => setMapPreview({ lat: v.latitude, lng: v.longitude, name: displayName })}
+                              onClick={() => setMapPreview({ lat: Number(v.latitude), lng: Number(v.longitude), name: displayName })}
                               className="p-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors"
                               title="View on map"
                             >
@@ -277,7 +407,11 @@ export default function GeoLocationsTab() {
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[8px] bg-green-50 text-green-600 border border-green-200 rounded px-1">custom</span>
-            <span>Name edited by HR</span>
+            <span>Name edited by HR or tagged by employee</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Activity size={10} className="text-indigo-400" />
+            <span>Click employee name to view full GPS trail on map</span>
           </div>
         </div>
       </div>

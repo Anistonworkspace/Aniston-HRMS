@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Sparkles, Share, Plus, WifiOff, RefreshCw } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 
 /**
  * PWAUpdatePrompt — lightweight ambient PWA helpers.
@@ -71,6 +72,9 @@ function InstallHint() {
   const timerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // ── 0. Never show inside native APK — app is already installed ───
+    if (Capacitor.isNativePlatform()) return;
+
     // ── 1. Skip if already installed (running as standalone PWA) ──────
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||

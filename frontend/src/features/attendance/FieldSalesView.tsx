@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle, Tag, X, Flag } from 'lucide-react';
-import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery, useGpsAlertMutation, useGpsHeartbeatMutation, useGpsTrackingStopMutation } from './attendanceApi';
+import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery, useGpsAlertMutation, useGpsHeartbeatMutation, useGpsTrackingStopMutation, useTagStopMutation } from './attendanceApi';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import {
   isNative,
@@ -25,6 +25,9 @@ const GPS_CONSENT_VERSION = 'v1';
 
 /** Key to track if battery optimization prompt was shown this session */
 const BATTERY_PROMPT_KEY = 'aniston_battery_prompt_dismissed';
+
+/** Key persisted once location permission was confirmed granted (avoids re-prompting) */
+const LOCATION_PERM_GRANTED_KEY = 'aniston_location_perm_granted';
 
 const isIOS = isNativeIOS || (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream);
 const isPWA = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
@@ -107,6 +110,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [gpsLostAt, setGpsLostAt] = useState<number | null>(null);
   const [gpsPauseNote, setGpsPauseNote] = useState('');
   const [showConsentDialog, setShowConsentDialog] = useState(false);
+  const [showLocationDenied, setShowLocationDenied] = useState(false);
   const [showBatteryPrompt, setShowBatteryPrompt] = useState(false);
   const [syncFailed, setSyncFailed] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(bufferRef.current.length);
@@ -129,6 +133,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [clockOut, { isLoading: isClockingOut }] = useClockOutMutation();
   const [storeTrail] = useStoreGPSTrailMutation();
   const [recordConsent, { isLoading: isConsenting }] = useRecordGPSConsentMutation();
+  const [tagStop, { isLoading: isTagging }] = useTagStopMutation();
   const { data: consentRes } = useGetGPSConsentStatusQuery();
   const consentData = consentRes?.data;
   const [sendGpsAlert] = useGpsAlertMutation();
@@ -237,6 +242,52 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     };
   }, []);
 
+  // Smart location permission check — only show the "Enable Location Access" popup
+  // when the device location is genuinely denied/unavailable. Once granted, persist
+  // in localStorage so the prompt never shows again unless permission is revoked.
+  useEffect(() => {
+    if (!isNative) return;
+    // Already confirmed granted this install? Skip the async check.
+    const alreadyGranted = localStorage.getItem(LOCATION_PERM_GRANTED_KEY);
+    if (alreadyGranted) { setShowLocationDenied(false); return; }
+
+    import('@capacitor/geolocation').then(({ Geolocation }) => {
+      Geolocation.checkPermissions().then(status => {
+        const granted = status.location === 'granted' || status.coarseLocation === 'granted';
+        if (granted) {
+          localStorage.setItem(LOCATION_PERM_GRANTED_KEY, '1');
+          setShowLocationDenied(false);
+        } else {
+          setShowLocationDenied(true);
+        }
+      }).catch(() => {
+        // Can't check — don't show popup, try anyway when they start tracking
+      });
+    });
+  }, []);
+
+  // When app resumes (AppState change), re-check if permission was just granted
+  useEffect(() => {
+    if (!isNative) return;
+    const recheckOnResume = () => {
+      import('@capacitor/geolocation').then(({ Geolocation }) => {
+        Geolocation.checkPermissions().then(status => {
+          const granted = status.location === 'granted' || status.coarseLocation === 'granted';
+          if (granted) {
+            localStorage.setItem(LOCATION_PERM_GRANTED_KEY, '1');
+            setShowLocationDenied(false);
+          }
+        }).catch(() => {});
+      });
+    };
+    document.addEventListener('resume', recheckOnResume);
+    document.addEventListener('visibilitychange', recheckOnResume);
+    return () => {
+      document.removeEventListener('resume', recheckOnResume);
+      document.removeEventListener('visibilitychange', recheckOnResume);
+    };
+  }, []);
+
   // Sync buffered points when online — with retry limit and localStorage persistence
   const syncPoints = useCallback(async () => {
     if (bufferRef.current.length === 0) return;
@@ -340,9 +391,12 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     if (isNative) {
       const granted = await requestNativePermissions();
       if (!granted) {
-        toast.error('Location permission is required for field tracking.');
+        setShowLocationDenied(true);
         return;
       }
+      // Permission confirmed — persist so we never show the prompt again unless revoked
+      localStorage.setItem(LOCATION_PERM_GRANTED_KEY, '1');
+      setShowLocationDenied(false);
       if (isNativeAndroid) {
         toast('Background location granted — GPS tracks even when screen is off.', { icon: '📍', duration: 4000 });
       }
@@ -741,6 +795,51 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         )}
       </AnimatePresence>
 
+      {/* ── Location Permission Denied Popup (only when GPS is actually off) ── */}
+      <AnimatePresence>
+        {showLocationDenied && isNativeAndroid && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center"
+            >
+              <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Shield className="w-8 h-8 text-indigo-500" />
+              </div>
+              <h3 className="font-display font-bold text-gray-900 text-lg mb-2">Enable Location Access</h3>
+              <p className="text-sm text-gray-500 mb-6">
+                Location permission is required for field sales GPS tracking. Please enable location access in your device settings to continue.
+              </p>
+              <button
+                onClick={async () => {
+                  try {
+                    const granted = await requestNativePermissions();
+                    if (granted) {
+                      localStorage.setItem(LOCATION_PERM_GRANTED_KEY, '1');
+                      setShowLocationDenied(false);
+                    } else {
+                      // Guide user to settings
+                      const { App } = await import('@capacitor/app');
+                      (App as any).openUrl?.({ url: 'app-settings:' }).catch(() => {});
+                    }
+                  } catch { /* ok */ }
+                }}
+                className="w-full py-3 rounded-xl bg-indigo-600 text-white font-semibold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors"
+              >
+                <Navigation className="w-4 h-4" /> Enable Location Access
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Battery Optimization Prompt (Android only, once per week) ─────── */}
       <AnimatePresence>
         {showBatteryPrompt && isNativeAndroid && (
@@ -1017,7 +1116,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
             </span>
           </div>
 
-          {/* Stop labeling — employee can tag current stop */}
+          {/* Stop labeling — employee can tag current stop with custom name */}
           {isTracking && !showStopLabel && (
             <button
               onClick={() => setShowStopLabel(true)}
@@ -1028,26 +1127,35 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           )}
           {isTracking && showStopLabel && (
             <div className="flex items-center gap-2">
-              <select
+              <input
+                type="text"
                 value={pendingStopLabel}
                 onChange={e => setPendingStopLabel(e.target.value)}
-                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-brand-400"
-              >
-                <option value="">Select stop type…</option>
-                <option value="Client Visit">🏢 Client Visit</option>
-                <option value="Petrol Stop">⛽ Petrol Stop</option>
-                <option value="Lunch">🍽️ Lunch</option>
-                <option value="Office Visit">🏬 Office Visit</option>
-                <option value="Other">📍 Other</option>
-              </select>
-              <button
-                onClick={() => {
-                  if (pendingStopLabel) toast.success(`Stop tagged: ${pendingStopLabel}`, { icon: '📍' });
-                  setShowStopLabel(false);
-                  setPendingStopLabel('');
+                onKeyDown={async e => {
+                  if (e.key === 'Enter' && pendingStopLabel.trim() && currentPos) {
+                    try {
+                      await tagStop({ lat: currentPos.lat, lng: currentPos.lng, name: pendingStopLabel.trim(), timestamp: new Date(currentPos.timestamp).toISOString() }).unwrap();
+                      toast.success(`Stop saved: ${pendingStopLabel.trim()}`, { icon: '📍' });
+                    } catch { toast.error('Failed to save stop'); }
+                    setShowStopLabel(false); setPendingStopLabel('');
+                  }
                 }}
-                className="text-xs bg-indigo-600 text-white px-2.5 py-1 rounded-lg hover:bg-indigo-700 transition-colors"
-              >Save</button>
+                placeholder="e.g. Client Visit, Lunch…"
+                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-brand-400 bg-white"
+                autoFocus
+              />
+              <button
+                disabled={isTagging || !pendingStopLabel.trim()}
+                onClick={async () => {
+                  if (!pendingStopLabel.trim() || !currentPos) return;
+                  try {
+                    await tagStop({ lat: currentPos.lat, lng: currentPos.lng, name: pendingStopLabel.trim(), timestamp: new Date(currentPos.timestamp).toISOString() }).unwrap();
+                    toast.success(`Stop saved: ${pendingStopLabel.trim()}`, { icon: '📍' });
+                  } catch { toast.error('Failed to save stop'); }
+                  setShowStopLabel(false); setPendingStopLabel('');
+                }}
+                className="text-xs bg-indigo-600 text-white px-2.5 py-1 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >{isTagging ? '…' : 'Save'}</button>
               <button onClick={() => { setShowStopLabel(false); setPendingStopLabel(''); }}
                 className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
             </div>

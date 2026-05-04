@@ -431,6 +431,11 @@ export const attendanceApi = api.injectEndpoints({
     gpsAlert: builder.mutation<any, { alertType: 'PERMISSION_REVOKED' | 'FORCE_STOPPED' }>({
       query: (body) => ({ url: '/attendance/gps-alert', method: 'POST', body }),
     }),
+
+    tagStop: builder.mutation<any, { lat: number; lng: number; name: string; timestamp?: string }>({
+      query: (body) => ({ url: '/attendance/tag-stop', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -505,4 +510,5 @@ export const {
   useGpsHeartbeatMutation,
   useGpsTrackingStopMutation,
   useGpsAlertMutation,
+  useTagStopMutation,
 } = attendanceApi;

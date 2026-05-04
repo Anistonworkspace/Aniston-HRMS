@@ -13,9 +13,11 @@ if (Capacitor.isNativePlatform()) {
 // ===== PWA Install Prompt — capture BEFORE any lazy routes load =====
 // beforeinstallprompt fires once during page load. DownloadPage is lazy-loaded,
 // so its own listener would miss it. We capture here and store on window.
+// Suppress entirely inside the native APK — users already have the app.
 (window as any).__pwaInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
+  if (Capacitor.isNativePlatform()) return; // inside APK — never show PWA install banner
   (window as any).__pwaInstallPrompt = e;
   window.dispatchEvent(new Event('pwa-prompt-ready'));
 });

@@ -1867,6 +1867,54 @@ export class AttendanceService {
     };
   }
 
+  async tagStop(employeeId: string, organizationId: string, data: { lat: number; lng: number; name: string; timestamp?: string }) {
+    const today = getISTToday();
+    const attendance = await prisma.attendanceRecord.findUnique({
+      where: { employeeId_date: { employeeId, date: today } },
+      select: { id: true },
+    });
+    if (!attendance) throw new BadRequestError('No attendance record for today. Please check in first.');
+
+    const arrivalTime = data.timestamp ? new Date(data.timestamp) : new Date();
+
+    // Upsert: if a visit already exists within 200m of this point, update its name; else create new
+    const nearby = await prisma.locationVisit.findFirst({
+      where: {
+        attendanceId: attendance.id,
+        organizationId,
+        latitude: { gte: data.lat - 0.002, lte: data.lat + 0.002 },
+        longitude: { gte: data.lng - 0.002, lte: data.lng + 0.002 },
+      },
+    });
+
+    let visit: any;
+    if (nearby) {
+      visit = await prisma.locationVisit.update({
+        where: { id: nearby.id },
+        data: { customName: data.name },
+      });
+    } else {
+      visit = await prisma.locationVisit.create({
+        data: {
+          attendanceId: attendance.id,
+          organizationId,
+          latitude: data.lat,
+          longitude: data.lng,
+          arrivalTime,
+          departureTime: arrivalTime,
+          durationMinutes: 0,
+          isSignificant: false,
+          customName: data.name,
+        },
+      });
+    }
+
+    // Emit so Geo Locations tab refreshes live
+    emitToOrg(organizationId, 'gps:trail-updated', { employeeId });
+
+    return visit;
+  }
+
   async updateLocationVisitName(id: string, customName: string, organizationId: string, userId: string) {
     const visit = await prisma.locationVisit.findFirst({ where: { id, organizationId } });
     if (!visit) throw new NotFoundError('Location visit');
