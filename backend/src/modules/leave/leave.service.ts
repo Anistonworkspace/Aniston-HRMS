@@ -944,6 +944,7 @@ export class LeaveService {
     return prisma.holiday.findMany({
       where: {
         organizationId,
+        deletedAt: null,
         date: {
           gte: new Date(currentYear, 0, 1),
           lte: new Date(currentYear, 11, 31),

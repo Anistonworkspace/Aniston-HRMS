@@ -45,8 +45,6 @@ export class HolidayService {
         isOptional: data.isOptional || false,
         isHalfDay: data.isHalfDay || false,
         halfDaySession: data.halfDaySession || null,
-        startTime: data.startTime || null,
-        endTime: data.endTime || null,
         description: data.description || null,
         color: data.color || null,
         notifyEmployees: data.notifyEmployees ?? true,
@@ -96,8 +94,6 @@ export class HolidayService {
     if (data.isOptional !== undefined) updateData.isOptional = data.isOptional;
     if (data.isHalfDay !== undefined) updateData.isHalfDay = data.isHalfDay;
     if (data.halfDaySession !== undefined) updateData.halfDaySession = data.halfDaySession;
-    if (data.startTime !== undefined) updateData.startTime = data.startTime;
-    if (data.endTime !== undefined) updateData.endTime = data.endTime;
     if (data.description !== undefined) updateData.description = data.description;
     if (data.color !== undefined) updateData.color = data.color;
 
@@ -127,7 +123,7 @@ export class HolidayService {
       { name: 'Maha Shivaratri', date: `${year}-02-26`, type: 'PUBLIC', description: 'Hindu festival honoring Lord Shiva.' },
       { name: 'Holi', date: `${year}-03-14`, type: 'PUBLIC', description: 'Festival of colors celebrating the triumph of good over evil.' },
       { name: 'Good Friday', date: `${year}-04-18`, type: 'OPTIONAL', description: 'Christian holiday commemorating the crucifixion of Jesus Christ.' },
-      { name: 'Eid ul-Fitr', date: `${year}-03-31`, type: 'PUBLIC', description: 'Islamic festival marking the end of Ramadan.' },
+      { name: 'Eid ul-Fitr', date: `${year}-03-30`, type: 'PUBLIC', description: 'Islamic festival marking the end of Ramadan.' },
       { name: 'Dr. B.R. Ambedkar Jayanti', date: `${year}-04-14`, type: 'PUBLIC', description: 'Birth anniversary of Dr. B.R. Ambedkar, architect of Indian Constitution.' },
       { name: 'May Day / Labour Day', date: `${year}-05-01`, type: 'OPTIONAL', description: 'International Workers Day celebrating labour rights.' },
       { name: 'Buddha Purnima', date: `${year}-05-12`, type: 'OPTIONAL', description: 'Celebrates the birth, enlightenment, and death of Gautama Buddha.' },
@@ -137,7 +133,7 @@ export class HolidayService {
       { name: 'Janmashtami', date: `${year}-08-16`, type: 'OPTIONAL', description: 'Hindu festival celebrating the birth of Lord Krishna.' },
       { name: 'Milad-un-Nabi', date: `${year}-09-05`, type: 'OPTIONAL', description: 'Celebrates the birthday of Prophet Muhammad.' },
       { name: 'Mahatma Gandhi Jayanti', date: `${year}-10-02`, type: 'PUBLIC', description: 'Birth anniversary of Mahatma Gandhi, Father of the Nation.' },
-      { name: 'Dussehra / Vijaya Dashami', date: `${year}-10-02`, type: 'PUBLIC', description: 'Hindu festival celebrating the victory of Lord Rama over Ravana.' },
+      { name: 'Dussehra / Vijaya Dashami', date: `${year}-10-03`, type: 'PUBLIC', description: 'Hindu festival celebrating the victory of Lord Rama over Ravana.' },
       { name: 'Diwali', date: `${year}-10-20`, type: 'PUBLIC', description: 'Festival of lights celebrating the triumph of light over darkness.' },
       { name: 'Bhai Dooj', date: `${year}-10-22`, type: 'OPTIONAL', description: 'Festival celebrating the bond between brothers and sisters.' },
       { name: 'Guru Nanak Jayanti', date: `${year}-11-15`, type: 'OPTIONAL', description: 'Birth anniversary of Guru Nanak Dev, founder of Sikhism.' },

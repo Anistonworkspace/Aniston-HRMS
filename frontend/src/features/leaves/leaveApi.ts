@@ -61,7 +61,7 @@ export const leaveApi = api.injectEndpoints({
 
     getHolidays: builder.query<any, { year?: number }>({
       query: (params) => ({ url: '/leaves/holidays', params }),
-      providesTags: ['Leave'],
+      providesTags: ['Leave', 'Holiday'],
     }),
 
     createLeaveType: builder.mutation<any, any>({
@@ -82,19 +82,19 @@ export const leaveApi = api.injectEndpoints({
     // Holiday CRUD (via /api/holidays)
     createHoliday: builder.mutation<any, any>({
       query: (body) => ({ url: '/holidays', method: 'POST', body }),
-      invalidatesTags: ['Leave', 'Dashboard'],
+      invalidatesTags: ['Leave', 'Holiday', 'Dashboard'],
     }),
     bulkCreateHolidays: builder.mutation<any, { holidays: any[] }>({
       query: (body) => ({ url: '/holidays/bulk', method: 'POST', body }),
-      invalidatesTags: ['Leave', 'Dashboard'],
+      invalidatesTags: ['Leave', 'Holiday', 'Dashboard'],
     }),
     updateHoliday: builder.mutation<any, { id: string; data: any }>({
       query: ({ id, data }) => ({ url: `/holidays/${id}`, method: 'PATCH', body: data }),
-      invalidatesTags: ['Leave', 'Dashboard'],
+      invalidatesTags: ['Leave', 'Holiday', 'Dashboard'],
     }),
     deleteHoliday: builder.mutation<any, string>({
       query: (id) => ({ url: `/holidays/${id}`, method: 'DELETE' }),
-      invalidatesTags: ['Leave', 'Dashboard'],
+      invalidatesTags: ['Leave', 'Holiday', 'Dashboard'],
     }),
     getHolidaySuggestions: builder.query<any, { year?: number }>({
       query: (params) => ({ url: '/holidays/suggestions', params }),

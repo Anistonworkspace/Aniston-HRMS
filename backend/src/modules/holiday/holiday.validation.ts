@@ -7,8 +7,6 @@ export const createHolidaySchema = z.object({
   isOptional: z.boolean().default(false),
   isHalfDay: z.boolean().default(false),
   halfDaySession: z.enum(['FIRST_HALF', 'SECOND_HALF']).optional(),
-  startTime: z.string().optional(),  // e.g. "09:30"
-  endTime: z.string().optional(),    // e.g. "18:00"
   description: z.string().max(2000).optional(),
   color: z.string().max(10).optional(),
   notifyEmployees: z.boolean().default(true),

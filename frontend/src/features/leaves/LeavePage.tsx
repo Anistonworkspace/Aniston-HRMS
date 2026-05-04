@@ -850,8 +850,7 @@ function HolidayManagementTab() {
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
   const [form, setForm] = useState({
     name: '', date: '', type: 'PUBLIC', isOptional: false, isHalfDay: false,
-    halfDaySession: '', startTime: '', endTime: '', description: '', color: '',
-    notifyEmployees: true,
+    halfDaySession: '', description: '', notifyEmployees: true,
   });
 
   const holidays = holidaysRes?.data || [];
@@ -859,7 +858,7 @@ function HolidayManagementTab() {
 
   const resetForm = () => {
     setForm({ name: '', date: '', type: 'PUBLIC', isOptional: false, isHalfDay: false,
-      halfDaySession: '', startTime: '', endTime: '', description: '', color: '', notifyEmployees: true });
+      halfDaySession: '', description: '', notifyEmployees: true });
     setShowForm(false);
   };
 
@@ -1008,14 +1007,6 @@ function HolidayManagementTab() {
                     </select>
                   )}
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Start Time <span className="text-gray-400">(optional)</span></label>
-                  <input type="time" value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="input-glass w-full text-sm" placeholder="e.g. 09:30" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">End Time <span className="text-gray-400">(optional)</span></label>
-                  <input type="time" value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="input-glass w-full text-sm" placeholder="e.g. 18:00" />
-                </div>
                 <div className="flex items-end gap-2">
                   <label className="flex items-center gap-2 text-xs">
                     <input type="checkbox" checked={form.notifyEmployees} onChange={e => setForm(f => ({ ...f, notifyEmployees: e.target.checked }))} className="rounded" />
@@ -1075,7 +1066,7 @@ function HolidayManagementTab() {
                       {h.isOptional && <span className="ml-1 text-[10px] text-amber-500">(Optional)</span>}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
-                      {h.isHalfDay ? `Half Day (${h.halfDaySession === 'FIRST_HALF' ? '1st' : '2nd'} half)` : h.startTime ? `${h.startTime} — ${h.endTime}` : 'Full Day'}
+                      {h.isHalfDay ? `Half Day (${h.halfDaySession === 'FIRST_HALF' ? '1st' : '2nd'} half)` : 'Full Day'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button onClick={() => handleDelete(h.id, h.name)} className="text-xs text-red-500 hover:text-red-700">{t('common.delete')}</button>
