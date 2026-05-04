@@ -14,7 +14,7 @@ import {
   useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery,
   useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
   useGetAttendanceLogsQuery, useGetEmployeeAttendanceDetailQuery,
-  useGetAttendancePolicyQuery, useSubmitRegularizationMutation, useMarkAttendanceMutation,
+  useGetAttendancePolicyQuery, useSubmitRegularizationMutation, useMarkAttendanceMutation, useHandleRegularizationMutation,
 } from './attendanceApi';
 import { useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import toast from 'react-hot-toast';
@@ -89,6 +89,7 @@ export default function EmployeeAttendanceDetailPage() {
   const [regCheckIn, setRegCheckIn] = useState('');
   const [regCheckOut, setRegCheckOut] = useState('');
   const [submitRegularization, { isLoading: isSubmittingReg }] = useSubmitRegularizationMutation();
+  const [handleRegularization, { isLoading: isHandlingReg }] = useHandleRegularizationMutation();
 
   // Calendar manual marking popover
   const [markingDate, setMarkingDate] = useState<string | null>(null);
@@ -1003,7 +1004,7 @@ export default function EmployeeAttendanceDetailPage() {
         )}
       </Suspense>
 
-      {/* Regularize Modal */}
+      {/* Regularize Modal — HR sees approval panel, employee sees request form */}
       <AnimatePresence>
         {showRegularizeModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1011,9 +1012,11 @@ export default function EmployeeAttendanceDetailPage() {
             onClick={e => e.target === e.currentTarget && setShowRegularizeModal(false)}>
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
+
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-display font-semibold text-gray-900 flex items-center gap-2">
-                  <PenSquare size={15} className="text-brand-500" /> Regularization Request
+                  <PenSquare size={15} className="text-brand-500" />
+                  {isHR ? 'Regularization Requests' : 'Regularization Request'}
                 </h3>
                 <button onClick={() => setShowRegularizeModal(false)} className="p-1 rounded-lg hover:bg-gray-100">
                   <X size={15} />
@@ -1024,75 +1027,136 @@ export default function EmployeeAttendanceDetailPage() {
                 Date: <span className="font-medium text-gray-700">{selectedDate}</span>
               </p>
 
-              {/* Existing regularization requests for this date */}
-              {detail?.regularizations?.length > 0 && (
-                <div className="mb-4 space-y-1.5">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Existing Requests</p>
-                  {detail.regularizations.map((r: any) => (
-                    <div key={r.id} className="bg-surface-2 rounded-lg p-2.5 text-[11px]">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-gray-500">{formatDate(r.attendance?.date)}</span>
-                        <span className={cn('badge text-[9px]',
-                          r.status === 'PENDING' ? 'badge-warning' :
-                          r.status === 'APPROVED' ? 'badge-success' : 'badge-error'
-                        )}>{r.status}</span>
-                      </div>
-                      <p className="text-gray-600">{r.reason}</p>
-                      {r.requestedCheckIn && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          {formatTime(r.requestedCheckIn)} → {formatTime(r.requestedCheckOut)}
-                        </p>
-                      )}
+              {isHR ? (
+                /* ── HR / Admin view — approve or reject employee's requests ── */
+                <div className="space-y-2">
+                  {!detail?.regularizations?.length ? (
+                    <div className="text-center py-8">
+                      <FileText size={24} className="text-gray-200 mx-auto mb-2" />
+                      <p className="text-xs text-gray-400">No regularization requests for this date</p>
                     </div>
-                  ))}
+                  ) : (
+                    detail.regularizations.map((r: any) => (
+                      <div key={r.id} className="bg-surface-2 rounded-xl p-3 text-[11px]">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className={cn('badge text-[9px]',
+                            r.status === 'PENDING' ? 'badge-warning' :
+                            r.status === 'APPROVED' ? 'badge-success' : 'badge-error'
+                          )}>{r.status}</span>
+                          <span className="text-[10px] text-gray-400">{formatDate(r.attendance?.date)}</span>
+                        </div>
+                        <p className="text-gray-700 font-medium mb-1">{r.reason}</p>
+                        {r.requestedCheckIn && (
+                          <p className="text-[10px] text-gray-400 mb-2">
+                            Requested: {formatTime(r.requestedCheckIn)} → {formatTime(r.requestedCheckOut)}
+                          </p>
+                        )}
+                        {r.approverRemarks && (
+                          <p className="text-[10px] text-gray-400 italic mb-2">Remarks: {r.approverRemarks}</p>
+                        )}
+                        {r.status === 'PENDING' && (
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              disabled={isHandlingReg}
+                              onClick={async () => {
+                                try {
+                                  await handleRegularization({ id: r.id, action: 'APPROVED' }).unwrap();
+                                  toast.success('Regularization approved');
+                                } catch { toast.error('Failed to approve'); }
+                              }}
+                              className="flex-1 px-2.5 py-1.5 text-[10px] font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                              Approve
+                            </button>
+                            <button
+                              disabled={isHandlingReg}
+                              onClick={async () => {
+                                try {
+                                  await handleRegularization({ id: r.id, action: 'REJECTED' }).unwrap();
+                                  toast.success('Regularization rejected');
+                                } catch { toast.error('Failed to reject'); }
+                              }}
+                              className="flex-1 px-2.5 py-1.5 text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50">
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                  <button onClick={() => setShowRegularizeModal(false)}
+                    className="w-full mt-2 px-3 py-2 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                    Close
+                  </button>
+                </div>
+              ) : (
+                /* ── Employee view — submit a new regularization request ── */
+                <div className="space-y-3">
+                  {detail?.regularizations?.length > 0 && (
+                    <div className="mb-1 space-y-1.5">
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Existing Requests</p>
+                      {detail.regularizations.map((r: any) => (
+                        <div key={r.id} className="bg-surface-2 rounded-lg p-2.5 text-[11px]">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-gray-500">{formatDate(r.attendance?.date)}</span>
+                            <span className={cn('badge text-[9px]',
+                              r.status === 'PENDING' ? 'badge-warning' :
+                              r.status === 'APPROVED' ? 'badge-success' : 'badge-error'
+                            )}>{r.status}</span>
+                          </div>
+                          <p className="text-gray-600">{r.reason}</p>
+                          {r.requestedCheckIn && (
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              {formatTime(r.requestedCheckIn)} → {formatTime(r.requestedCheckOut)}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gray-500 font-medium">Requested Check-In</label>
+                      <input type="time" value={regCheckIn} onChange={e => setRegCheckIn(e.target.value)}
+                        className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500 font-medium">Requested Check-Out</label>
+                      <input type="time" value={regCheckOut} onChange={e => setRegCheckOut(e.target.value)}
+                        className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-medium">Reason <span className="text-red-400">*</span></label>
+                    <textarea value={regReason} onChange={e => setRegReason(e.target.value)} rows={3}
+                      placeholder="Explain why regularization is needed..."
+                      className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => setShowRegularizeModal(false)}
+                      className="flex-1 px-3 py-2 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                      Cancel
+                    </button>
+                    <button
+                      disabled={!regReason.trim() || isSubmittingReg}
+                      onClick={async () => {
+                        try {
+                          const toISO = (time: string) => time ? `${selectedDate}T${time}:00` : undefined;
+                          await submitRegularization({
+                            date: selectedDate,
+                            reason: regReason.trim(),
+                            requestedCheckIn: toISO(regCheckIn),
+                            requestedCheckOut: toISO(regCheckOut),
+                          }).unwrap();
+                          toast.success('Regularization request submitted');
+                          setShowRegularizeModal(false);
+                        } catch { toast.error('Failed to submit regularization'); }
+                      }}
+                      className="flex-1 px-3 py-2 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                      <CheckCircle size={11} /> Submit Request
+                    </button>
+                  </div>
                 </div>
               )}
-
-              {/* New request form */}
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-gray-500 font-medium">Requested Check-In</label>
-                    <input type="time" value={regCheckIn} onChange={e => setRegCheckIn(e.target.value)}
-                      className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-gray-500 font-medium">Requested Check-Out</label>
-                    <input type="time" value={regCheckOut} onChange={e => setRegCheckOut(e.target.value)}
-                      className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 font-medium">Reason <span className="text-red-400">*</span></label>
-                  <textarea value={regReason} onChange={e => setRegReason(e.target.value)} rows={3}
-                    placeholder="Explain why regularization is needed..."
-                    className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
-                </div>
-                <div className="flex gap-2 pt-1">
-                  <button onClick={() => setShowRegularizeModal(false)}
-                    className="flex-1 px-3 py-2 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
-                    Cancel
-                  </button>
-                  <button
-                    disabled={!regReason.trim() || isSubmittingReg}
-                    onClick={async () => {
-                      try {
-                        const toISO = (time: string) => time ? `${selectedDate}T${time}:00` : undefined;
-                        await submitRegularization({
-                          date: selectedDate,
-                          reason: regReason.trim(),
-                          requestedCheckIn: toISO(regCheckIn),
-                          requestedCheckOut: toISO(regCheckOut),
-                        }).unwrap();
-                        toast.success('Regularization request submitted');
-                        setShowRegularizeModal(false);
-                      } catch { toast.error('Failed to submit regularization'); }
-                    }}
-                    className="flex-1 px-3 py-2 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
-                    <CheckCircle size={11} /> Submit Request
-                  </button>
-                </div>
-              </div>
             </motion.div>
           </motion.div>
         )}
