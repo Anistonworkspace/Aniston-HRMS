@@ -888,20 +888,25 @@ function AttendancePersonalView() {
     actionLockRef.current = true;
     let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
-      // FIELD shift on native Android: use Capacitor Geolocation plugin for faster, more reliable fix
-      if (isFieldShift && isNativeAndroid) {
+      if (isFieldShift) {
+        // FIELD shift: GPS is best-effort — try Capacitor first, then web, then proceed
+        // without coords. Backend does not require GPS for FIELD checkout.
         try {
-          const pos = await getCurrentPosition();
-          coords = { latitude: pos.lat, longitude: pos.lng, accuracy: pos.accuracy ?? 0, gpsTimestamp: new Date(pos.timestamp ?? Date.now()).toISOString() };
+          if (isNativeAndroid) {
+            const pos = await getCurrentPosition();
+            coords = { latitude: pos.lat, longitude: pos.lng, accuracy: pos.accuracy ?? 0, gpsTimestamp: new Date(pos.timestamp ?? Date.now()).toISOString() };
+          } else {
+            coords = await getGPS();
+          }
         } catch {
-          coords = await getGPS();
+          // GPS unavailable — proceed without coordinates (backend allows this for FIELD)
         }
       } else {
         coords = await getGPS();
+        if (coords === null) return; // OFFICE shift: GPS is mandatory, block if unavailable
       }
-      if (coords === null) return;
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-      await clockOut({ ...coords, deviceType }).unwrap();
+      await clockOut({ ...(coords ?? {}), deviceType }).unwrap();
       toast.success(t('attendance.checkedOut'));
       // FIELD shift: stop native background GPS service after successful clock-out
       if (isFieldShift && isNativeAndroid) {

@@ -221,6 +221,7 @@ export class AttendanceService {
     const effectiveWfh = isWfhShift || isHybridWfhDay;
 
     // ===== Location enforcement: OFFICE shift requires assigned location =====
+    // FIELD shift employees are never blocked by location config — they work everywhere.
     const assignedLocation = shiftAssignment?.location || employee.officeLocation;
     if (!effectiveWfh && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
       // Alert HR so they can fix the configuration — non-blocking
@@ -242,13 +243,8 @@ export class AttendanceService {
       );
     }
 
-    // GPS is also mandatory for FIELD shifts — field employees must share live location.
-    if (currentShiftType === 'FIELD' && (!data.latitude || !data.longitude)) {
-      throw new BadRequestError(
-        'Field sales employees must share their GPS location to mark attendance. ' +
-        'Please enable location services and ensure GPS has a signal before trying again.'
-      );
-    }
+    // FIELD shift: GPS is accepted when provided but never required — employee may be
+    // in a low-signal area. The native GPS service handles live tracking separately.
 
     // ===== PHASE 1.4: GPS spoofing detection — block if detected =====
     if (data.latitude && data.longitude) {
