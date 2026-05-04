@@ -11,14 +11,15 @@ function getISTToday(): Date {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   const ist = new Date(utc + IST_OFFSET_MS);
-  ist.setHours(0, 0, 0, 0);
-  return ist;
+  const y = ist.getUTCFullYear();
+  const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(ist.getUTCDate()).padStart(2, '0');
+  return new Date(`${y}-${m}-${day}T00:00:00.000Z`);
 }
 
 function getISTYesterday(): Date {
-  const d = getISTToday();
-  d.setDate(d.getDate() - 1);
-  return d;
+  const todayUTC = getISTToday();
+  return new Date(todayUTC.getTime() - 24 * 60 * 60 * 1000);
 }
 
 /**
@@ -433,6 +434,88 @@ async function gpsHeartbeatMonitor() {
   return { alerted };
 }
 
+/**
+ * Shift-end checkout reminder
+ * Runs every 15 min. For each org, finds employees whose shift ended 15 min ago
+ * and who are still clocked in (checkOut=null). Sends an in-app push notification.
+ */
+async function shiftEndCheckoutReminder() {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istNow = new Date(utc + IST_OFFSET_MS);
+  const currentISTMinutes = istNow.getHours() * 60 + istNow.getMinutes();
+
+  // Only run between 16:00 and 23:59 IST (shifts end in this window, no point running at 3am)
+  if (istNow.getHours() < 16) return { reminded: 0 };
+
+  const today = getISTToday();
+  logger.info(`[Shift Reminder] Running shift-end checkout reminder at IST ${istNow.toTimeString().slice(0, 5)}…`);
+
+  // Find all open attendance records for today that have not checked out
+  const openRecords = await prisma.attendanceRecord.findMany({
+    where: {
+      date: today,
+      checkIn: { not: null },
+      checkOut: null,
+    },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          organizationId: true,
+          userId: true,
+          shiftAssignments: {
+            where: {
+              startDate: { lte: today },
+              OR: [{ endDate: null }, { endDate: { gte: today } }],
+            },
+            include: { shift: { select: { endTime: true, name: true } } },
+            orderBy: { startDate: 'desc' },
+            take: 1,
+          },
+        },
+      },
+    },
+    take: 500,
+  });
+
+  let reminded = 0;
+  for (const record of openRecords) {
+    try {
+      const shift = record.employee.shiftAssignments?.[0]?.shift;
+      if (!shift) continue;
+      const [endH, endM] = shift.endTime.split(':').map(Number);
+      const shiftEndMinutes = endH * 60 + endM;
+      // Check if shift ended 10–30 minutes ago (narrow window to avoid repeat toasts)
+      const minutesSinceEnd = currentISTMinutes - shiftEndMinutes;
+      if (minutesSinceEnd < 10 || minutesSinceEnd > 30) continue;
+
+      // Deduplicate: only send once per employee per shift-end using Redis
+      const dedupKey = `shift-reminder:${record.employeeId}:${today.toISOString().split('T')[0]}`;
+      const alreadySent = await redis.exists(dedupKey);
+      if (alreadySent) continue;
+      await redis.set(dedupKey, '1', 'EX', 3600); // expire in 1h
+
+      if (record.employee.userId) {
+        await enqueueNotification({
+          userId: record.employee.userId,
+          organizationId: record.employee.organizationId,
+          type: 'ATTENDANCE',
+          title: 'Don\'t forget to check out!',
+          message: `Your shift (${shift.name}) ended at ${shift.endTime}. Please clock out to complete your attendance for today.`,
+          link: '/attendance',
+        });
+        reminded++;
+      }
+    } catch (err) {
+      logger.error(`[Shift Reminder] Failed for record ${record.id}:`, err);
+    }
+  }
+
+  logger.info(`[Shift Reminder] Sent ${reminded} checkout reminders.`);
+  return { reminded };
+}
+
 export function startAttendanceCronWorker() {
   const worker = new Worker(
     'attendance-cron',
@@ -446,6 +529,8 @@ export function startAttendanceCronWorker() {
           return autoDetectAnomalies();
         case 'gps-heartbeat-monitor':
           return gpsHeartbeatMonitor();
+        case 'shift-end-reminder':
+          return shiftEndCheckoutReminder();
         default:
           logger.warn(`[Attendance Cron] Unknown job name: ${job.name}`);
       }

@@ -78,6 +78,10 @@ logger.info('✅ BullMQ queues initialized');
     await attendanceCronQueue.add('gps-heartbeat-monitor', {}, {
       repeat: { every: 10 * 60 * 1000 }, // every 10 minutes
     });
+    // Shift-end checkout reminder — every 15 min between 16:00–23:59 IST
+    await attendanceCronQueue.add('shift-end-reminder', {}, {
+      repeat: { every: 15 * 60 * 1000 }, // every 15 minutes
+    });
     logger.info('✅ Attendance cron jobs scheduled');
   } catch (err) {
     logger.warn('Failed to schedule attendance cron jobs:', err);

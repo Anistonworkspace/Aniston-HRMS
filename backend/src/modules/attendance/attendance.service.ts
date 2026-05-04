@@ -42,7 +42,7 @@ function getISTYesterday(): Date {
 
 export class AttendanceService {
   // ===================== EDGE CASE CONSTANTS =====================
-  private readonly MAX_RECLOCKIN_PER_DAY = 0; // One check-in per day — re-clock-in not allowed
+  private readonly MAX_RECLOCKIN_PER_DAY = 2; // Allow up to 2 re-clock-ins per day (step-out & return)
   private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120; // warn if >2h before shift
   private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;    // flag if >2h after shift
   private readonly MAX_BREAK_PERCENT = 50;              // breaks can't exceed 50% of shift
@@ -330,10 +330,10 @@ export class AttendanceService {
       const graceEnd = new Date(shiftStart);
       graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
 
-      // ===== PHASE 3: Early clock-in — hard block if more than 30 min before shift start =====
+      // ===== PHASE 3: Early clock-in — hard block if more than 60 min before shift start =====
       if (!isReClockIn) {
         const earlyMin = Math.round((shiftStart.getTime() - istNow.getTime()) / 60000);
-        if (earlyMin > 30) {
+        if (earlyMin > 60) {
           // Format shift start as 12-hour time for the error message
           const fmtShift = (() => {
             const h = shiftHour; const m = shiftMin;
@@ -341,7 +341,7 @@ export class AttendanceService {
           })();
           throw new BadRequestError(
             `Check-in not allowed yet. Your shift (${shift.name}) starts at ${fmtShift}. ` +
-            `You can check in up to 30 minutes before your shift starts.`
+            `You can check in up to 60 minutes before your shift starts.`
           );
         }
       }
@@ -575,16 +575,26 @@ export class AttendanceService {
     }
 
     const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
+    let checkoutGeofenceViolation = false;
     if (!isWfhShiftCheckout && clockOutShiftType === 'OFFICE' && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
       if (!(data.accuracy && data.accuracy > 150)) {
         const gfCoords = geofenceForCheckout.coordinates as any;
         if (gfCoords?.lat && gfCoords?.lng) {
           const dist = this.haversineDistance(data.latitude, data.longitude, gfCoords.lat, gfCoords.lng);
           if (dist > geofenceForCheckout.radiusMeters) {
-            throw new BadRequestError(
-              `You are ${Math.round(dist)}m away from ${empStatus?.officeLocation?.name || 'office'}. ` +
-              `Maximum allowed: ${geofenceForCheckout.radiusMeters}m. Please move closer to the office to clock out.`
-            );
+            const istNowCO = getISTNow();
+            const istHour = istNowCO.getHours();
+            // After 20:00 IST allow remote clock-out but flag anomaly so HR sees it
+            if (istHour >= 20) {
+              checkoutGeofenceViolation = true;
+              logger.info(`[Attendance] Remote checkout allowed after 20:00 for ${employeeId} — ${Math.round(dist)}m from office`);
+            } else {
+              throw new BadRequestError(
+                `You are ${Math.round(dist)}m away from ${empStatus?.officeLocation?.name || 'office'}. ` +
+                `Maximum allowed: ${geofenceForCheckout.radiusMeters}m. Please move closer to the office to clock out, ` +
+                `or wait until after 8:00 PM for remote clock-out.`
+              );
+            }
           }
         }
       }
@@ -763,10 +773,17 @@ export class AttendanceService {
     const fullDayHours = shift ? Number(shift.fullDayHours) : Number(clockOutPolicy?.fullDayMinHours || 8);
     const halfDayHours = shift ? Number(shift.halfDayHours) : Number(clockOutPolicy?.halfDayMinHours || 4);
 
-    // Determine status based on shift/policy hours
+    // Determine status based on shift/policy hours.
+    // If clocked in late enough to trigger auto-HALF_DAY, but worked full hours by checkout,
+    // upgrade back to PRESENT so employees who arrive late but stay late aren't penalised.
     let status: 'PRESENT' | 'HALF_DAY' = 'PRESENT';
     if (totalHours < halfDayHours) {
       status = 'HALF_DAY';
+    }
+    // Upgrade: if existing record is HALF_DAY but total hours now meets full-day threshold, promote to PRESENT.
+    const existingStatus = record.status as string;
+    if (existingStatus === 'HALF_DAY' && totalHours >= fullDayHours) {
+      status = 'PRESENT';
     }
 
     // Early checkout detection
@@ -887,6 +904,24 @@ export class AttendanceService {
         shiftName: shift?.name || null,
       },
     });
+
+    // Log remote checkout anomaly when employee clocked out from outside geofence after 20:00
+    if (checkoutGeofenceViolation) {
+      try {
+        await prisma.attendanceAnomaly.create({
+          data: {
+            attendanceId: record.id,
+            employeeId,
+            organizationId: empStatus!.organizationId,
+            date: today,
+            type: 'UNAPPROVED_REMOTE',
+            severity: 'LOW',
+            description: 'Employee clocked out from outside office geofence (after 20:00 IST — remote checkout allowed)',
+            resolution: 'PENDING',
+          },
+        });
+      } catch { /* non-blocking */ }
+    }
 
     // Log anomaly if no GPS provided at clock-out
     if (!data.latitude || !data.longitude) {

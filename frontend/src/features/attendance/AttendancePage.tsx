@@ -697,6 +697,7 @@ function AttendancePersonalView() {
   const [startBreak, { isLoading: startingBreak }] = useStartBreakMutation();
   const [endBreak, { isLoading: endingBreak }] = useEndBreakMutation();
   const [breakType, setBreakType] = useState<'LUNCH' | 'SHORT' | 'PRAYER' | 'CUSTOM'>('SHORT');
+  const [gpsAcquiring, setGpsAcquiring] = useState(false);
   const [showBreakPicker, setShowBreakPicker] = useState(false);
   const [submitRegularization, { isLoading: submittingReg }] = useSubmitRegularizationMutation();
 
@@ -793,9 +794,7 @@ function AttendancePersonalView() {
       gpsTimestamp: new Date(pos.timestamp).toISOString(),
     });
 
-    // Always force a fresh GPS fix on every button press.
-    // maximumAge: 0 forces the OS to read the current GPS signal — no cached position accepted.
-    // This ensures if the user turned off location after the last fix, the OS will deny here.
+    setGpsAcquiring(true);
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
         navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -823,6 +822,8 @@ function AttendancePersonalView() {
         toast.error('Could not get your location. Please try again.');
       }
       return null; // abort — do NOT proceed with clock-in/out
+    } finally {
+      setGpsAcquiring(false);
     }
   };
 
@@ -1393,15 +1394,15 @@ function AttendancePersonalView() {
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={handleClockIn}
-                    disabled={clockingIn || statusLoading || (!isDesktop && locationStatus !== 'granted')}
+                    disabled={clockingIn || gpsAcquiring || statusLoading || (!isDesktop && locationStatus !== 'granted')}
                     className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 md:py-4 rounded-xl font-semibold text-sm md:text-lg flex items-center justify-center gap-2 md:gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-200"
                   >
-                    {clockingIn ? (
+                    {clockingIn || gpsAcquiring ? (
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
                       <LogIn size={22} />
                     )}
-                    {t('attendance.checkIn')}
+                    {gpsAcquiring ? 'Locating...' : t('attendance.checkIn')}
                   </motion.button>
                 )}
 
@@ -1486,15 +1487,15 @@ function AttendancePersonalView() {
                       whileHover={{ scale: checkoutGate?.canCheckOut !== false ? 1.02 : 1 }}
                       whileTap={{ scale: checkoutGate?.canCheckOut !== false ? 0.98 : 1 }}
                       onClick={handleClockOut}
-                      disabled={clockingOut || checkoutGate?.canCheckOut === false || today?.isOnBreak}
+                      disabled={clockingOut || gpsAcquiring || checkoutGate?.canCheckOut === false || today?.isOnBreak}
                       className="w-full bg-red-500 hover:bg-red-400 text-white py-2.5 md:py-3.5 rounded-xl font-semibold text-sm md:text-base flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {clockingOut ? (
+                      {clockingOut || gpsAcquiring ? (
                         <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <LogOut size={20} />
                       )}
-                      {today?.isOnBreak ? 'End break first' : t('attendance.checkOut')}
+                      {today?.isOnBreak ? 'End break first' : gpsAcquiring ? 'Locating...' : t('attendance.checkOut')}
                     </motion.button>
                   </div>
                 )}
