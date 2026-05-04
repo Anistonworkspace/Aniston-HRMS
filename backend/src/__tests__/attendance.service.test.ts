@@ -5,7 +5,7 @@
  * All external dependencies are mocked. No real database calls are made.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── env stubs ────────────────────────────────────────────────────────────────
 process.env.JWT_SECRET = 'test-secret-key-that-is-at-least-32-characters-long';
@@ -160,6 +160,11 @@ describe('AttendanceService', () => {
   let service: AttendanceService;
 
   beforeEach(() => {
+    // Pin clock to 08:30 IST (03:00 UTC) on a Tuesday — within the 60-min
+    // pre-shift window for a 09:00 shift, so early-clock-in guard never fires.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-05T03:00:00.000Z'));
+
     service = new AttendanceService();
     vi.resetAllMocks();
     // Restore essential mocks after resetAllMocks
@@ -190,6 +195,10 @@ describe('AttendanceService', () => {
     } as any);
     // invalidateDashboardCache must return a Promise (service calls .catch() on the return value)
     vi.mocked(invalidateDashboardCache).mockReturnValue(Promise.resolve(undefined));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ── clockIn — duplicate prevention ────────────────────────────────────────
