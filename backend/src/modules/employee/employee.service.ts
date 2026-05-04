@@ -148,9 +148,10 @@ export class EmployeeService {
       prisma.employee.count({ where: { ...base, status: 'NOTICE_PERIOD' } }),
       prisma.employee.count({ where: { ...base, status: 'TERMINATED' } }),
       prisma.employeeInvitation.count({ where: { organizationId, status: 'PENDING' } }),
+      prisma.employee.count({ where: { ...base, status: 'INTERN' } }),
     ]);
-    const [total, active, probation, inactive, onboarding, noticePeriod, terminated, invited] = results.map(r => r.status === 'fulfilled' ? r.value : 0);
-    return { total, active, probation, inactive, onboarding, noticePeriod, terminated, invited };
+    const [total, active, probation, inactive, onboarding, noticePeriod, terminated, invited, intern] = results.map(r => r.status === 'fulfilled' ? r.value : 0);
+    return { total, active, probation, inactive, onboarding, noticePeriod, terminated, invited, intern };
   }
 
   async getById(id: string, organizationId: string) {

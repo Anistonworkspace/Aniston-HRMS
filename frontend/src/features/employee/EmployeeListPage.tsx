@@ -250,21 +250,23 @@ export default function EmployeeListPage() {
 
       {/* Metrics Row — clickable to show filtered employee popup */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
           <MetricCard label="Total" value={stats.total} icon={<Users size={16} />} color="indigo"
             onClick={() => setStatModal({ label: 'All Employees' })} />
           <MetricCard label="Active" value={stats.active} icon={<UserCheck size={16} />} color="green"
             onClick={() => setStatModal({ label: 'Active Employees', status: 'ACTIVE' })} />
-          <MetricCard label="Invited" value={stats.invited} icon={<Mail size={16} />} color="blue"
-            onClick={() => setStatModal({ label: 'Pending Invitations', type: 'invitations' })} />
-          <MetricCard label="Onboarding" value={stats.onboarding} icon={<Clock size={16} />} color="amber"
-            onClick={() => setStatModal({ label: 'Employees in Onboarding', onboardingStatus: 'pending' })} />
           <MetricCard label="Probation" value={stats.probation} icon={<Shield size={16} />} color="orange"
             onClick={() => setStatModal({ label: 'Employees on Probation', status: 'PROBATION' })} />
-          <MetricCard label="Inactive" value={stats.inactive} icon={<UserX size={16} />} color="gray"
-            onClick={() => setStatModal({ label: 'Inactive Employees', status: 'INACTIVE' })} />
+          <MetricCard label="Intern" value={(stats as any).intern ?? 0} icon={<Briefcase size={16} />} color="teal"
+            onClick={() => setStatModal({ label: 'Interns', status: 'INTERN' })} />
+          <MetricCard label="Onboarding" value={stats.onboarding} icon={<Clock size={16} />} color="amber"
+            onClick={() => setStatModal({ label: 'Employees in Onboarding', onboardingStatus: 'pending' })} />
+          <MetricCard label="Invited" value={stats.invited} icon={<Mail size={16} />} color="purple"
+            onClick={() => setStatModal({ label: 'Pending Invitations', type: 'invitations' })} />
           <MetricCard label="Notice / Exit" value={stats.noticePeriod + stats.terminated} icon={<AlertTriangle size={16} />} color="red"
             onClick={() => setStatModal({ label: 'Notice Period / Exit', status: 'NOTICE_PERIOD' })} />
+          <MetricCard label="Inactive" value={stats.inactive} icon={<UserX size={16} />} color="gray"
+            onClick={() => setStatModal({ label: 'Inactive Employees', status: 'INACTIVE' })} />
         </div>
       )}
 
@@ -808,6 +810,8 @@ const COLOR_MAP: Record<string, string> = {
   blue: 'bg-blue-50 text-blue-600 border-blue-100',
   amber: 'bg-amber-50 text-amber-600 border-amber-100',
   orange: 'bg-orange-50 text-orange-600 border-orange-100',
+  teal: 'bg-teal-50 text-teal-600 border-teal-100',
+  purple: 'bg-purple-50 text-purple-600 border-purple-100',
   gray: 'bg-gray-50 text-gray-500 border-gray-100',
   red: 'bg-red-50 text-red-600 border-red-100',
 };

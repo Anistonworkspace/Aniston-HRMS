@@ -193,14 +193,14 @@ function AdminDashboard() {
         </p>
       </motion.div>
 
-      {/* ═══ HR KPI CARDS (HR only) ══════════════════════════════ */}
-      {isHR && hrStats?.hrKpis && (
+      {/* ═══ KPI CARDS (all admin roles) ════════════════════════ */}
+      {hrStats?.hrKpis && (
         <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {[
             { label: 'Total Employees', value: hrStats.hrKpis.totalEmployees, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => navigate('/employees') },
             { label: 'Pending Leave Requests', value: hrStats.pendingActions.leaveRequests, icon: CalendarOff, color: 'text-amber-600', bg: 'bg-amber-50', onClick: () => navigate('/pending-approvals') },
             { label: 'Pending Onboarding', value: hrStats.hrKpis.pendingOnboarding, icon: UserPlus, color: 'text-indigo-600', bg: 'bg-indigo-50', onClick: () => navigate('/employees') },
-            { label: 'Helpdesk (Assigned)', value: hrStats.pendingActions.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', onClick: () => navigate('/helpdesk') },
+            { label: 'Helpdesk Tickets', value: hrStats.pendingActions.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', onClick: () => navigate('/helpdesk') },
           ].map((kpi) => (
             <motion.div key={kpi.label} variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } }}>
               <button onClick={kpi.onClick} className={`w-full ${kpi.bg} rounded-xl p-4 text-left hover:opacity-90 transition-opacity`}>

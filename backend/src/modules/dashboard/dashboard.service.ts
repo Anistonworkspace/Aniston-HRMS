@@ -287,11 +287,16 @@ export class DashboardService {
         action: '/exit-management',
       });
     }
-    // Check today's attendance rate
-    const todayPresent = await prisma.attendanceRecord.count({
-      where: { date: today, status: { in: ['PRESENT', 'WORK_FROM_HOME'] }, employee: { organizationId } },
-    });
-    const attendanceRate = activeEmployees > 0 ? Math.round((todayPresent / activeEmployees) * 100) : 0;
+    // Check today's attendance rate — use all work-eligible statuses as denominator
+    const [todayPresent, workEligibleCount] = await Promise.all([
+      prisma.attendanceRecord.count({
+        where: { date: today, status: { in: ['PRESENT', 'WORK_FROM_HOME'] }, employee: { organizationId } },
+      }),
+      prisma.employee.count({
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] } },
+      }),
+    ]);
+    const attendanceRate = workEligibleCount > 0 ? Math.round((todayPresent / workEligibleCount) * 100) : 0;
     if (attendanceRate < 70 && attendanceRate > 0) {
       alerts.push({
         type: 'warning',
@@ -729,8 +734,8 @@ export class DashboardService {
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
-      prisma.employee.count({ where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } } }),
-      prisma.employee.count({ where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, onboardingComplete: false, status: 'ACTIVE' } }),
+      prisma.employee.count({ where: { organizationId, deletedAt: null, isSystemAccount: { not: true } } }),
+      prisma.employee.count({ where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, onboardingComplete: false } }),
     ]);
 
     return {
