@@ -2385,13 +2385,16 @@ export class AttendanceService {
       throw new BadRequestError('Employee does not belong to your organization.');
     }
 
-    const date = new Date(data.date);
-    date.setHours(0, 0, 0, 0);
+    // Parse date as UTC midnight so PostgreSQL date column stores the correct IST calendar date.
+    // new Date("2026-04-30") + setHours(0,0,0,0) shifts to IST midnight = UTC 2026-04-29T18:30Z
+    // → PG would store 2026-04-29 (WRONG). Appending T00:00:00.000Z keeps it as 2026-04-30 in PG.
+    const [dy, dm, dd] = data.date.split('-');
+    const date = new Date(`${dy}-${dm}-${dd}T00:00:00.000Z`);
 
     // Block HR from marking attendance before the employee's joining date
     if (employee.joiningDate) {
-      const joiningMidnight = new Date(employee.joiningDate);
-      joiningMidnight.setHours(0, 0, 0, 0);
+      const jd = new Date(employee.joiningDate);
+      const joiningMidnight = new Date(`${jd.getUTCFullYear()}-${String(jd.getUTCMonth()+1).padStart(2,'0')}-${String(jd.getUTCDate()).padStart(2,'0')}T00:00:00.000Z`);
       if (date < joiningMidnight) {
         throw new BadRequestError(
           `Cannot mark attendance before joining date (${joiningMidnight.toLocaleDateString('en-IN')}). Update the employee's joining date first if needed.`

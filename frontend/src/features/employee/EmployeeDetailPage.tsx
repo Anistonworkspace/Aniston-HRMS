@@ -27,7 +27,8 @@ import { useVerifyKycMutation, useGetKycHrReviewQuery, useRejectKycMutation } fr
 import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery, useCreateDepartmentMutation, useCreateDesignationMutation, useDeleteDepartmentMutation, useDeleteDesignationMutation } from './employeeDepsApi';
 import { useGetProfileEditRequestsForEmployeeQuery, useReviewProfileEditRequestMutation, useGetProfileCompletionQuery } from '../profile/profileEditRequestApi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
-import { useAppSelector } from '../../app/store';
+import { useAppSelector, useAppDispatch } from '../../app/store';
+import { api } from '../../app/api';
 import { getInitials, getStatusColor, formatDate, formatCurrency, getUploadUrl } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
@@ -1448,6 +1449,18 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
   const { data: holidaysNextRes } = useGetHolidaysQuery({ year: fyEndYear });
   const { data: hybridRes } = useGetHybridScheduleQuery(employeeId);
   const [markAttendance, { isLoading: marking }] = useMarkAttendanceMutation();
+  const dispatch = useAppDispatch();
+
+  // Instantly refresh calendar when any HR marking happens (via socket event)
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (data?.employeeId === employeeId) {
+        dispatch(api.util.invalidateTags(['Attendance'] as any));
+      }
+    };
+    onSocketEvent('attendance:marked', handler);
+    return () => offSocketEvent('attendance:marked', handler);
+  }, [employeeId, dispatch]);
 
   const records = response?.data?.records || [];
   const summary = response?.data?.summary;
