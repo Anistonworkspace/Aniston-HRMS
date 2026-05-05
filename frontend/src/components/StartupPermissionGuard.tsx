@@ -26,6 +26,27 @@ const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'a
 // Shown once per app session (resets on full restart, not on background/resume)
 let shownThisSession = false;
 
+// ── Autostart confirmation persistence ────────────────────────────────────────
+// Keyed with _v1 so we can bump the key if we ever need to re-show the wizard.
+const AUTOSTART_CONFIRMED_KEY = 'aniston_autostart_confirmed_v1';
+
+function loadConfirmedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(AUTOSTART_CONFIRMED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveConfirmedIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(AUTOSTART_CONFIRMED_KEY, JSON.stringify([...ids]));
+  } catch { /* storage full — ignore */ }
+}
+
 // ── OEM detection ─────────────────────────────────────────────────────────────
 
 type OemCategory =
@@ -344,7 +365,7 @@ export default function StartupPermissionGuard({ children }: { children: React.R
   const [perms, setPerms]               = useState<PermissionStatus | null>(null);
   const [steps, setSteps]               = useState<StepDef[]>([]);
   const [stepIdx, setStepIdx]           = useState(0);
-  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(() => loadConfirmedIds());
   const [cantFind, setCantFind]         = useState(false);
   const [waiting, setWaiting]           = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -363,8 +384,9 @@ export default function StartupPermissionGuard({ children }: { children: React.R
       const oem = detectOem(deviceInfo.manufacturer, deviceInfo.brand, deviceInfo.sdkInt);
       const allSteps = buildSteps(oem);
 
-      // Only show steps that are not already satisfied
-      const needed = allSteps.filter((s) => !isStepGranted(s, status, new Set()));
+      // Only show steps that are not already satisfied (load persisted confirmations)
+      const persisted = loadConfirmedIds();
+      const needed = allSteps.filter((s) => !isStepGranted(s, status, persisted));
 
       setPerms(status);
       setSteps(needed);
@@ -447,7 +469,11 @@ export default function StartupPermissionGuard({ children }: { children: React.R
 
   function handleConfirm() {
     if (!currentStep) return;
-    setConfirmedIds((prev) => new Set([...prev, currentStep.id]));
+    setConfirmedIds((prev) => {
+      const next = new Set([...prev, currentStep.id]);
+      saveConfirmedIds(next);
+      return next;
+    });
   }
 
   function handleCantFind() {

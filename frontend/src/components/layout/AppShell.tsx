@@ -17,9 +17,10 @@ import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
-import { isNativeGpsRunning, updateNativeGpsInterval } from '../../lib/capacitorGPS';
+import { isNativeGpsRunning, updateNativeGpsInterval, startNativeGpsService, isNativeAndroid } from '../../lib/capacitorGPS';
 import { isGpsEnabled, openGpsSettings } from '../../lib/capacitorPermissions';
 import { Capacitor } from '@capacitor/core';
+import { useGetTodayStatusQuery } from '../../features/attendance/attendanceApi';
 
 export default function AppShell() {
   const { t } = useTranslation();
@@ -100,6 +101,63 @@ export default function AppShell() {
     }
     return () => { disconnectSocket(); };
   }, [accessToken]);
+
+  // GPS session restore — Android native only.
+  // Fetches today's attendance status on mount and on each app resume. If the
+  // employee is already checked in on a FIELD shift and the native GPS service
+  // is not running, starts it automatically — no need to visit AttendancePage.
+  const { data: todayStatusResponse } = useGetTodayStatusQuery(undefined, {
+    skip: !isNativeAndroid || !user,
+  });
+  const gpsRestoreRef = useRef(false);
+  useEffect(() => {
+    if (!isNativeAndroid || !user || !accessToken) return;
+    const todayStatus = todayStatusResponse?.data;
+    if (!todayStatus) return;
+
+    const isCheckedIn = todayStatus.isCheckedIn && !todayStatus.isCheckedOut;
+    const isFieldShift = (todayStatus.shift as any)?.shiftType === 'FIELD';
+    if (!isCheckedIn || !isFieldShift) return;
+
+    async function maybeRestoreGps() {
+      const running = await isNativeGpsRunning();
+      if (running) return;
+
+      const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+      const backendBase = rawApiUrl
+        ? rawApiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '')
+        : 'https://hr.anistonav.com';
+      const intervalMins = (todayStatus!.shift as any)?.trackingIntervalMinutes as number | undefined;
+      const attendanceId = todayStatus!.record?.id ?? '';
+
+      try {
+        await startNativeGpsService({
+          backendUrl: backendBase,
+          authToken: accessToken!,
+          employeeId: user!.employeeId || '',
+          orgId: user!.organizationId || '',
+          ...(attendanceId ? { attendanceId } : {}),
+          ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
+        });
+        dispatch(api.util.invalidateTags(['Attendance'] as any[]));
+      } catch {
+        // silent — user can open Attendance page to retry
+      }
+    }
+
+    if (!gpsRestoreRef.current) {
+      gpsRestoreRef.current = true;
+      maybeRestoreGps();
+    }
+
+    // Also attempt restore whenever the app comes back to foreground
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') maybeRestoreGps();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayStatusResponse, user, accessToken]);
 
   // Real-time dashboard refresh — invalidate RTK Query cache on server events
   useEffect(() => {

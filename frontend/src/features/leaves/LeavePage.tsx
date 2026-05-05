@@ -1583,35 +1583,35 @@ function EmployeeLeaveDetailModal({
                     <div className="space-y-2">
                       {filteredRequests.map((req: any) => (
                         <div key={req.id} className="border border-gray-100 rounded-xl p-3.5 bg-white hover:bg-gray-50/50 transition-colors">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0 overflow-hidden">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-medium text-gray-800">{req.leaveType?.name || 'Leave'}</span>
-                                <span className="text-xs text-gray-500">
+                                <span className="text-xs font-medium text-gray-800 truncate max-w-[120px]">{req.leaveType?.name || 'Leave'}</span>
+                                <span className="text-xs text-gray-500 whitespace-nowrap">
                                   {formatDate(req.startDate)}
                                   {req.startDate !== req.endDate && ` – ${formatDate(req.endDate)}`}
                                 </span>
-                                <span className="text-xs font-mono font-medium text-gray-600" data-mono>
+                                <span className="text-xs font-mono font-medium text-gray-600 whitespace-nowrap" data-mono>
                                   {req.days} {req.days === 1 ? 'day' : 'days'}
                                 </span>
                                 {req.isHalfDay && (
-                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Half Day</span>
+                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded whitespace-nowrap">Half Day</span>
                                 )}
                               </div>
                               {req.reason && (
                                 <p className="text-[11px] text-gray-400 mt-1 italic line-clamp-1">"{req.reason}"</p>
                               )}
                               {(req.approverRemarks || req.managerRemarks) && (
-                                <p className="text-[11px] text-brand-500 mt-1">
+                                <p className="text-[11px] text-brand-500 mt-1 line-clamp-2">
                                   Remark: {req.approverRemarks || req.managerRemarks}
                                 </p>
                               )}
                             </div>
-                            <div className="flex flex-col items-end gap-1 shrink-0">
-                              <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full', STATUS_COLORS[req.status] || 'bg-gray-100 text-gray-500')}>
+                            <div className="flex flex-col items-end gap-1 shrink-0 max-w-[90px]">
+                              <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full text-center leading-tight', STATUS_COLORS[req.status] || 'bg-gray-100 text-gray-500')}>
                                 {req.status.replace(/_/g, ' ')}
                               </span>
-                              <span className="text-[10px] text-gray-300">
+                              <span className="text-[10px] text-gray-300 whitespace-nowrap">
                                 {new Date(req.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                               </span>
                             </div>

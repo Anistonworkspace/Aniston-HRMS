@@ -65,6 +65,18 @@ public class GpsDiagnostics {
     public static final String KEY_LAST_LOCATION_REQUEST_AT     = "lastLocationRequestAt";
     public static final String KEY_LAST_LOCATION_RECEIVED_AT    = "lastLocationReceivedAt";
 
+    // ── GPS interval ──────────────────────────────────────────────────────────
+    public static final String KEY_GPS_INTERVAL_MS              = "gpsIntervalMs";
+    public static final String KEY_GPS_INTERVAL_LABEL           = "gpsIntervalLabel";
+    public static final String KEY_GPS_INTERVAL_SOURCE          = "gpsIntervalSource";
+    public static final String KEY_LAST_INTERVAL_UPDATED_AT     = "lastIntervalUpdatedAt";
+    public static final String KEY_NEXT_LOCATION_DUE_AT         = "nextLocationDueAt";
+
+    // ── Permissions ───────────────────────────────────────────────────────────
+    public static final String KEY_LOCATION_PERM_FINE           = "locationPermissionFine";
+    public static final String KEY_LOCATION_PERM_BACKGROUND     = "locationPermissionBackground";
+    public static final String KEY_BATTERY_OPT_IGNORED          = "batteryOptimizationIgnored";
+
     // ── HTTP ──────────────────────────────────────────────────────────────────
     public static final String KEY_LAST_BACKEND_STATUS_CODE     = "lastBackendStatusCode";
     public static final String KEY_LAST_HTTP_REQUEST_AT         = "lastHttpRequestAt";
@@ -123,6 +135,18 @@ public class GpsDiagnostics {
             .apply();
     }
 
+    // ── Interval label helper ─────────────────────────────────────────────────
+
+    public static String intervalMsToLabel(long ms) {
+        if (ms <= 0) return "";
+        long mins = ms / 60000;
+        if (mins < 1)  return ms + "ms";
+        if (mins == 1) return "Every 1 min";
+        if (mins < 60) return "Every " + mins + " mins";
+        long hrs = mins / 60;
+        return hrs == 1 ? "Every 1 hr" : "Every " + hrs + " hrs";
+    }
+
     // ── Timestamp ─────────────────────────────────────────────────────────────
 
     public static String nowIso() {
@@ -179,6 +203,20 @@ public class GpsDiagnostics {
             obj.put(KEY_LAST_LOCATION_REQUEST_AT,     p.getString(KEY_LAST_LOCATION_REQUEST_AT,     ""));
             obj.put(KEY_LAST_LOCATION_RECEIVED_AT,    p.getString(KEY_LAST_LOCATION_RECEIVED_AT,    ""));
 
+            // GPS interval (read from tracking prefs for source-of-truth)
+            SharedPreferences trackP = ctx.getSharedPreferences(GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
+            long intervalMs = trackP.getLong(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS, -1);
+            obj.put(KEY_GPS_INTERVAL_MS, intervalMs > 0 ? String.valueOf(intervalMs) : "");
+            obj.put(KEY_GPS_INTERVAL_LABEL, intervalMsToLabel(intervalMs));
+            obj.put(KEY_GPS_INTERVAL_SOURCE,          p.getString(KEY_GPS_INTERVAL_SOURCE,          ""));
+            obj.put(KEY_LAST_INTERVAL_UPDATED_AT,     p.getString(KEY_LAST_INTERVAL_UPDATED_AT,     ""));
+            obj.put(KEY_NEXT_LOCATION_DUE_AT,         p.getString(KEY_NEXT_LOCATION_DUE_AT,         ""));
+
+            // Permissions
+            obj.put(KEY_LOCATION_PERM_FINE,           p.getString(KEY_LOCATION_PERM_FINE,           ""));
+            obj.put(KEY_LOCATION_PERM_BACKGROUND,     p.getString(KEY_LOCATION_PERM_BACKGROUND,     ""));
+            obj.put(KEY_BATTERY_OPT_IGNORED,          p.getString(KEY_BATTERY_OPT_IGNORED,          ""));
+
             // HTTP
             obj.put(KEY_LAST_BACKEND_STATUS_CODE,     p.getString(KEY_LAST_BACKEND_STATUS_CODE,     ""));
             obj.put(KEY_LAST_HTTP_REQUEST_AT,         p.getString(KEY_LAST_HTTP_REQUEST_AT,         ""));
@@ -198,9 +236,7 @@ public class GpsDiagnostics {
             obj.put(KEY_NATIVE_SESSION_CLEARED_AT,    p.getString(KEY_NATIVE_SESSION_CLEARED_AT,    ""));
 
             // Token presence flag — never expose the actual token
-            SharedPreferences trackPrefs = ctx.getSharedPreferences(
-                GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
-            String token = trackPrefs.getString(GpsTrackingService.EXTRA_TOKEN, null);
+            String token = trackP.getString(GpsTrackingService.EXTRA_TOKEN, null);
             obj.put("tokenPresent", token != null && !token.isEmpty());
 
         } catch (Exception e) {

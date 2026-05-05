@@ -159,6 +159,8 @@ public class GpsTrackingService extends Service {
             minutes = Math.max(1, Math.min(240, minutes));
             gpsIntervalMs = (long) minutes * 60_000L;
             saveToPrefs();
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE,      "shift_update");
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_INTERVAL_UPDATED_AT, GpsDiagnostics.nowIso());
             if (sIsRunning) restartLocationUpdates();
             return START_STICKY;
 
@@ -174,9 +176,12 @@ public class GpsTrackingService extends Service {
             if (intervalMinutes > 0) {
                 intervalMinutes = Math.max(1, Math.min(240, intervalMinutes));
                 gpsIntervalMs = intervalMinutes * 60_000L;
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE, "roster_config");
             } else {
                 gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE, "default");
             }
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_INTERVAL_UPDATED_AT, GpsDiagnostics.nowIso());
             saveToPrefs();
         }
 
@@ -323,8 +328,17 @@ public class GpsTrackingService extends Service {
                 float accuracy = loc.getAccuracy();
                 float speed    = loc.getSpeed();
 
+                String nowIso = GpsDiagnostics.nowIso();
                 GpsDiagnostics.recordEvent(GpsTrackingService.this,
-                    GpsDiagnostics.KEY_LAST_LOCATION_RECEIVED_AT, GpsDiagnostics.nowIso());
+                    GpsDiagnostics.KEY_LAST_LOCATION_RECEIVED_AT, nowIso);
+
+                // Record when the next location fix is expected
+                java.text.SimpleDateFormat nextDueSdf =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US);
+                nextDueSdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                GpsDiagnostics.recordEvent(GpsTrackingService.this,
+                    GpsDiagnostics.KEY_NEXT_LOCATION_DUE_AT,
+                    nextDueSdf.format(new java.util.Date(System.currentTimeMillis() + gpsIntervalMs)));
 
                 String kmh    = String.format(Locale.US, "%.1f km/h", speed * 3.6f);
                 String acc    = String.format(Locale.US, "±%.0f m", accuracy);
