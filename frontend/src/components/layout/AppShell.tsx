@@ -18,6 +18,8 @@ import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { isNativeGpsRunning, updateNativeGpsInterval } from '../../lib/capacitorGPS';
+import { isGpsEnabled, openGpsSettings } from '../../lib/capacitorPermissions';
+import { Capacitor } from '@capacitor/core';
 
 export default function AppShell() {
   const { t } = useTranslation();
@@ -169,6 +171,62 @@ export default function AppShell() {
     onSocketEvent('shift:assigned', handleShiftAssigned);
     return () => { offSocketEvent('shift:assigned', handleShiftAssigned); };
   }, [dispatch]);
+
+  // GPS-off watcher — only active on Android native, only while GPS service is running.
+  // Polls every 30 s and fires on visibilitychange so the employee is prompted immediately
+  // when they turn off GPS mid-shift.
+  const gpsOffToastRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
+
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    async function checkGps() {
+      const running = await isNativeGpsRunning();
+      if (!running) return; // GPS service not active — nothing to guard
+      const enabled = await isGpsEnabled();
+      if (!enabled) {
+        if (!gpsOffToastRef.current) {
+          gpsOffToastRef.current = toast.error(
+            (tt) => (
+              <span>
+                GPS is turned off. Your location cannot be recorded.{' '}
+                <button
+                  className="underline font-semibold"
+                  onClick={async () => {
+                    toast.dismiss(tt.id);
+                    gpsOffToastRef.current = null;
+                    await openGpsSettings();
+                  }}
+                >
+                  Turn On GPS
+                </button>
+              </span>
+            ),
+            { duration: Infinity, id: 'gps-off-warning' }
+          );
+        }
+      } else {
+        if (gpsOffToastRef.current) {
+          toast.dismiss('gps-off-warning');
+          gpsOffToastRef.current = null;
+        }
+      }
+    }
+
+    pollTimer = setInterval(checkGps, 30_000);
+    const handleVisibility = () => { if (document.visibilityState === 'visible') checkGps(); };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      if (pollTimer) clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (gpsOffToastRef.current) {
+        toast.dismiss('gps-off-warning');
+        gpsOffToastRef.current = null;
+      }
+    };
+  }, []);
 
   const navigate = useNavigate();
 

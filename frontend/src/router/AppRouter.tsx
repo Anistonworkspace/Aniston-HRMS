@@ -4,6 +4,7 @@ import AppUpdateGuard from '../features/app-update/AppUpdateGuard';
 import AppUpdateChecker from '../components/pwa/AppUpdateChecker';
 import BiometricLockGuard from '../components/security/BiometricLockGuard';
 import AppShell from '../components/layout/AppShell';
+import StartupPermissionGuard from '../components/StartupPermissionGuard';
 import ProtectedRoute from './ProtectedRoute';
 import ErrorBoundary from '../components/ErrorBoundary';
 import RouteErrorBoundary from '../components/layout/RouteErrorBoundary';
@@ -191,7 +192,9 @@ export default function AppRouter() {
           <Route
             element={
               <ProtectedRoute>
-                <AppShell />
+                <StartupPermissionGuard>
+                  <AppShell />
+                </StartupPermissionGuard>
               </ProtectedRoute>
             }
           >

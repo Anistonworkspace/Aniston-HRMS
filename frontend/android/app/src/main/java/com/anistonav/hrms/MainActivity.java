@@ -1,6 +1,8 @@
 package com.anistonav.hrms;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,6 +20,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NetworkQualityPlugin.class);
         registerPlugin(BiometricPlugin.class);
         registerPlugin(ShiftReminderPlugin.class);
+        registerPlugin(PermissionPlugin.class);
         super.onCreate(savedInstanceState);
         // Schedule GPS watchdog (no-op if already scheduled; KEEP policy prevents duplicates)
         GpsWatchdogWorker.schedule(this);
@@ -35,6 +38,46 @@ public class MainActivity extends BridgeActivity {
         // Hot path: app was backgrounded/foregrounded when user tapped the notification.
         // Bridge is already initialised so a short delay is sufficient.
         handleNavigateIntentWithDelay(intent, 100);
+    }
+
+    /**
+     * Auto-restart GPS service on every resume if:
+     *   1. Saved credentials exist in SharedPreferences (employee was checked-in before)
+     *   2. GpsTrackingService is not already running
+     *
+     * This fills the gap between the 15-min WorkManager watchdog ticks — if an employee
+     * opens the app tab-switched or after a brief swipe-to-recents, GPS resumes immediately
+     * without requiring them to navigate to the Attend tab.
+     */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        tryAutoRestartGps();
+    }
+
+    private void tryAutoRestartGps() {
+        if (GpsTrackingService.sIsRunning) return;
+
+        SharedPreferences prefs = getSharedPreferences(GpsTrackingService.PREFS_NAME, MODE_PRIVATE);
+        String token = prefs.getString(GpsTrackingService.EXTRA_TOKEN, null);
+        String employeeId = prefs.getString(GpsTrackingService.EXTRA_EMPLOYEE_ID, null);
+        String orgId = prefs.getString(GpsTrackingService.EXTRA_ORG_ID, null);
+        String backendUrl = prefs.getString(GpsTrackingService.EXTRA_BACKEND_URL, null);
+
+        if (token == null || token.isEmpty()) return;
+        if (employeeId == null || employeeId.isEmpty()) return;
+
+        Intent svc = new Intent(this, GpsTrackingService.class);
+        svc.putExtra(GpsTrackingService.EXTRA_TOKEN, token);
+        svc.putExtra(GpsTrackingService.EXTRA_EMPLOYEE_ID, employeeId);
+        if (orgId != null) svc.putExtra(GpsTrackingService.EXTRA_ORG_ID, orgId);
+        if (backendUrl != null) svc.putExtra(GpsTrackingService.EXTRA_BACKEND_URL, backendUrl);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(svc);
+        } else {
+            startService(svc);
+        }
     }
 
     private void handleNavigateIntentWithDelay(Intent intent, long delayMs) {
