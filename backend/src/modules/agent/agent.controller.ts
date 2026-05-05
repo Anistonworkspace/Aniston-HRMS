@@ -97,7 +97,14 @@ export class AgentController {
 
   async getStatus(req: Request, res: Response, next: NextFunction) {
     try {
-      const status = await agentService.getAgentStatus(req.user!.employeeId!, req.user!.organizationId);
+      // Management users (SUPER_ADMIN/ADMIN) may have no linked employee record.
+      // Return inactive status rather than querying with undefined employeeId (which would
+      // match the most-recent log across the org — a data leak).
+      if (!req.user!.employeeId) {
+        res.json({ success: true, data: { isActive: false, lastHeartbeat: null } });
+        return;
+      }
+      const status = await agentService.getAgentStatus(req.user!.employeeId, req.user!.organizationId);
       res.json({ success: true, data: status });
     } catch (err) { next(err); }
   }

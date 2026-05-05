@@ -108,7 +108,8 @@ export function startScreenshots(intervalMs?: number) {
       if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
 
       const ts = new Date().toISOString();
-      const filename = `screenshot-${Date.now()}.png`;
+      const hostname = os.hostname().replace(/[^a-zA-Z0-9]/g, '-').slice(0, 20);
+      const filename = `screenshot-${hostname}-${Date.now()}.png`;
       const filePath = path.join(tmpDir, filename);
 
       await screenshot.default({ filename: filePath, format: 'png' });
@@ -155,11 +156,12 @@ export function stopScreenshots() {
  * Update screenshot interval dynamically (called when live mode config changes via socket).
  */
 export function updateInterval(newIntervalMs: number) {
-  if (newIntervalMs !== currentIntervalMs && newIntervalMs >= 10000) {
-    console.log(`[Screenshot] Interval changed: ${currentIntervalMs / 1000}s → ${newIntervalMs / 1000}s`);
-    currentIntervalMs = newIntervalMs;
+  const clamped = Math.max(30_000, Math.min(600_000, newIntervalMs));
+  if (clamped !== currentIntervalMs) {
+    console.log(`[Screenshot] Interval changed: ${currentIntervalMs / 1000}s → ${clamped / 1000}s`);
+    currentIntervalMs = clamped;
     if (screenshotInterval) {
-      startScreenshots(newIntervalMs); // restart with new interval
+      startScreenshots(clamped); // restart with new interval
     }
   }
 }

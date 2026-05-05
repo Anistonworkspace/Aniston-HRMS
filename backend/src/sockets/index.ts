@@ -63,6 +63,9 @@ export function initSocketServer(httpServer: HttpServer) {
     socket.on('agent:register', () => {
       socket.join(`agent:${userId}`);
       logger.info(`Agent registered: user=${userId}`);
+      // Notify the user's own browser sessions immediately so AgentDownloadBanner
+      // transitions to "Connected" instantly rather than waiting for the next poll cycle.
+      emitToUser(userId, 'agent:connected', { isActive: true });
     });
 
     // === WebRTC Signaling for Live Screen Streaming ===

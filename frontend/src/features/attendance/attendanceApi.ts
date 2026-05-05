@@ -53,8 +53,9 @@ interface ActivitySummary {
   totalIdleMinutes: number;
   totalKeystrokes: number;
   totalClicks: number;
+  totalMouseDistance: number;
   topApps: Array<{ app: string; minutes: number }>;
-  productivityScore: number | null;    // 0-100, null if no active time recorded
+  productivityScore: number | null;
   productiveMinutes: number;
   unproductiveMinutes: number;
 }
@@ -201,7 +202,7 @@ export const attendanceApi = api.injectEndpoints({
     }),
 
     // Bug #9: Single query returns summaries for ALL employees — eliminates N+1 from EmployeeRow
-    getActivityBulkSummary: builder.query<{ success: boolean; data: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore?: number | null }> }, { date: string }>({
+    getActivityBulkSummary: builder.query<{ success: boolean; data: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore: number | null }> }, { date: string }>({
       query: ({ date }) => `/agent/activity/bulk-summary?date=${date}`,
       providesTags: ['Attendance'],
     }),

@@ -10,6 +10,7 @@ import { startAttendanceCronWorker } from './jobs/workers/attendance-cron.worker
 import { startPayrollWorker } from './jobs/workers/payroll.worker.js';
 import { startBackupWorker } from './jobs/workers/backup.worker.js';
 import { startLeaveCarryForwardWorker } from './jobs/workers/leave-carryforward.worker.js';
+import { startActivityRetentionWorker } from './jobs/workers/activity-retention.worker.js';
 import { whatsAppService } from './modules/whatsapp/whatsapp.service.js';
 import { initDefaultLeaveSettings } from './lib/dbInit.js';
 
@@ -72,6 +73,8 @@ async function main() {
     logger.info('✅ Database backup worker started');
     // Leave carry-forward cron worker (runs April 1 — Indian FY start)
     startLeaveCarryForwardWorker();
+    // Activity data retention worker (daily purge — default 3-day window)
+    startActivityRetentionWorker();
 
     server.listen(env.PORT, () => {
       logger.info(`🚀 Aniston HRMS API running on port ${env.PORT}`);

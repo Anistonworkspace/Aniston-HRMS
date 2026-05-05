@@ -75,8 +75,9 @@ function handleLogout() {
   agentSocket = null;
   setTokens('', '');
   store.clear();
+  // Stay idle after disconnect — tray now shows "Enter Pairing Code" so employee
+  // can re-pair manually without being immediately forced back into the pair flow.
   updateTrayMenu(handlePair, handleLogout);
-  handlePair();
 }
 
 let configPollInterval: NodeJS.Timeout | null = null;

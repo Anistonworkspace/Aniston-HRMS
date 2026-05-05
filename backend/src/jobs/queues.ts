@@ -28,6 +28,7 @@ export const payrollQueue = new Queue('payroll-processing', connection);
 export const bulkResumeQueue = new Queue('bulk-resume', connection);
 export const documentOcrQueue = new Queue('document-ocr', connection);
 export const backupQueue = new Queue('database-backup', connection);
+export const activityRetentionQueue = new Queue('activity-retention', connection);
 
 export const attendanceCronQueue = new Queue('attendance-cron', connection);
 export const leaveCarryForwardQueue = new Queue('leave-carry-forward', connection);
@@ -108,6 +109,24 @@ logger.info('✅ BullMQ queues initialized');
     logger.warn('Failed to schedule leave carry-forward cron:', err);
   }
 })();
+
+// Schedule activity data retention: configurable via ACTIVITY_CLEANUP_CRON (default 03:00 UTC)
+if (env.ACTIVITY_CLEANUP_ENABLED === 'true') {
+  (async () => {
+    try {
+      const existing = await activityRetentionQueue.getRepeatableJobs();
+      for (const job of existing) {
+        if (job.name === 'cleanup') await activityRetentionQueue.removeRepeatableByKey(job.key);
+      }
+      await activityRetentionQueue.add('cleanup', {}, {
+        repeat: { pattern: env.ACTIVITY_CLEANUP_CRON },
+      });
+      logger.info(`✅ Activity retention cron scheduled (${env.ACTIVITY_CLEANUP_CRON} UTC, ${env.ACTIVITY_RETENTION_DAYS}-day window)`);
+    } catch (err) {
+      logger.warn('Failed to schedule activity retention cron:', err);
+    }
+  })();
+}
 
 // Helper to enqueue an email job
 export async function enqueueEmail(data: {

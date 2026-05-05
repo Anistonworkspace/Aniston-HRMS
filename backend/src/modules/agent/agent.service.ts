@@ -50,7 +50,7 @@ export class AgentService {
       mouseDistance: a.mouseDistance,
     }));
 
-    await prisma.activityLog.createMany({ data: records });
+    const inserted = await prisma.activityLog.createMany({ data: records, skipDuplicates: true });
 
     // Audit once per employee per day — SET NX is atomic; prevents duplicate logs on concurrent heartbeats
     const todayStr = today.toISOString().split('T')[0];
@@ -60,16 +60,20 @@ export class AgentService {
       await createAuditLog({ userId, organizationId, entity: 'ActivityLog', entityId: employeeId, action: 'CREATE', newValue: { note: 'Activity monitoring started', date: todayStr } });
     }
 
-    // Also update attendance record active minutes.
-    // Use Math.ceil so that any sub-minute active period (e.g. 30s = 0.5min) counts as 1min
-    // instead of rounding to 0 — prevents losing activity data for short heartbeat batches.
+    // Update attendance active minutes only for genuinely new records (inserted.count > 0).
+    // Skipping when count===0 prevents double-incrementing on agent retries where all
+    // entries were already stored (skipDuplicates) but the previous HTTP response was lost.
     const totalActiveSeconds = activities.reduce((sum, a) => sum + a.durationSeconds, 0);
     const activeMinutesIncrement = Math.ceil(totalActiveSeconds / 60);
-    if (totalActiveSeconds > 0) {
+    if (totalActiveSeconds > 0 && inserted.count > 0) {
+      // Scale increment proportionally if only some records were new (partial batch retry)
+      const scaledIncrement = inserted.count === activities.length
+        ? activeMinutesIncrement
+        : Math.ceil((totalActiveSeconds * inserted.count / activities.length) / 60);
       await prisma.attendanceRecord.updateMany({
         where: { employeeId, date: today, checkOut: null },
         data: {
-          activeMinutes: { increment: activeMinutesIncrement },
+          activeMinutes: { increment: scaledIncrement },
           activityPulses: { increment: 1 },
         },
       });
@@ -81,7 +85,14 @@ export class AgentService {
     const batchKeystrokes = activities.reduce((sum, a) => sum + a.keystrokes, 0);
     const batchClicks = activities.reduce((sum, a) => sum + a.mouseClicks, 0);
 
-    emitToOrg(organizationId, 'agent:heartbeat', {
+    // Scope heartbeat to admins only — employee window titles are sensitive data
+    // and must not be broadcast to all org members. We emit per-admin to their
+    // personal room; the frontend org-level listeners on admin sessions pick it up.
+    const admins = await prisma.user.findMany({
+      where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    const heartbeatPayload = {
       employeeId,
       activeApp: lastActivity?.activeApp || 'Unknown',
       activeWindow: lastActivity?.activeWindow || '',
@@ -90,9 +101,13 @@ export class AgentService {
       idleSeconds: lastActivity?.idleSeconds || 0,
       keystrokes: batchKeystrokes,
       mouseClicks: batchClicks,
+      mouseDistance: activities.reduce((sum, a) => sum + a.mouseDistance, 0),
       durationSeconds: lastActivity?.durationSeconds || 0,
       timestamp: new Date().toISOString(),
-    });
+    };
+    for (const admin of admins) {
+      emitToUser(admin.id, 'agent:heartbeat', heartbeatPayload);
+    }
     // Emit to the employee's own session (userId is already in scope from the JWT context)
     emitToUser(userId, 'agent:connected', { isActive: true });
 
@@ -208,11 +223,17 @@ export class AgentService {
     const logs = await prisma.activityLog.findMany({
       where: { employeeId, date: queryDate, organizationId },
       orderBy: { timestamp: 'asc' },
+      select: {
+        id: true, employeeId: true, date: true, timestamp: true,
+        activeApp: true, activeWindow: true, activeUrl: true, category: true,
+        durationSeconds: true, idleSeconds: true,
+        keystrokes: true, mouseClicks: true, mouseDistance: true,
+      },
     });
 
     // Aggregate top apps
     const appMap = new Map<string, number>();
-    let totalActive = 0, totalIdle = 0, totalKeystrokes = 0, totalClicks = 0;
+    let totalActive = 0, totalIdle = 0, totalKeystrokes = 0, totalClicks = 0, totalMouseDistance = 0;
 
     logs.forEach(l => {
       if (l.activeApp) {
@@ -222,6 +243,7 @@ export class AgentService {
       totalIdle += l.idleSeconds;
       totalKeystrokes += l.keystrokes;
       totalClicks += l.mouseClicks;
+      totalMouseDistance += l.mouseDistance;
     });
 
     const topApps = [...appMap.entries()]
@@ -246,9 +268,10 @@ export class AgentService {
         totalIdleMinutes: Math.round(totalIdle / 60),
         totalKeystrokes,
         totalClicks,
+        totalMouseDistance,
         topApps,
         logCount: logs.length,
-        productivityScore,         // 0–100, null if no data
+        productivityScore,
         productiveMinutes: Math.round(productiveSeconds / 60),
         unproductiveMinutes: Math.round(unproductiveSeconds / 60),
       },
@@ -274,7 +297,9 @@ export class AgentService {
 
   async getAgentStatus(employeeId: string, organizationId: string) {
     const now = new Date();
-    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+    // Agent syncs every 5 minutes — use 7-minute window (5min sync + 2min grace)
+    // to prevent agents from flickering Offline between sync cycles.
+    const thresholdAgo = new Date(now.getTime() - 7 * 60 * 1000);
 
     const lastLog = await prisma.activityLog.findFirst({
       where: { employeeId, organizationId },
@@ -282,8 +307,7 @@ export class AgentService {
       select: { timestamp: true },
     });
 
-    // Agent is "active" only if last heartbeat was within 2 minutes
-    const isActive = !!lastLog && new Date(lastLog.timestamp) > twoMinutesAgo;
+    const isActive = !!lastLog && new Date(lastLog.timestamp) > thresholdAgo;
 
     return {
       isActive,
@@ -425,7 +449,8 @@ export class AgentService {
 
     // Batch lookup: find last heartbeat per employee (within last 24h for "last seen")
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    // 7-minute threshold: agent syncs every 5min, +2min grace to avoid false Offline flickers
+    const activeThreshold = new Date(Date.now() - 7 * 60 * 1000);
 
     const recentLogs = await prisma.activityLog.groupBy({
       by: ['employeeId'],
@@ -437,7 +462,7 @@ export class AgentService {
 
     return employees.map(emp => {
       const lastHeartbeat = heartbeatMap.get(emp.id) || null;
-      const isActive = !!lastHeartbeat && new Date(lastHeartbeat) > twoMinutesAgo;
+      const isActive = !!lastHeartbeat && new Date(lastHeartbeat) > activeThreshold;
       return {
         ...emp,
         email: emp.user?.email || null,
@@ -661,13 +686,20 @@ export class AgentService {
     const accessToken = jwt.sign(
       { userId, email: user.email, role: user.role, organizationId, employeeId },
       env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '30d' }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId, organizationId, employeeId, type: 'agent-refresh' },
+      env.JWT_SECRET,
+      { expiresIn: '90d' }
     );
 
     await redis.del(`${PAIR_PREFIX}${code}`);
 
     return {
       accessToken,
+      refreshToken,
       user: { email: user.email, firstName: user.employee?.firstName, lastName: user.employee?.lastName },
     };
   }

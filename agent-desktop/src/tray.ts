@@ -37,13 +37,17 @@ export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
     { label: loggedIn ? '● Connected' : '○ Not Connected', enabled: false },
     { label: loggedIn ? (tracking ? '● Tracking Active' : '○ Tracking Paused') : '', enabled: false, visible: loggedIn },
     { type: 'separator' },
+    // Not connected: offer pairing
     { label: 'Enter Pairing Code', visible: !loggedIn, click: onPair },
+    // Connected: pause/resume and disconnect options
     { label: tracking ? 'Pause Tracking' : 'Resume Tracking', visible: loggedIn, click: () => {
       if (tracking) pauseTracking(); else resumeTracking();
       updateTrayMenu(onPair, onLogout);
     }},
+    // Disconnect clears credentials and stays idle — does NOT immediately re-prompt pairing.
+    // Employee can re-pair manually via "Enter Pairing Code" or quit and reopen.
     { label: 'Disconnect', visible: loggedIn, click: () => {
-      stopTracking(); stopScreenshots(); onLogout();
+      onLogout();
       updateTrayMenu(onPair, onLogout);
     }},
     { type: 'separator' },

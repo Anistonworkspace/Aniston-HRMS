@@ -38,6 +38,10 @@ const envSchema = z.object({
   // Injected via GitHub Secret ANISTON_TEST at deploy time.
   // Takes priority over any per-org DB-stored key for all OPENAI provider calls.
   OPENAI_API_KEY: z.string().optional(),
+  // Activity data retention (default: 3 days per compliance policy)
+  ACTIVITY_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(3),
+  ACTIVITY_CLEANUP_ENABLED: z.string().default('true'),
+  ACTIVITY_CLEANUP_CRON: z.string().default('0 3 * * *'), // 03:00 UTC daily
 });
 
 /** Detect suspiciously low-entropy secrets (repeated chars, all-numeric, common dev patterns) */

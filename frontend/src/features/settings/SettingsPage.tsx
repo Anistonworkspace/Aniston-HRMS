@@ -2035,7 +2035,7 @@ function KnowledgeBaseSection() {
 const AGENT_HEARTBEAT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes — agent considered disconnected after this
 
 function AgentSetupTab() {
-  const { data: res, isLoading } = useGetAgentSetupListQuery();
+  const { data: res, isLoading } = useGetAgentSetupListQuery(undefined, { pollingInterval: 30_000 });
   const { data: downloadRes, isLoading: checkingDownload } = useGetAgentDownloadStatusQuery();
   const [generateCode, { isLoading: generating }] = useGenerateAgentCodeMutation();
   const [regenerateCode, { isLoading: regenerating }] = useRegenerateAgentCodeMutation();
