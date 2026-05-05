@@ -16,17 +16,16 @@ import androidx.work.WorkerParameters;
 import java.util.concurrent.TimeUnit;
 
 /**
- * WorkManager periodic watchdog — runs every 15 minutes via JobScheduler/AlarmManager
- * depending on Android version. WorkManager is Doze-aware and survives aggressive OEMs
- * that kill AlarmManager-based restarts (Samsung/Xiaomi/Oppo/OnePlus).
+ * WorkManager periodic watchdog — runs every 15 minutes.
  *
- * Logic: if prefs have active credentials but the service is not running → restart it.
- * This is a safety net on top of AlarmManager + START_STICKY — not a replacement.
+ * If prefs have valid tracking credentials but the service is not running → restart it.
+ * Writes precise diagnostic output so "no_credentials" is replaced by the exact
+ * missing field (missing_token, missing_employee_id, missing_backend_url, tracking_disabled).
  */
 public class GpsWatchdogWorker extends Worker {
 
-    private static final String TAG = "GpsWatchdogWorker";
-    public static final String WORK_NAME = "aniston_gps_watchdog";
+    private static final String TAG       = "GpsWatchdogWorker";
+    public static final  String WORK_NAME = "aniston_gps_watchdog";
 
     public GpsWatchdogWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -39,27 +38,47 @@ public class GpsWatchdogWorker extends Worker {
         GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RUN_AT, GpsDiagnostics.nowIso());
 
         SharedPreferences prefs = ctx.getSharedPreferences(
-                GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
+            GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
 
-        String token = prefs.getString(GpsTrackingService.EXTRA_TOKEN, null);
-        String employeeId = prefs.getString(GpsTrackingService.EXTRA_EMPLOYEE_ID, null);
+        // ── Validate each credential field individually ────────────────────────
+        boolean trackingEnabled = prefs.getBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false);
+        String  token           = prefs.getString(GpsTrackingService.EXTRA_TOKEN,       null);
+        String  employeeId      = prefs.getString(GpsTrackingService.EXTRA_EMPLOYEE_ID, null);
+        String  backendUrl      = prefs.getString(GpsTrackingService.EXTRA_BACKEND_URL, null);
 
-        // No active tracking credentials → nothing to watch
-        if (token == null || employeeId == null) {
-            Log.d(TAG, "No active GPS session — watchdog idle");
-            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT, "no_credentials");
+        // Build precise missing-fields string for diagnostics
+        StringBuilder missing = new StringBuilder();
+        if (!trackingEnabled)                             missing.append("tracking_disabled,");
+        if (token      == null || token.isEmpty())        missing.append("auth_token,");
+        if (employeeId == null || employeeId.isEmpty())   missing.append("employee_id,");
+        if (backendUrl == null || backendUrl.isEmpty())   missing.append("backend_url,");
+
+        boolean credentialsOk = trackingEnabled
+            && token      != null && !token.isEmpty()
+            && employeeId != null && !employeeId.isEmpty();
+
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_CREDENTIALS_PRESENT,
+            credentialsOk ? "true" : "false");
+
+        if (!credentialsOk) {
+            String reason = missing.length() > 0
+                ? missing.toString().replaceAll(",$", "")
+                : "unknown";
+            Log.d(TAG, "No active GPS session (" + reason + ") — watchdog idle");
+            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT,
+                "no_credentials:" + reason);
             return Result.success();
         }
 
-        // Service is already alive (static volatile flag) → nothing to do
+        // ── Service already alive in this process ──────────────────────────────
         if (GpsTrackingService.sIsRunning) {
             Log.d(TAG, "GPS service is running — watchdog idle");
             GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT, "service_already_running");
             return Result.success();
         }
 
-        // Service is dead but credentials exist → restart
-        Log.w(TAG, "GPS service not running but credentials found — restarting for employee: " + employeeId);
+        // ── Restart service ────────────────────────────────────────────────────
+        Log.w(TAG, "GPS service not running but credentials found — restarting for: " + employeeId);
         try {
             Intent serviceIntent = new Intent(ctx, GpsTrackingService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -70,33 +89,25 @@ public class GpsWatchdogWorker extends Worker {
             GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT, "restarted_service");
         } catch (Exception e) {
             Log.e(TAG, "Watchdog failed to restart GPS service: " + e.getMessage());
-            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT, "failed: " + e.getMessage());
+            String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT, "failed:" + reason);
+            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_EXCEPTION,   reason);
             return Result.retry();
         }
-
         return Result.success();
     }
 
-    /**
-     * Enqueue the periodic watchdog. Safe to call multiple times — KEEP policy
-     * means it won't create duplicates if one is already enqueued.
-     * Call this from MainActivity.onCreate() so it's always scheduled.
-     */
+    /** Enqueue periodic watchdog. KEEP policy prevents duplicates. */
     public static void schedule(Context context) {
         PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
-                GpsWatchdogWorker.class,
-                15, TimeUnit.MINUTES   // minimum interval WorkManager allows
+            GpsWatchdogWorker.class, 15, TimeUnit.MINUTES
         ).build();
-
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
-                request
-        );
+            WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request);
         Log.d(TAG, "GPS watchdog scheduled (15 min interval)");
     }
 
-    /** Cancel the watchdog — call when the employee explicitly ends their field shift. */
+    /** Cancel watchdog when employee explicitly ends their field shift. */
     public static void cancel(Context context) {
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME);
         Log.d(TAG, "GPS watchdog cancelled");

@@ -152,12 +152,12 @@ function buildSteps(oem: OemCategory): StepDef[] {
       "Also go to: Settings → Battery → Background usage limits → remove Aniston HRMS from Sleeping apps",
     ];
   } else if (oem === 'xiaomi') {
-    batteryDesc = "Set battery to 'No restrictions' and configure the Security app to prevent GPS from being paused in the background.";
+    batteryDesc = "Set battery to 'No restrictions'. Without this, MIUI/HyperOS will kill GPS when the screen turns off.";
     batteryInstructions = [
-      'Open Settings below',
-      'Tap Battery',
+      'Open Settings below (takes you to App Info)',
+      "Tap 'Battery saver' or 'Battery'",
       "Select 'No restrictions'",
-      'Also open Security app → Battery → No restrictions for Aniston HRMS',
+      'Also: Open Security app → Battery → find Aniston HRMS → No restrictions',
     ];
   } else {
     batteryDesc = "Set battery to 'No restrictions' or 'Unrestricted' so Android does not pause GPS in the background.";
@@ -188,19 +188,21 @@ function buildSteps(oem: OemCategory): StepDef[] {
   } else if (oem === 'xiaomi') {
     steps.push({
       id: 'autostart',
-      title: 'Enable Auto-start (Required on Xiaomi)',
-      description: 'Xiaomi MIUI aggressively kills background services. You must enable Auto-start or GPS will stop after you swipe the app away.',
+      title: 'Enable Autostart (Required on Xiaomi/POCO)',
+      description:
+        'MIUI and HyperOS kill background services when you swipe the app away unless Autostart is enabled. ' +
+        'Without this, GPS stops the moment you leave the app.',
       instructions: [
-        'Open Settings below',
-        "Tap 'Other permissions' or 'Permissions'",
-        "Find 'Autostart' and enable it",
-        "Also enable 'Run in background' if shown",
-        "Return here and tap 'I've enabled it'",
+        'Path 1 — Security app:  Open the Security app (pre-installed) → Autostart → find Aniston HRMS → enable the toggle',
+        'Path 2 — Settings:  Settings → Apps → Manage apps → Aniston HRMS → Other permissions → Autostart → enable',
+        'Path 3 — Settings (HyperOS):  Settings → Apps → Manage apps → Aniston HRMS → Battery saver → No restrictions',
+        'Also recommended:  Open Recent Apps → long-press the Aniston HRMS card → tap the Lock icon (🔒) to prevent it being cleared',
+        "Return here and tap 'I've enabled it' when done",
       ],
       permKey: 'autostart_xiaomi',
-      actionLabel: 'Open Settings',
+      actionLabel: 'Open App Settings',
       actionType: 'confirm',
-      grantedLabel: 'Auto-start enabled',
+      grantedLabel: 'Autostart enabled',
       isRequired: true,
       canSkipIfNotFound: true,
       icon: <Smartphone className="w-10 h-10 text-purple-400" />,
@@ -600,6 +602,19 @@ export default function StartupPermissionGuard({ children }: { children: React.R
               <p className="text-center text-gray-600 text-xs mt-2">
                 This permission is required for GPS tracking to work in the background.
               </p>
+            )}
+
+            {/* Xiaomi/POCO troubleshooting card — shown on the autostart step */}
+            {currentStep.id === 'autostart' && steps.some(s => s.permKey === 'autostart_xiaomi') && (
+              <div className="mt-3 bg-amber-950/30 border border-amber-700/30 rounded-xl p-3">
+                <p className="text-amber-300 text-xs font-semibold mb-1">Xiaomi / POCO / Redmi Note</p>
+                <p className="text-amber-200/70 text-xs leading-relaxed">
+                  MIUI and HyperOS aggressively kill background apps. Even if the GPS notification
+                  stays visible, location data may stop posting until Autostart and No Restrictions
+                  (Battery) are both enabled. Check the GPS Diagnostics panel on the Attendance screen
+                  after setup — it shows the exact reason if tracking stops.
+                </p>
+              </div>
             )}
           </motion.div>
         </motion.div>

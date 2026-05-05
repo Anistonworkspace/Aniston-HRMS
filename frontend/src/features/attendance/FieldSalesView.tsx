@@ -452,13 +452,22 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       // It handles GPS posting, persistent notification, and heartbeats natively.
       // Geolocation.watchPosition below handles UI-only foreground updates.
       if (isNativeAndroid) {
-        const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
+        // Always use the hard-coded production origin on native builds.
+        // import.meta.env.VITE_API_URL is undefined in a production APK (env vars are
+        // baked at Vite build time; Capacitor native builds don't set them).
+        // We strip /api suffix so the service can append /api/... paths itself.
+        const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+        const backendBase = rawApiUrl
+          ? rawApiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '')
+          : 'https://hr.anistonav.com';
         const intervalMins = todayStatus?.shift?.trackingIntervalMinutes;
+        const attendanceRecordId = todayStatus?.record?.id || '';
         await startNativeGpsService({
           backendUrl: backendBase,
           authToken: accessToken || '',
           employeeId: user?.employeeId || '',
           orgId: user?.organizationId || '',
+          attendanceId: attendanceRecordId,
           ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
         }).catch((e: any) => console.warn('Native GPS service start failed:', e?.message));
       }

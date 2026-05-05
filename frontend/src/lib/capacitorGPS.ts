@@ -22,7 +22,7 @@ import { Geolocation, type Position } from '@capacitor/geolocation';
 
 // Register our custom native plugin (GpsTrackingPlugin.java in MainActivity)
 interface GpsTrackingPluginDef {
-  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; trackingIntervalMinutes?: number }): Promise<void>;
+  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; attendanceId?: string; trackingIntervalMinutes?: number }): Promise<void>;
   stop(): Promise<void>;
   updateToken(opts: { token: string }): Promise<void>;
   updateInterval(opts: { minutes: number }): Promise<void>;
@@ -156,6 +156,7 @@ export interface GPSCredentials {
   authToken: string;
   employeeId: string;
   orgId: string;
+  attendanceId?: string;
   trackingIntervalMinutes?: number;
 }
 
@@ -171,6 +172,7 @@ export async function startNativeGpsService(credentials: GPSCredentials): Promis
     authToken: credentials.authToken,
     employeeId: credentials.employeeId,
     orgId: credentials.orgId,
+    ...(credentials.attendanceId != null ? { attendanceId: credentials.attendanceId } : {}),
     ...(credentials.trackingIntervalMinutes != null
       ? { trackingIntervalMinutes: credentials.trackingIntervalMinutes }
       : {}),
