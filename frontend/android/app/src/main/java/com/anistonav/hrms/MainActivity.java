@@ -50,7 +50,7 @@ public class MainActivity extends BridgeActivity {
      * without requiring them to navigate to the Attend tab.
      */
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
         tryAutoRestartGps();
     }
