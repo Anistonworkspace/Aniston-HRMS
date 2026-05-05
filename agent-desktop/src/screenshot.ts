@@ -2,6 +2,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import Store from 'electron-store';
+import { app } from 'electron';
 import { uploadScreenshot, isLoggedIn } from './api';
 import { CONFIG } from './config';
 
@@ -20,22 +21,76 @@ interface QueuedScreenshot {
   queuedAt: number; // ms epoch — used to drop stale items
 }
 
-const queueStore = new Store<{ screenshotQueue: QueuedScreenshot[] }>({
-  name: 'screenshot-queue',
-  encryptionKey: CONFIG.STORE_ENCRYPTION_KEY,
-  defaults: { screenshotQueue: [] },
-});
+// Safe store initializer — mirrors the one in main.ts.
+// The screenshot-queue store uses an encryption key because it may hold
+// temporary file paths; corruption from a key mismatch must not crash the app.
+function createQueueStore(): Store<{ screenshotQueue: QueuedScreenshot[] }> {
+  const storeName = 'screenshot-queue';
+  let storeFilePath: string | null = null;
+  try {
+    const userData = app.getPath('userData');
+    storeFilePath = path.join(userData, `${storeName}.json`);
+  } catch { /* app not ready yet — will be fine by first use */ }
+
+  if (storeFilePath && fs.existsSync(storeFilePath)) {
+    try {
+      const raw = fs.readFileSync(storeFilePath, 'utf-8');
+      JSON.parse(raw);
+    } catch {
+      const backupPath = `${storeFilePath}.corrupt.${Date.now()}.bak`;
+      try {
+        fs.renameSync(storeFilePath, backupPath);
+        console.warn(`[Screenshot] Corrupt queue store backed up to: ${backupPath}`);
+      } catch {
+        try { fs.unlinkSync(storeFilePath); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  try {
+    return new Store<{ screenshotQueue: QueuedScreenshot[] }>({
+      name: storeName,
+      encryptionKey: CONFIG.STORE_ENCRYPTION_KEY,
+      defaults: { screenshotQueue: [] },
+    });
+  } catch (err) {
+    console.error('[Screenshot] Queue store constructor failed — resetting:', err);
+    if (storeFilePath) {
+      try { fs.unlinkSync(storeFilePath); } catch { /* ignore */ }
+    }
+    return new Store<{ screenshotQueue: QueuedScreenshot[] }>({
+      name: storeName,
+      encryptionKey: CONFIG.STORE_ENCRYPTION_KEY,
+      defaults: { screenshotQueue: [] },
+    });
+  }
+}
+
+// Lazily initialised — created on first use after app is ready.
+let queueStore: Store<{ screenshotQueue: QueuedScreenshot[] }> | null = null;
+
+function getQueueStore(): Store<{ screenshotQueue: QueuedScreenshot[] }> {
+  if (!queueStore) queueStore = createQueueStore();
+  return queueStore;
+}
+
 const QUEUE_KEY = 'screenshotQueue';
 const MAX_QUEUE_SIZE = 20;           // Don't grow unbounded
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // Drop items older than 24h
 let retrying = false; // prevents concurrent retryQueue() executions (critical in live mode at 10-30s intervals)
 
 function getQueue(): QueuedScreenshot[] {
-  return queueStore.get(QUEUE_KEY) || [];
+  try {
+    return getQueueStore().get(QUEUE_KEY) || [];
+  } catch { return []; }
 }
 
 function saveQueue(queue: QueuedScreenshot[]) {
-  queueStore.set(QUEUE_KEY, queue);
+  try {
+    getQueueStore().set(QUEUE_KEY, queue);
+  } catch (err) {
+    console.warn('[Screenshot] Failed to save queue:', (err as Error).message);
+  }
 }
 
 function enqueue(item: QueuedScreenshot) {
@@ -50,36 +105,36 @@ async function retryQueue() {
   if (retrying || !isLoggedIn()) return;
   retrying = true;
   try {
-  const queue = getQueue();
-  if (queue.length === 0) return;
+    const queue = getQueue();
+    if (queue.length === 0) return;
 
-  const now = Date.now();
-  // Filter: file must still exist and not be stale
-  const toRetry = queue.filter(
-    item => fs.existsSync(item.filePath) && now - item.queuedAt < MAX_AGE_MS
-  );
+    const now = Date.now();
+    // Filter: file must still exist and not be stale
+    const toRetry = queue.filter(
+      item => fs.existsSync(item.filePath) && now - item.queuedAt < MAX_AGE_MS
+    );
 
-  if (toRetry.length === 0) {
-    saveQueue([]); // Clear empty/stale queue
-    return;
-  }
-
-  console.log(`[Screenshot] Retrying ${toRetry.length} queued upload(s)`);
-  const remaining: QueuedScreenshot[] = [];
-
-  for (const item of toRetry) {
-    try {
-      await uploadScreenshot(item.filePath, item.metadata);
-      try { fs.unlinkSync(item.filePath); } catch {}
-      console.log(`[Screenshot] Queued upload succeeded: ${path.basename(item.filePath)}`);
-    } catch {
-      remaining.push(item); // Keep for next retry cycle
+    if (toRetry.length === 0) {
+      saveQueue([]); // Clear empty/stale queue
+      return;
     }
-    // Delay between retries to avoid hammering server when queue is large
-    await new Promise(r => setTimeout(r, 1_000));
-  }
 
-  saveQueue(remaining);
+    console.log(`[Screenshot] Retrying ${toRetry.length} queued upload(s)`);
+    const remaining: QueuedScreenshot[] = [];
+
+    for (const item of toRetry) {
+      try {
+        await uploadScreenshot(item.filePath, item.metadata);
+        try { fs.unlinkSync(item.filePath); } catch {}
+        console.log(`[Screenshot] Queued upload succeeded: ${path.basename(item.filePath)}`);
+      } catch {
+        remaining.push(item); // Keep for next retry cycle
+      }
+      // Delay between retries to avoid hammering server when queue is large
+      await new Promise(r => setTimeout(r, 1_000));
+    }
+
+    saveQueue(remaining);
   } finally {
     retrying = false;
   }

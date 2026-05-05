@@ -11,13 +11,19 @@ let pairWindow: BrowserWindow | null = null;
 let pairHtmlPath: string | null = null;
 
 export function createTray(onPair: () => void, onLogout: () => void) {
-  const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
-  let icon: Electron.NativeImage;
-  try {
-    icon = nativeImage.createFromPath(iconPath);
-    if (icon.isEmpty()) icon = nativeImage.createEmpty();
-  } catch {
-    icon = nativeImage.createEmpty();
+  // In packaged app: process.resourcesPath = <install>/resources
+  // extraResources copies assets/ → resources/assets/
+  // In dev: __dirname = dist/, so ../assets/ = project assets/
+  const iconCandidates = [
+    path.join(process.resourcesPath || '', 'assets', 'icon.png'), // packaged
+    path.join(__dirname, '..', 'assets', 'icon.png'),             // dev
+  ];
+  let icon: Electron.NativeImage = nativeImage.createEmpty();
+  for (const p of iconCandidates) {
+    try {
+      const candidate = nativeImage.createFromPath(p);
+      if (!candidate.isEmpty()) { icon = candidate; break; }
+    } catch { /* try next */ }
   }
 
   tray = new Tray(icon.resize({ width: 16, height: 16 }));
