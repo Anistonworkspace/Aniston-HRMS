@@ -434,31 +434,21 @@ export class DashboardService {
     // notCheckedIn = work-eligible employees who have no attendance record and are not on approved leave today
     const notCheckedIn = Math.max(activeCount - totalCheckedIn - onLeaveCount, 0);
 
-    // Late arrivals — employees who checked in after shift grace period
-    const [lateRecords, defaultOrgShift, presentRecords] = await Promise.all([
+    // Late arrivals + present list — use stored lateMinutes (same source as Attendance Command Center)
+    const [allTodayRecords, presentRecords] = await Promise.all([
       prisma.attendanceRecord.findMany({
         where: {
           date: today,
-          status: { in: ['PRESENT', 'WORK_FROM_HOME'] },
+          status: { in: ['PRESENT', 'WORK_FROM_HOME', 'HALF_DAY'] },
           checkIn: { not: null },
           employee: { organizationId },
         },
-        include: {
-          employee: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              shiftAssignments: {
-                where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
-                select: { shift: { select: { startTime: true, graceMinutes: true, lateGraceMinutes: true } } },
-                take: 1,
-              },
-            },
-          },
+        select: {
+          lateMinutes: true,
+          notes: true,
+          employee: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
-      prisma.shift.findFirst({ where: { organizationId, isDefault: true, isActive: true }, select: { startTime: true, graceMinutes: true, lateGraceMinutes: true } }),
       // Present employees list for popup (include WFH too)
       prisma.attendanceRecord.findMany({
         where: { date: today, status: { in: ['PRESENT', 'HALF_DAY', 'WORK_FROM_HOME'] }, employee: { organizationId } },
@@ -467,24 +457,11 @@ export class DashboardService {
       }),
     ]);
 
-    let lateCount = 0;
-    const lateEmployeesList: { id: string; name: string }[] = [];
-    for (const rec of lateRecords) {
-      if (!rec.checkIn) continue;
-      const shift = rec.employee.shiftAssignments[0]?.shift;
-      const startTime = shift?.startTime || defaultOrgShift?.startTime || '09:00';
-      const grace = shift?.lateGraceMinutes || shift?.graceMinutes || defaultOrgShift?.lateGraceMinutes || defaultOrgShift?.graceMinutes || 15;
-      const [sh, sm] = startTime.split(':').map(Number);
-      const deadline = new Date(today);
-      deadline.setHours(sh, sm + grace, 0, 0);
-      if (new Date(rec.checkIn) > deadline) {
-        lateCount++;
-        lateEmployeesList.push({
-          id: rec.employee.id,
-          name: `${rec.employee.firstName} ${rec.employee.lastName}`,
-        });
-      }
-    }
+    // Use stored lateMinutes — identical logic to getCommandCenterStats
+    const lateEmployeesList: { id: string; name: string }[] = allTodayRecords
+      .filter((r) => (r.lateMinutes ?? 0) > 0 || r.notes?.includes('[Late by'))
+      .map((r) => ({ id: r.employee.id, name: `${r.employee.firstName} ${r.employee.lastName}` }));
+    const lateCount = lateEmployeesList.length;
 
     // absent = notCheckedIn (real-time: employees who are active, not checked in, not on leave)
     const absentCount = notCheckedIn;
