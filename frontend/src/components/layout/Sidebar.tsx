@@ -27,7 +27,6 @@ import {
   Activity,
   FileCheck,
   CheckCircle2,
-  ShieldCheck,
   Mail,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -63,7 +62,6 @@ const navItems: NavItem[] = [
   { nameKey: 'nav.payslips', path: '/payroll', icon: DollarSign, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPayslips' },
   { nameKey: 'nav.roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'HR'] },
   { nameKey: 'nav.recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
-  { nameKey: 'nav.kycReview', path: '/kyc-review', icon: ShieldCheck, roles: ['SUPER_ADMIN', 'HR'] },
   { nameKey: 'nav.employeeExit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.interviewTasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
   { nameKey: 'nav.assets', managementNameKey: 'nav.assetManagement', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },

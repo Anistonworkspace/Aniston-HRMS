@@ -29,7 +29,6 @@ const ALL_ROUTES: RouteItem[] = [
 
   // Employees
   { id: 'employees', label: 'Manage Employees', description: 'Employee list, profiles, onboarding', path: '/employees', icon: Users, category: 'People', keywords: ['employee', 'staff', 'team', 'hr', 'manage', 'people'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { id: 'kyc-review', label: 'KYC Review', description: 'Review employee KYC documents', path: '/kyc-review', icon: Shield, category: 'People', keywords: ['kyc', 'document', 'verify', 'aadhaar', 'pan'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { id: 'exit-management', label: 'Exit Management', description: 'Employee offboarding and exit process', path: '/exit-management', icon: LogOut, category: 'People', keywords: ['exit', 'offboarding', 'resignation', 'leave company'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { id: 'walk-in-management', label: 'Walk-in Management', description: 'Manage walk-in candidates', path: '/walk-in-management', icon: UserPlus, category: 'People', keywords: ['walk-in', 'candidate', 'visitor', 'register'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
 
