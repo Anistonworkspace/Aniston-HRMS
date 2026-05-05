@@ -117,7 +117,7 @@ Write-Host ("  APK: " + $DEST_APK + " (" + $APK_SIZE + " MB)") -ForegroundColor 
 # -- Done --
 Write-Host ""
 Write-Host "=================================================" -ForegroundColor Green
-Write-Host "  BUILD SUCCESSFUL  --  v1.4.0 (versionCode 14)" -ForegroundColor Green
+Write-Host "  BUILD SUCCESSFUL  --  v1.5.0 (versionCode 15)" -ForegroundColor Green
 Write-Host "=================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  AAB  -> Upload to Play Console for production release" -ForegroundColor Yellow

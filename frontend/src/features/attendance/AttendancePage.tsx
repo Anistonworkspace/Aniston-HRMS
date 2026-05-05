@@ -31,6 +31,7 @@ import { startNativeGpsService, stopNativeGpsService, isNativeAndroid, getCurren
 import CommandCenter from './components/CommandCenter';
 import RegularizationTab from './components/RegularizationTab';
 import SelfServiceReport from './components/SelfServiceReport';
+import GpsDiagnosticsPanel from './components/GpsDiagnosticsPanel';
 import { CompOffTab } from './components/CompOffTab';
 import { enqueueAction } from '../../lib/offlineQueue';
 import { useAuthDownload } from '../../hooks/useAuthDownload';
@@ -1725,6 +1726,9 @@ function AttendancePersonalView() {
       >
         <MyShiftsSection />
       </motion.div>
+
+      {/* GPS Diagnostics — Android only, collapsed by default */}
+      <GpsDiagnosticsPanel />
 
       {/* Regularization Modal */}
       {showRegModal && (

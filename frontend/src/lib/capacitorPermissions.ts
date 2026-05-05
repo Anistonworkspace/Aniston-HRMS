@@ -14,6 +14,7 @@ interface AppPermissionsPluginDef {
   isGpsEnabled(): Promise<{ enabled: boolean }>;
   openGpsSettings(): Promise<void>;
   openAppSettings(): Promise<void>;
+  getDeviceInfo(): Promise<{ manufacturer: string; brand: string; model: string; sdkInt: number }>;
 }
 
 const AppPermissions = registerPlugin<AppPermissionsPluginDef>('AppPermissions', {
@@ -29,6 +30,7 @@ const AppPermissions = registerPlugin<AppPermissionsPluginDef>('AppPermissions',
     isGpsEnabled: async () => ({ enabled: true }),
     openGpsSettings: async () => {},
     openAppSettings: async () => {},
+    getDeviceInfo: async () => ({ manufacturer: 'web', brand: 'web', model: 'web', sdkInt: 0 }),
   },
 });
 
@@ -76,4 +78,13 @@ export async function openAppSettings(): Promise<void> {
   try {
     await AppPermissions.openAppSettings();
   } catch {}
+}
+
+export async function getDeviceInfo(): Promise<{ manufacturer: string; brand: string; model: string; sdkInt: number }> {
+  if (!isAndroid) return { manufacturer: 'web', brand: 'web', model: 'web', sdkInt: 0 };
+  try {
+    return await AppPermissions.getDeviceInfo();
+  } catch {
+    return { manufacturer: 'unknown', brand: 'unknown', model: 'unknown', sdkInt: 0 };
+  }
 }

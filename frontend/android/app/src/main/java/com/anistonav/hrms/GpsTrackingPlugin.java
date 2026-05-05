@@ -62,6 +62,7 @@ public class GpsTrackingPlugin extends Plugin {
             } else {
                 ctx.startService(intent);
             }
+            GpsDiagnostics.markCheckedIn(ctx);
             call.resolve();
         } catch (Exception e) {
             Log.e(TAG, "Failed to start GPS service", e);
@@ -79,6 +80,7 @@ public class GpsTrackingPlugin extends Plugin {
         } catch (Exception e) {
             Log.w(TAG, "Stop service failed (already stopped?): " + e.getMessage());
         }
+        GpsDiagnostics.markCheckedOut(ctx);
         // Cancel watchdog — employee explicitly ended their field shift
         GpsWatchdogWorker.cancel(ctx);
         call.resolve();
@@ -181,6 +183,19 @@ public class GpsTrackingPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("exempted", exempted);
         call.resolve(result);
+    }
+
+    @PluginMethod
+    public void getDiagnostics(PluginCall call) {
+        String json = GpsDiagnostics.getDiagnosticsJson(getContext());
+        try {
+            JSObject result = new JSObject(json);
+            call.resolve(result);
+        } catch (Exception e) {
+            JSObject r = new JSObject();
+            r.put("raw", json);
+            call.resolve(r);
+        }
     }
 
     /**

@@ -127,6 +127,7 @@ public class GpsTrackingService extends Service {
         heartbeatHandler = new Handler(Looper.getMainLooper());
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         acquireWakeLock();
+        GpsDiagnostics.recordDeviceInfo(this);
     }
 
     @Override
@@ -177,6 +178,8 @@ public class GpsTrackingService extends Service {
 
         startForegroundNow("Aniston HRMS — GPS Active", "Initialising location…");
         sIsRunning = true;
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_SERVICE_RUNNING, "true");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_SERVICE_START_AT, GpsDiagnostics.nowIso());
         startLocationUpdates();
         startHeartbeat();
         return START_STICKY;
@@ -391,9 +394,11 @@ public class GpsTrackingService extends Service {
                 JSONObject body = new JSONObject();
                 body.put("points", arr);
                 postJson(backendUrl + "/api/attendance/gps-trail", body.toString());
+                GpsDiagnostics.recordEvent(GpsTrackingService.this, GpsDiagnostics.KEY_LAST_GPS_POINT_AT, GpsDiagnostics.nowIso());
                 Log.d(TAG, "Posted batch of " + compressed.size() + " GPS points");
             } catch (Exception e) {
                 Log.w(TAG, "postGpsPoint batch failed: " + e.getMessage());
+                GpsDiagnostics.recordError(GpsTrackingService.this, e.getMessage());
                 // Re-queue failed points at front so they're included in the next batch
                 synchronized (pendingBatch) {
                     for (int i = batchToSend.size() - 1; i >= 0; i--) {
@@ -409,8 +414,10 @@ public class GpsTrackingService extends Service {
         networkExecutor.execute(() -> {
             try {
                 postJson(backendUrl + "/api/attendance/gps-heartbeat", "{}");
+                GpsDiagnostics.recordEvent(GpsTrackingService.this, GpsDiagnostics.KEY_LAST_HEARTBEAT_AT, GpsDiagnostics.nowIso());
             } catch (Exception e) {
                 Log.w(TAG, "postHeartbeat failed: " + e.getMessage());
+                GpsDiagnostics.recordError(GpsTrackingService.this, e.getMessage());
             }
         });
     }
@@ -444,6 +451,7 @@ public class GpsTrackingService extends Service {
         }
 
         int code = conn.getResponseCode();
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_BACKEND_STATUS_CODE, String.valueOf(code));
         if (code == 401) {
             // Try token from prefs (plugin may have refreshed it)
             String refreshed = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -536,6 +544,7 @@ public class GpsTrackingService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
         Log.i(TAG, "onTaskRemoved — dual-strategy restart");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_ON_TASK_REMOVED_AT, GpsDiagnostics.nowIso());
         // Strategy 1: Immediately restart self before the process has a chance to die.
         // Works on most stock Android devices. On aggressive OEMs the window is short but
         // worth attempting — the service re-enters onStartCommand with a null intent and
@@ -554,8 +563,10 @@ public class GpsTrackingService extends Service {
         // Schedules two alarms — at 500ms and 8s — for OEMs that kill Strategy 1 quickly.
         try {
             GpsRestartReceiver.scheduleRestart(this);
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_RESTART_ALARM_AT, GpsDiagnostics.nowIso());
         } catch (Exception e) {
             Log.e(TAG, "Failed to schedule AlarmManager restart: " + e.getMessage());
+            GpsDiagnostics.recordError(this, e.getMessage());
         }
     }
 
@@ -591,12 +602,17 @@ public class GpsTrackingService extends Service {
             networkExecutor.shutdown();
         }
         sIsRunning = false;
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_SERVICE_RUNNING, "false");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_SERVICE_STOP_AT, GpsDiagnostics.nowIso());
         // Only wipe credentials on an explicit employee-initiated stop (ACTION_STOP).
         // OS kills (OOM, task-removal restart) must NOT clear prefs — GpsRestartReceiver
         // reads them to know whether to restart the service after process death.
         // lastStoppedByEmployee is set to true only in the ACTION_STOP handler above.
         if (stoppedByEmployee) {
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_SERVICE_STOP_REASON, "employee_checkout");
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply();
+        } else {
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_SERVICE_STOP_REASON, "os_kill_or_restart");
         }
     }
 

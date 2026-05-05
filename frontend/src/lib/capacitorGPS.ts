@@ -29,6 +29,7 @@ interface GpsTrackingPluginDef {
   isRunning(): Promise<{ running: boolean }>;
   requestBatteryOptimizationExemption(): Promise<{ prompted: boolean; alreadyExempted?: boolean; error?: string }>;
   isBatteryOptimizationExempted(): Promise<{ exempted: boolean }>;
+  getDiagnostics(): Promise<Record<string, string>>;
 }
 
 // On web/iOS, all methods are no-ops (plugin is Android-only)
@@ -41,6 +42,7 @@ const GpsTrackingPlugin = registerPlugin<GpsTrackingPluginDef>('GpsTracking', {
     isRunning: async () => ({ running: false }),
     requestBatteryOptimizationExemption: async () => ({ prompted: false }),
     isBatteryOptimizationExempted: async () => ({ exempted: true }),
+    getDiagnostics: async () => ({}),
   },
 });
 
@@ -273,5 +275,19 @@ export async function clearWatch(watchId: string | number): Promise<void> {
     await Geolocation.clearWatch({ id: watchId as string });
   } else {
     navigator.geolocation.clearWatch(watchId as number);
+  }
+}
+
+/**
+ * Fetch native GPS diagnostics from the Java GpsDiagnostics SharedPreferences store.
+ * Returns an empty object on web/iOS.
+ */
+export async function getNativeGpsDiagnostics(): Promise<Record<string, string>> {
+  if (!isNativeAndroid) return {};
+  try {
+    const result = await GpsTrackingPlugin.getDiagnostics();
+    return result as Record<string, string>;
+  } catch {
+    return {};
   }
 }

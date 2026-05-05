@@ -141,4 +141,16 @@ public class PermissionPlugin extends Plugin {
         getActivity().startActivity(intent);
         call.resolve();
     }
+
+    // ── getDeviceInfo ────────────────────────────────────────────────────────
+
+    @PluginMethod
+    public void getDeviceInfo(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("manufacturer", android.os.Build.MANUFACTURER.toLowerCase());
+        r.put("brand", android.os.Build.BRAND.toLowerCase());
+        r.put("model", android.os.Build.MODEL);
+        r.put("sdkInt", android.os.Build.VERSION.SDK_INT);
+        call.resolve(r);
+    }
 }

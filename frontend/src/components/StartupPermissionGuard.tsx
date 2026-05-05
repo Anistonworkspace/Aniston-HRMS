@@ -6,16 +6,18 @@ import {
   Bell,
   Battery,
   Navigation,
+  Settings,
   CheckCircle2,
   XCircle,
-  Settings,
   Smartphone,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   checkAllPermissions,
   requestNotificationPermission,
   openGpsSettings,
   openAppSettings,
+  getDeviceInfo,
   type PermissionStatus,
 } from '../lib/capacitorPermissions';
 
@@ -24,155 +26,357 @@ const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'a
 // Shown once per app session (resets on full restart, not on background/resume)
 let shownThisSession = false;
 
-type Step = 'location' | 'bgLocation' | 'notifications' | 'battery' | 'autostart' | 'gps';
+// ── OEM detection ─────────────────────────────────────────────────────────────
 
-const STEPS: Step[] = ['location', 'bgLocation', 'notifications', 'battery', 'autostart', 'gps'];
+type OemCategory =
+  | 'xiaomi'
+  | 'samsung'
+  | 'oppo'
+  | 'realme'
+  | 'vivo'
+  | 'oneplus'
+  | 'motorola'
+  | 'google'
+  | 'stock';
 
-interface StepMeta {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  instructions: string[];       // numbered steps to show inside the card
-  permKey: keyof PermissionStatus | 'autostart'; // 'autostart' is manual-confirm only
-  actionLabel: string;
-  grantedLabel: string;
-  openSettings: boolean;
-  manualConfirm: boolean;       // no API check — user taps "I've done this" to advance
+function detectOem(manufacturer: string, brand: string, sdkInt: number): OemCategory {
+  const m = manufacturer.toLowerCase();
+  const b = brand.toLowerCase();
+  const combined = m + ' ' + b;
+
+  if (combined.includes('xiaomi') || combined.includes('redmi') || combined.includes('poco')) return 'xiaomi';
+  if (combined.includes('samsung')) return 'samsung';
+  if (combined.includes('oppo')) return 'oppo';
+  if (combined.includes('realme')) return 'realme';
+  if (combined.includes('vivo') || combined.includes('iqoo')) return 'vivo';
+  if (combined.includes('oneplus') || combined.includes('one plus')) return 'oneplus';
+  if (combined.includes('motorola') || combined.includes('moto')) return 'motorola';
+  if (combined.includes('google')) return 'google';
+  if (sdkInt >= 1) return 'stock';
+  return 'stock';
 }
 
-const STEP_META: Record<Step, StepMeta> = {
-  location: {
-    icon: <MapPin className="w-10 h-10 text-indigo-400" />,
-    title: 'Allow Location Access',
-    description: 'Required to record GPS check-ins and field sales visits.',
+// ── Step definitions ──────────────────────────────────────────────────────────
+
+type ActionType =
+  | 'openAppSettings'
+  | 'openBatterySettings'
+  | 'openGpsSettings'
+  | 'requestNotification'
+  | 'confirm'
+  | 'na';
+
+interface StepDef {
+  id: string;
+  title: string;
+  description: string;
+  instructions: string[];
+  permKey: keyof PermissionStatus | 'autostart_xiaomi' | 'autostart_samsung' | 'autostart_oppo' | 'autostart_vivo' | 'autostart_oneplus' | 'autostart_stock' | 'autostart_na';
+  actionLabel: string;
+  actionType: ActionType;
+  grantedLabel: string;
+  isRequired: boolean;
+  canSkipIfNotFound: boolean;
+  icon: React.ReactNode;
+}
+
+function buildSteps(oem: OemCategory): StepDef[] {
+  const steps: StepDef[] = [];
+
+  // ── Step 1: Location ──────────────────────────────────────────────────────
+  steps.push({
+    id: 'location',
+    title: 'Allow Location (All the time)',
+    description: "GPS needs 'Allow all the time' access. 'Only while using app' will stop tracking when your screen is off.",
     instructions: [
-      'Tap "Open Settings" below',
-      'Tap "Location"',
-      'Select "Allow all the time"',
+      'Open Settings below',
+      'Tap Location',
+      "Select 'Allow all the time'",
     ],
     permKey: 'location',
     actionLabel: 'Open Settings',
+    actionType: 'openAppSettings',
     grantedLabel: 'Location access granted',
-    openSettings: true,
-    manualConfirm: false,
-  },
-  bgLocation: {
-    icon: <Navigation className="w-10 h-10 text-blue-400" />,
+    isRequired: true,
+    canSkipIfNotFound: false,
+    icon: <MapPin className="w-10 h-10 text-indigo-400" />,
+  });
+
+  // ── Step 2: Background location ───────────────────────────────────────────
+  steps.push({
+    id: 'bgLocation',
     title: 'Background Location',
-    description: 'GPS trail must continue even when the screen is off or the app is in the background.',
+    description: "Confirm location is set to 'Allowed all the time' in App Permissions.",
     instructions: [
-      'Tap "Open Settings" below',
-      'Tap "Location"',
-      'Change to "Allow all the time"',
+      'Open Settings below',
+      'Tap Location',
+      "Confirm 'Allowed all the time'",
     ],
     permKey: 'backgroundLocation',
     actionLabel: 'Open Settings',
+    actionType: 'openAppSettings',
     grantedLabel: 'Background location granted',
-    openSettings: true,
-    manualConfirm: false,
-  },
-  notifications: {
-    icon: <Bell className="w-10 h-10 text-yellow-400" />,
+    isRequired: true,
+    canSkipIfNotFound: false,
+    icon: <Navigation className="w-10 h-10 text-blue-400" />,
+  });
+
+  // ── Step 3: Notifications ─────────────────────────────────────────────────
+  steps.push({
+    id: 'notifications',
     title: 'Enable Notifications',
-    description: 'The GPS tracking notification keeps the service alive. Blocking it will stop background tracking.',
+    description: 'The persistent GPS notification keeps the tracking service alive. Without it, Android may kill the service.',
     instructions: [
-      'Tap "Allow Notifications" below',
-      'Tap "Allow" on the system dialog',
+      'Tap Allow Notifications below',
+      'Tap Allow on the system dialog',
     ],
     permKey: 'notifications',
     actionLabel: 'Allow Notifications',
+    actionType: 'requestNotification',
     grantedLabel: 'Notifications enabled',
-    openSettings: false,
-    manualConfirm: false,
-  },
-  battery: {
-    icon: <Battery className="w-10 h-10 text-green-400" />,
-    title: 'Disable Battery Restriction',
-    description: 'Android restricts background apps to save battery. You must disable this so GPS stays active all day.',
-    instructions: [
-      'Tap "Open Settings" below',
-      'Tap "Battery" or "Power"',
-      'Select "No restrictions" or "Unrestricted"',
-    ],
+    isRequired: true,
+    canSkipIfNotFound: false,
+    icon: <Bell className="w-10 h-10 text-yellow-400" />,
+  });
+
+  // ── Step 4: Battery ───────────────────────────────────────────────────────
+  let batteryDesc: string;
+  let batteryInstructions: string[];
+
+  if (oem === 'samsung') {
+    batteryDesc = "Set battery to 'Unrestricted' and remove Aniston HRMS from Sleeping Apps so Android does not pause GPS in the background.";
+    batteryInstructions = [
+      'Open Settings below',
+      'Tap Battery',
+      "Select 'Unrestricted'",
+      "Also go to: Settings → Battery → Background usage limits → remove Aniston HRMS from Sleeping apps",
+    ];
+  } else if (oem === 'xiaomi') {
+    batteryDesc = "Set battery to 'No restrictions' and configure the Security app to prevent GPS from being paused in the background.";
+    batteryInstructions = [
+      'Open Settings below',
+      'Tap Battery',
+      "Select 'No restrictions'",
+      'Also open Security app → Battery → No restrictions for Aniston HRMS',
+    ];
+  } else {
+    batteryDesc = "Set battery to 'No restrictions' or 'Unrestricted' so Android does not pause GPS in the background.";
+    batteryInstructions = [
+      'Open Settings below',
+      'Tap Battery or Power',
+      "Select 'No restrictions' or 'Unrestricted'",
+    ];
+  }
+
+  steps.push({
+    id: 'battery',
+    title: 'Remove Battery Restriction',
+    description: batteryDesc,
+    instructions: batteryInstructions,
     permKey: 'batteryOptimization',
     actionLabel: 'Open Settings',
+    actionType: 'openAppSettings',
     grantedLabel: 'Battery unrestricted',
-    openSettings: true,
-    manualConfirm: false,
-  },
-  autostart: {
-    icon: <Smartphone className="w-10 h-10 text-purple-400" />,
-    title: 'Enable Auto-start',
-    description: 'On Xiaomi, Samsung, Oppo and OnePlus devices you must enable Auto-start or the app cannot restart GPS after you swipe it away.',
-    instructions: [
-      'Tap "Open Settings" below',
-      'Tap "Other permissions"',
-      'Find "Auto-start" and turn it ON',
-      'Also enable "Run in background"',
-      'Tap "I\'ve enabled it" when done',
-    ],
-    permKey: 'autostart',       // not a real PermissionStatus key — handled specially
-    actionLabel: 'Open Settings',
-    grantedLabel: 'Auto-start enabled',
-    openSettings: true,
-    manualConfirm: true,        // no Android API to check — user confirms manually
-  },
-  gps: {
-    icon: <Navigation className="w-10 h-10 text-emerald-400" />,
+    isRequired: true,
+    canSkipIfNotFound: false,
+    icon: <Battery className="w-10 h-10 text-green-400" />,
+  });
+
+  // ── Step 5: Autostart (OEM-conditional) ───────────────────────────────────
+  if (oem === 'google' || oem === 'motorola') {
+    // No autostart step needed — stock Android / Motorola handle background properly
+  } else if (oem === 'xiaomi') {
+    steps.push({
+      id: 'autostart',
+      title: 'Enable Auto-start (Required on Xiaomi)',
+      description: 'Xiaomi MIUI aggressively kills background services. You must enable Auto-start or GPS will stop after you swipe the app away.',
+      instructions: [
+        'Open Settings below',
+        "Tap 'Other permissions' or 'Permissions'",
+        "Find 'Autostart' and enable it",
+        "Also enable 'Run in background' if shown",
+        "Return here and tap 'I've enabled it'",
+      ],
+      permKey: 'autostart_xiaomi',
+      actionLabel: 'Open Settings',
+      actionType: 'confirm',
+      grantedLabel: 'Auto-start enabled',
+      isRequired: true,
+      canSkipIfNotFound: true,
+      icon: <Smartphone className="w-10 h-10 text-purple-400" />,
+    });
+  } else if (oem === 'samsung') {
+    steps.push({
+      id: 'autostart',
+      title: 'Background Activity (Samsung)',
+      description: 'Samsung may put the GPS service to sleep. Remove it from the Sleeping apps list to ensure continuous tracking.',
+      instructions: [
+        'Open Settings below',
+        'Go to Battery → Background usage limits',
+        "Remove Aniston HRMS from 'Sleeping apps'",
+        "If you see 'Allow background activity', enable it",
+        "Tap 'Done' when finished",
+      ],
+      permKey: 'autostart_samsung',
+      actionLabel: 'Open Settings',
+      actionType: 'confirm',
+      grantedLabel: 'Background activity allowed',
+      isRequired: false,
+      canSkipIfNotFound: true,
+      icon: <Smartphone className="w-10 h-10 text-purple-400" />,
+    });
+  } else if (oem === 'oppo' || oem === 'realme') {
+    steps.push({
+      id: 'autostart',
+      title: 'Auto Launch (ColorOS)',
+      description: 'ColorOS restricts apps from launching automatically. Enable Auto Launch for Aniston HRMS to keep GPS running.',
+      instructions: [
+        'Open Settings below',
+        'Go to Privacy/Security → Auto Launch',
+        'Find Aniston HRMS and enable it',
+        'Also check: Permission Management → Background App Freeze → disable for Aniston HRMS',
+      ],
+      permKey: 'autostart_oppo',
+      actionLabel: 'Open Settings',
+      actionType: 'confirm',
+      grantedLabel: 'Auto launch enabled',
+      isRequired: false,
+      canSkipIfNotFound: true,
+      icon: <Smartphone className="w-10 h-10 text-purple-400" />,
+    });
+  } else if (oem === 'vivo') {
+    steps.push({
+      id: 'autostart',
+      title: 'Autostart (Vivo/iQOO)',
+      description: "Vivo's FunTouch OS restricts background apps. Enable Autostart Management to keep GPS running.",
+      instructions: [
+        'Open Settings below',
+        'Go to Apps → Autostart Management',
+        'Enable Aniston HRMS',
+        'Also: Settings → Battery → High background power → add app',
+      ],
+      permKey: 'autostart_vivo',
+      actionLabel: 'Open Settings',
+      actionType: 'confirm',
+      grantedLabel: 'Autostart enabled',
+      isRequired: false,
+      canSkipIfNotFound: true,
+      icon: <Smartphone className="w-10 h-10 text-purple-400" />,
+    });
+  } else if (oem === 'oneplus') {
+    steps.push({
+      id: 'autostart',
+      title: 'Background Activity (OnePlus)',
+      description: "OnePlus OxygenOS may restrict background apps. Set Battery Optimization to 'Don't optimize' for Aniston HRMS.",
+      instructions: [
+        'Open Settings below',
+        'Go to Battery → Battery Optimization',
+        "Find Aniston HRMS → select 'Don't optimize'",
+        'Also check App Launch settings if present',
+      ],
+      permKey: 'autostart_oneplus',
+      actionLabel: 'Open Settings',
+      actionType: 'confirm',
+      grantedLabel: 'Background activity allowed',
+      isRequired: false,
+      canSkipIfNotFound: true,
+      icon: <Smartphone className="w-10 h-10 text-purple-400" />,
+    });
+  } else {
+    // stock or unknown
+    steps.push({
+      id: 'autostart',
+      title: 'Background Permission Check',
+      description: 'Verify battery settings are unrestricted. No Auto-start setting is typically needed on this device.',
+      instructions: [
+        'Open App Settings below',
+        "Check Battery → set to Unrestricted if not already done",
+        'No Auto-start setting is typically needed on this device',
+      ],
+      permKey: 'autostart_stock',
+      actionLabel: 'Open Settings',
+      actionType: 'confirm',
+      grantedLabel: 'Permissions verified',
+      isRequired: false,
+      canSkipIfNotFound: true,
+      icon: <Smartphone className="w-10 h-10 text-purple-400" />,
+    });
+  }
+
+  // ── Step 6: GPS on/off ────────────────────────────────────────────────────
+  steps.push({
+    id: 'gps',
     title: 'Turn On GPS',
-    description: 'Device GPS is currently off. Enable it so the app can record your location.',
+    description: 'Device GPS is off. Enable it so location can be recorded.',
     instructions: [
-      'Tap "Open GPS Settings" below',
-      'Enable "Location" or "GPS"',
+      'Tap Open GPS Settings below',
+      "Enable 'Location' or 'GPS'",
       'Return to the app',
     ],
     permKey: 'gpsEnabled',
     actionLabel: 'Open GPS Settings',
+    actionType: 'openGpsSettings',
     grantedLabel: 'GPS is on',
-    openSettings: true,
-    manualConfirm: false,
-  },
-};
+    isRequired: true,
+    canSkipIfNotFound: false,
+    icon: <Navigation className="w-10 h-10 text-emerald-400" />,
+  });
+
+  return steps;
+}
+
+// ── Is this step "granted" based on current perms? ────────────────────────────
+function isStepGranted(step: StepDef, perms: PermissionStatus | null, confirmedIds: Set<string>): boolean {
+  const confirmKeys = ['autostart_xiaomi', 'autostart_samsung', 'autostart_oppo', 'autostart_vivo', 'autostart_oneplus', 'autostart_stock', 'autostart_na'];
+  if (confirmKeys.includes(step.permKey)) {
+    return confirmedIds.has(step.id);
+  }
+  if (!perms) return false;
+  return !!perms[step.permKey as keyof PermissionStatus];
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function StartupPermissionGuard({ children }: { children: React.ReactNode }) {
-  const [visible, setVisible] = useState(false);
-  const [perms, setPerms] = useState<PermissionStatus | null>(null);
-  const [stepIdx, setStepIdx] = useState(0);
-  const [waiting, setWaiting] = useState(false);
-  const [autostartConfirmed, setAutostartConfirmed] = useState(false);
+  const [visible, setVisible]           = useState(false);
+  const [perms, setPerms]               = useState<PermissionStatus | null>(null);
+  const [steps, setSteps]               = useState<StepDef[]>([]);
+  const [stepIdx, setStepIdx]           = useState(0);
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
+  const [cantFind, setCantFind]         = useState(false);
+  const [waiting, setWaiting]           = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Which steps actually need attention on first check
-  const neededSteps = perms
-    ? STEPS.filter((s) => {
-        if (s === 'autostart') return true; // always show — no API to pre-check
-        return !perms[STEP_META[s].permKey as keyof PermissionStatus];
-      })
-    : STEPS;
-
-  const currentStep: Step | undefined = neededSteps[stepIdx];
-  const meta = currentStep ? STEP_META[currentStep] : null;
-  const isLast = stepIdx >= neededSteps.length - 1;
-
+  // Build steps after detecting device OEM
   useEffect(() => {
     if (!isAndroid || shownThisSession) return;
     shownThisSession = true;
 
-    checkAllPermissions().then((status) => {
+    const init = async () => {
+      const [deviceInfo, status] = await Promise.all([
+        getDeviceInfo(),
+        checkAllPermissions(),
+      ]);
+
+      const oem = detectOem(deviceInfo.manufacturer, deviceInfo.brand, deviceInfo.sdkInt);
+      const allSteps = buildSteps(oem);
+
+      // Only show steps that are not already satisfied
+      const needed = allSteps.filter((s) => !isStepGranted(s, status, new Set()));
+
       setPerms(status);
-      const missing = STEPS.filter((s) => {
-        if (s === 'autostart') return true;
-        return !status[STEP_META[s].permKey as keyof PermissionStatus];
-      });
-      if (missing.length > 0) setVisible(true);
-    });
+      setSteps(needed);
+      if (needed.length > 0) setVisible(true);
+    };
+
+    init().catch(() => {});
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
 
-  // Poll every 1.5s while wizard is visible to detect permission changes
+  // Poll every 1.5s while wizard is open
   useEffect(() => {
     if (!visible) return;
     pollRef.current = setInterval(async () => {
@@ -184,58 +388,74 @@ export default function StartupPermissionGuard({ children }: { children: React.R
     };
   }, [visible]);
 
-  // Auto-advance when the current non-manual step becomes granted
+  const currentStep = steps[stepIdx] as StepDef | undefined;
+  const isLast = stepIdx >= steps.length - 1;
+
+  const granted = currentStep ? isStepGranted(currentStep, perms, confirmedIds) : false;
+
+  // Auto-advance when a non-confirm step becomes granted
   useEffect(() => {
-    if (!perms || !currentStep || meta?.manualConfirm) return;
-    const permKey = STEP_META[currentStep].permKey as keyof PermissionStatus;
-    if (perms[permKey]) {
-      setWaiting(false);
+    if (!currentStep) return;
+    const confirmKeys = ['autostart_xiaomi', 'autostart_samsung', 'autostart_oppo', 'autostart_vivo', 'autostart_oneplus', 'autostart_stock', 'autostart_na'];
+    if (confirmKeys.includes(currentStep.permKey)) return; // manual confirm — never auto-advance
+    if (granted) {
+      setCantFind(false);
       advance();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [perms, currentStep]);
+  }, [perms, currentStep?.id]);
 
   function advance() {
     if (isLast) {
       setVisible(false);
     } else {
-      setAutostartConfirmed(false);
+      setCantFind(false);
       setStepIdx((i) => i + 1);
     }
   }
 
   async function handleAction() {
-    if (!meta || !currentStep) return;
+    if (!currentStep) return;
     setWaiting(true);
 
-    if (currentStep === 'notifications' && !meta.openSettings) {
-      await requestNotificationPermission();
-      setTimeout(async () => {
-        const updated = await checkAllPermissions();
-        setPerms(updated);
+    switch (currentStep.actionType) {
+      case 'requestNotification':
+        await requestNotificationPermission();
+        setTimeout(async () => {
+          const updated = await checkAllPermissions();
+          setPerms(updated);
+          setWaiting(false);
+        }, 1200);
+        break;
+      case 'openGpsSettings':
+        await openGpsSettings();
         setWaiting(false);
-      }, 1200);
-    } else if (currentStep === 'gps') {
-      await openGpsSettings();
-      setWaiting(false);
-    } else {
-      // location, bgLocation, battery, autostart — all open app settings
-      await openAppSettings();
-      setWaiting(false);
+        break;
+      case 'confirm':
+        await openAppSettings();
+        setWaiting(false);
+        break;
+      default:
+        // openAppSettings, openBatterySettings
+        await openAppSettings();
+        setWaiting(false);
+        break;
     }
   }
 
-  if (!visible || !currentStep || !meta) return <>{children}</>;
+  function handleConfirm() {
+    if (!currentStep) return;
+    setConfirmedIds((prev) => new Set([...prev, currentStep.id]));
+  }
 
-  const isGranted = (() => {
-    if (currentStep === 'autostart') return autostartConfirmed;
-    if (!perms) return false;
-    return perms[meta.permKey as keyof PermissionStatus];
-  })();
+  function handleCantFind() {
+    setCantFind(true);
+  }
 
-  const progress = neededSteps.length > 0
-    ? (stepIdx / neededSteps.length) * 100
-    : 100;
+  if (!visible || !currentStep) return <>{children}</>;
+
+  const isConfirmStep = ['autostart_xiaomi', 'autostart_samsung', 'autostart_oppo', 'autostart_vivo', 'autostart_oneplus', 'autostart_stock', 'autostart_na'].includes(currentStep.permKey);
+  const progress = steps.length > 0 ? (stepIdx / steps.length) * 100 : 100;
 
   return (
     <>
@@ -249,7 +469,7 @@ export default function StartupPermissionGuard({ children }: { children: React.R
           className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/75 backdrop-blur-sm"
         >
           <motion.div
-            key={currentStep}
+            key={currentStep.id}
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
@@ -266,65 +486,77 @@ export default function StartupPermissionGuard({ children }: { children: React.R
 
             {/* Step counter */}
             <p className="text-xs text-gray-500 mb-4 font-mono tracking-wide">
-              STEP {stepIdx + 1} OF {neededSteps.length}
+              STEP {stepIdx + 1} OF {steps.length}
             </p>
 
             {/* Icon */}
             <div className="flex justify-center mb-4">
-              <div className="p-4 bg-white/5 rounded-2xl">{meta.icon}</div>
+              <div className="p-4 bg-white/5 rounded-2xl">{currentStep.icon}</div>
             </div>
 
             {/* Title */}
             <h2 className="text-white text-xl font-semibold text-center mb-2">
-              {meta.title}
+              {currentStep.title}
             </h2>
 
             {/* Description */}
             <p className="text-gray-400 text-sm text-center mb-5 leading-relaxed">
-              {meta.description}
+              {currentStep.description}
             </p>
 
             {/* Step-by-step instructions */}
-            <div className="bg-white/5 rounded-xl p-4 mb-5">
-              {meta.instructions.map((line, i) => (
-                <div key={i} className="flex items-start gap-3 mb-2 last:mb-0">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold mt-0.5">
-                    {i + 1}
-                  </span>
-                  <span className="text-gray-300 text-sm leading-snug">{line}</span>
-                </div>
-              ))}
-            </div>
+            {!cantFind && (
+              <div className="bg-white/5 rounded-xl p-4 mb-5">
+                {currentStep.instructions.map((line, i) => (
+                  <div key={i} className="flex items-start gap-3 mb-2 last:mb-0">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold mt-0.5">
+                      {i + 1}
+                    </span>
+                    <span className="text-gray-300 text-sm leading-snug">{line}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Can't find banner */}
+            {cantFind && (
+              <div className="bg-amber-900/40 border border-amber-600/40 rounded-xl p-4 mb-5 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <p className="text-amber-200 text-sm leading-snug">
+                  No problem — tap Continue to proceed. GPS may have reduced reliability on this device.
+                </p>
+              </div>
+            )}
 
             {/* Status badge */}
-            {isGranted ? (
+            {granted ? (
               <div className="flex items-center justify-center gap-2 text-green-400 text-sm mb-5">
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{meta.grantedLabel}</span>
+                <span>{currentStep.grantedLabel}</span>
               </div>
             ) : (
               <div className="flex items-center justify-center gap-2 text-amber-400 text-sm mb-5">
                 <XCircle className="w-4 h-4" />
-                <span>Not done yet — this is required</span>
+                <span>{currentStep.isRequired ? 'Required — please complete this step' : 'Recommended for best GPS reliability'}</span>
               </div>
             )}
 
-            {/* Primary action button */}
-            {!isGranted && (
+            {/* Primary action button — only when not yet granted */}
+            {!granted && !cantFind && (
               <button
                 onClick={handleAction}
                 disabled={waiting}
                 className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-semibold py-4 rounded-xl transition-colors mb-3 text-base"
               >
                 <Settings className="w-4 h-4" />
-                {waiting ? 'Opening…' : meta.actionLabel}
+                {waiting ? 'Opening…' : currentStep.actionLabel}
               </button>
             )}
 
-            {/* Manual confirm for autostart step */}
-            {currentStep === 'autostart' && !autostartConfirmed && (
+            {/* Confirm button for confirm-type steps */}
+            {isConfirmStep && !granted && !cantFind && (
               <button
-                onClick={() => setAutostartConfirmed(true)}
+                onClick={handleConfirm}
                 className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-medium py-3.5 rounded-xl transition-colors mb-3"
               >
                 <CheckCircle2 className="w-4 h-4 text-green-400" />
@@ -332,21 +564,43 @@ export default function StartupPermissionGuard({ children }: { children: React.R
               </button>
             )}
 
-            {/* Continue button — only available once step is granted/confirmed */}
-            {isGranted && (
+            {/* Continue button — shown when granted OR cantFind */}
+            {(granted || cantFind) && (
               <button
                 onClick={advance}
-                className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold py-4 rounded-xl transition-colors text-base"
+                className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold py-4 rounded-xl transition-colors text-base mb-3"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 {isLast ? 'All done — Continue' : 'Continue'}
               </button>
             )}
 
-            {/* Hard requirement notice — NO skip button */}
-            <p className="text-center text-gray-600 text-xs mt-4">
-              These permissions are required for GPS tracking to work in the background.
-            </p>
+            {/* "I can't find this setting" — only for confirm steps that allow skip */}
+            {isConfirmStep && !granted && !cantFind && currentStep.canSkipIfNotFound && (
+              <button
+                onClick={handleCantFind}
+                className="w-full text-center text-gray-500 text-xs py-2 hover:text-gray-400 transition-colors"
+              >
+                I can't find this setting
+              </button>
+            )}
+
+            {/* Skip link — only for non-required, non-confirm steps */}
+            {!currentStep.isRequired && !isConfirmStep && !granted && (
+              <button
+                onClick={advance}
+                className="w-full text-center text-gray-500 text-xs py-2 hover:text-gray-400 transition-colors"
+              >
+                Skip (not required)
+              </button>
+            )}
+
+            {/* Footer note */}
+            {currentStep.isRequired && !cantFind && !granted && (
+              <p className="text-center text-gray-600 text-xs mt-2">
+                This permission is required for GPS tracking to work in the background.
+              </p>
+            )}
           </motion.div>
         </motion.div>
       </AnimatePresence>

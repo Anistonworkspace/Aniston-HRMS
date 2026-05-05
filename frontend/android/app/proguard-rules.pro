@@ -11,6 +11,15 @@
 # ── App package ───────────────────────────────────────────────────────────────
 -keep class com.anistonav.** { *; }
 
+# ── GPS survival classes (explicit keep for ProGuard tree-shaking safety) ─────
+-keep class com.anistonav.hrms.GpsTrackingService { *; }
+-keep class com.anistonav.hrms.GpsRestartReceiver { *; }
+-keep class com.anistonav.hrms.GpsWatchdogWorker { *; }
+-keep class com.anistonav.hrms.GpsTrackingPlugin { *; }
+-keep class com.anistonav.hrms.PermissionPlugin { *; }
+-keep class com.anistonav.hrms.GpsDiagnostics { *; }
+-keep class com.anistonav.hrms.MainActivity { *; }
+
 # ── WebView JavaScript interfaces ─────────────────────────────────────────────
 -keepclassmembers class * extends android.webkit.WebViewClient {
     public void *(android.webkit.WebView, java.lang.String, android.graphics.Bitmap);

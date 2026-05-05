@@ -31,6 +31,8 @@ public class GpsRestartReceiver extends BroadcastReceiver {
         if (action == null) return;
 
         Log.d(TAG, "onReceive: " + action);
+        GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RECEIVER_FIRED_AT, GpsDiagnostics.nowIso());
+        GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RECEIVER_ACTION, action);
 
         switch (action) {
             case Intent.ACTION_BOOT_COMPLETED:
@@ -69,8 +71,12 @@ public class GpsRestartReceiver extends BroadcastReceiver {
             } else {
                 context.startService(serviceIntent);
             }
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_ATTEMPT_AT, GpsDiagnostics.nowIso());
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT, "success");
         } catch (Exception e) {
             Log.e(TAG, "Failed to restart GPS service: " + e.getMessage());
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT, "failed: " + e.getMessage());
+            GpsDiagnostics.recordError(context, e.getMessage());
         }
     }
 
