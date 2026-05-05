@@ -78,6 +78,18 @@ public class MainActivity extends BridgeActivity {
         } else {
             startService(svc);
         }
+
+        // Notify the React/JS side that GPS was auto-restarted so it can refresh the
+        // Attendance UI without requiring the employee to tap the Attend tab.
+        // Small delay: bridge needs ~300ms after onResume before evaluateJavascript works.
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('gps:auto-restarted'))", null);
+                }
+            } catch (Exception ignored) {}
+        }, 400);
     }
 
     private void handleNavigateIntentWithDelay(Intent intent, long delayMs) {

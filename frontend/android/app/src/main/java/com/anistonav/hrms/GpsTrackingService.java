@@ -459,10 +459,15 @@ public class GpsTrackingService extends Service {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // IMPORTANCE_DEFAULT (not LOW) — aggressive OEMs (Xiaomi/Samsung/Oppo) suppress
+            // LOW-importance foreground services and kill them faster. DEFAULT keeps them alive.
             NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, "GPS Tracking", NotificationManager.IMPORTANCE_LOW);
+                CHANNEL_ID, "GPS Tracking", NotificationManager.IMPORTANCE_DEFAULT);
             ch.setDescription("Live GPS tracking status for field attendance");
             ch.setShowBadge(false);
+            ch.setSound(null, null);       // silent but DEFAULT importance = OEM-persistent
+            ch.enableVibration(false);
+            ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); // visible on lock screen
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) nm.createNotificationChannel(ch);
         }
@@ -508,10 +513,12 @@ public class GpsTrackingService extends Service {
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openPi)
-            .setOngoing(true)
-            .setSilent(true)
+            .setOngoing(true)           // cannot be swiped away by employee
+            .setSilent(true)            // no sound/vibration despite DEFAULT importance
             .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // show on lock screen
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, "Stop Tracking", stopPi)
             .build();
@@ -528,11 +535,27 @@ public class GpsTrackingService extends Service {
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
-        Log.i(TAG, "onTaskRemoved — scheduling AlarmManager restart in 3s");
+        Log.i(TAG, "onTaskRemoved — dual-strategy restart");
+        // Strategy 1: Immediately restart self before the process has a chance to die.
+        // Works on most stock Android devices. On aggressive OEMs the window is short but
+        // worth attempting — the service re-enters onStartCommand with a null intent and
+        // calls restoreFromPrefs().
+        try {
+            Intent restart = new Intent(this, GpsTrackingService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(restart);
+            } else {
+                startService(restart);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Immediate restart attempt failed (expected on some OEMs): " + e.getMessage());
+        }
+        // Strategy 2: AlarmManager restart fires even after the process is fully dead.
+        // Schedules two alarms — at 500ms and 8s — for OEMs that kill Strategy 1 quickly.
         try {
             GpsRestartReceiver.scheduleRestart(this);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to schedule GPS restart: " + e.getMessage());
+            Log.e(TAG, "Failed to schedule AlarmManager restart: " + e.getMessage());
         }
     }
 

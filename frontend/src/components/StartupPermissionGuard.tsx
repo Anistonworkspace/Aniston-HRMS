@@ -8,8 +8,8 @@ import {
   Navigation,
   CheckCircle2,
   XCircle,
-  ChevronRight,
   Settings,
+  Smartphone,
 } from 'lucide-react';
 import {
   checkAllPermissions,
@@ -19,82 +19,118 @@ import {
   type PermissionStatus,
 } from '../lib/capacitorPermissions';
 
-// Only show on Android native — skip entirely on web / iOS
 const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 
-// Session-level flag — guard shown once per app session (not once ever)
+// Shown once per app session (resets on full restart, not on background/resume)
 let shownThisSession = false;
 
-type Step = 'location' | 'bgLocation' | 'notifications' | 'battery' | 'gps';
+type Step = 'location' | 'bgLocation' | 'notifications' | 'battery' | 'autostart' | 'gps';
 
-const STEPS: Step[] = ['location', 'bgLocation', 'notifications', 'battery', 'gps'];
+const STEPS: Step[] = ['location', 'bgLocation', 'notifications', 'battery', 'autostart', 'gps'];
 
 interface StepMeta {
   icon: React.ReactNode;
   title: string;
   description: string;
-  permKey: keyof PermissionStatus;
+  instructions: string[];       // numbered steps to show inside the card
+  permKey: keyof PermissionStatus | 'autostart'; // 'autostart' is manual-confirm only
   actionLabel: string;
   grantedLabel: string;
-  openSettings: boolean; // true → open Settings; false → in-plugin request
-  skipIfGranted: boolean;
+  openSettings: boolean;
+  manualConfirm: boolean;       // no API check — user taps "I've done this" to advance
 }
 
 const STEP_META: Record<Step, StepMeta> = {
   location: {
     icon: <MapPin className="w-10 h-10 text-indigo-400" />,
-    title: 'Location Access',
-    description:
-      'Aniston HRMS needs your location to record GPS check-ins and field sales visits.',
+    title: 'Allow Location Access',
+    description: 'Required to record GPS check-ins and field sales visits.',
+    instructions: [
+      'Tap "Open Settings" below',
+      'Tap "Location"',
+      'Select "Allow all the time"',
+    ],
     permKey: 'location',
-    actionLabel: 'Grant Location',
-    grantedLabel: 'Location granted',
+    actionLabel: 'Open Settings',
+    grantedLabel: 'Location access granted',
     openSettings: true,
-    skipIfGranted: true,
+    manualConfirm: false,
   },
   bgLocation: {
     icon: <Navigation className="w-10 h-10 text-blue-400" />,
     title: 'Background Location',
-    description:
-      'Allow location access "All the time" so GPS trail continues when the app is in the background.',
+    description: 'GPS trail must continue even when the screen is off or the app is in the background.',
+    instructions: [
+      'Tap "Open Settings" below',
+      'Tap "Location"',
+      'Change to "Allow all the time"',
+    ],
     permKey: 'backgroundLocation',
     actionLabel: 'Open Settings',
     grantedLabel: 'Background location granted',
     openSettings: true,
-    skipIfGranted: true,
+    manualConfirm: false,
   },
   notifications: {
     icon: <Bell className="w-10 h-10 text-yellow-400" />,
-    title: 'Notifications',
-    description:
-      'Stay informed about leave approvals, payslips, and shift reminders via push notifications.',
+    title: 'Enable Notifications',
+    description: 'The GPS tracking notification keeps the service alive. Blocking it will stop background tracking.',
+    instructions: [
+      'Tap "Allow Notifications" below',
+      'Tap "Allow" on the system dialog',
+    ],
     permKey: 'notifications',
     actionLabel: 'Allow Notifications',
     grantedLabel: 'Notifications enabled',
     openSettings: false,
-    skipIfGranted: true,
+    manualConfirm: false,
   },
   battery: {
     icon: <Battery className="w-10 h-10 text-green-400" />,
-    title: 'Battery Optimization',
-    description:
-      'Disable battery optimization for Aniston HRMS so GPS tracking is not paused by the system.',
+    title: 'Disable Battery Restriction',
+    description: 'Android restricts background apps to save battery. You must disable this so GPS stays active all day.',
+    instructions: [
+      'Tap "Open Settings" below',
+      'Tap "Battery" or "Power"',
+      'Select "No restrictions" or "Unrestricted"',
+    ],
     permKey: 'batteryOptimization',
     actionLabel: 'Open Settings',
-    grantedLabel: 'Battery optimization disabled',
+    grantedLabel: 'Battery unrestricted',
     openSettings: true,
-    skipIfGranted: true,
+    manualConfirm: false,
+  },
+  autostart: {
+    icon: <Smartphone className="w-10 h-10 text-purple-400" />,
+    title: 'Enable Auto-start',
+    description: 'On Xiaomi, Samsung, Oppo and OnePlus devices you must enable Auto-start or the app cannot restart GPS after you swipe it away.',
+    instructions: [
+      'Tap "Open Settings" below',
+      'Tap "Other permissions"',
+      'Find "Auto-start" and turn it ON',
+      'Also enable "Run in background"',
+      'Tap "I\'ve enabled it" when done',
+    ],
+    permKey: 'autostart',       // not a real PermissionStatus key — handled specially
+    actionLabel: 'Open Settings',
+    grantedLabel: 'Auto-start enabled',
+    openSettings: true,
+    manualConfirm: true,        // no Android API to check — user confirms manually
   },
   gps: {
     icon: <Navigation className="w-10 h-10 text-emerald-400" />,
     title: 'Turn On GPS',
-    description:
-      'Your device GPS is currently off. Please enable it so the app can record your location.',
+    description: 'Device GPS is currently off. Enable it so the app can record your location.',
+    instructions: [
+      'Tap "Open GPS Settings" below',
+      'Enable "Location" or "GPS"',
+      'Return to the app',
+    ],
     permKey: 'gpsEnabled',
     actionLabel: 'Open GPS Settings',
     grantedLabel: 'GPS is on',
     openSettings: true,
-    skipIfGranted: true,
+    manualConfirm: false,
   },
 };
 
@@ -103,11 +139,15 @@ export default function StartupPermissionGuard({ children }: { children: React.R
   const [perms, setPerms] = useState<PermissionStatus | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [waiting, setWaiting] = useState(false);
+  const [autostartConfirmed, setAutostartConfirmed] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Compute which steps are actually needed
+  // Which steps actually need attention on first check
   const neededSteps = perms
-    ? STEPS.filter((s) => !perms[STEP_META[s].permKey])
+    ? STEPS.filter((s) => {
+        if (s === 'autostart') return true; // always show — no API to pre-check
+        return !perms[STEP_META[s].permKey as keyof PermissionStatus];
+      })
     : STEPS;
 
   const currentStep: Step | undefined = neededSteps[stepIdx];
@@ -120,7 +160,10 @@ export default function StartupPermissionGuard({ children }: { children: React.R
 
     checkAllPermissions().then((status) => {
       setPerms(status);
-      const missing = STEPS.filter((s) => !status[STEP_META[s].permKey]);
+      const missing = STEPS.filter((s) => {
+        if (s === 'autostart') return true;
+        return !status[STEP_META[s].permKey as keyof PermissionStatus];
+      });
       if (missing.length > 0) setVisible(true);
     });
 
@@ -129,7 +172,7 @@ export default function StartupPermissionGuard({ children }: { children: React.R
     };
   }, []);
 
-  // Poll for permission changes while the guard is shown
+  // Poll every 1.5s while wizard is visible to detect permission changes
   useEffect(() => {
     if (!visible) return;
     pollRef.current = setInterval(async () => {
@@ -141,20 +184,22 @@ export default function StartupPermissionGuard({ children }: { children: React.R
     };
   }, [visible]);
 
-  // Auto-advance when current step becomes granted
+  // Auto-advance when the current non-manual step becomes granted
   useEffect(() => {
-    if (!perms || !currentStep) return;
-    if (perms[STEP_META[currentStep].permKey]) {
-      advanceOrClose();
+    if (!perms || !currentStep || meta?.manualConfirm) return;
+    const permKey = STEP_META[currentStep].permKey as keyof PermissionStatus;
+    if (perms[permKey]) {
+      setWaiting(false);
+      advance();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perms, currentStep]);
 
-  function advanceOrClose() {
-    setWaiting(false);
+  function advance() {
     if (isLast) {
       setVisible(false);
     } else {
+      setAutostartConfirmed(false);
       setStepIdx((i) => i + 1);
     }
   }
@@ -162,9 +207,9 @@ export default function StartupPermissionGuard({ children }: { children: React.R
   async function handleAction() {
     if (!meta || !currentStep) return;
     setWaiting(true);
+
     if (currentStep === 'notifications' && !meta.openSettings) {
       await requestNotificationPermission();
-      // Re-check after short delay — system dialog is async
       setTimeout(async () => {
         const updated = await checkAllPermissions();
         setPerms(updated);
@@ -174,19 +219,23 @@ export default function StartupPermissionGuard({ children }: { children: React.R
       await openGpsSettings();
       setWaiting(false);
     } else {
+      // location, bgLocation, battery, autostart — all open app settings
       await openAppSettings();
       setWaiting(false);
     }
   }
 
-  function handleSkip() {
-    advanceOrClose();
-  }
-
   if (!visible || !currentStep || !meta) return <>{children}</>;
 
-  const granted = perms ? perms[meta.permKey] : false;
-  const progress = neededSteps.length > 0 ? ((stepIdx) / neededSteps.length) * 100 : 100;
+  const isGranted = (() => {
+    if (currentStep === 'autostart') return autostartConfirmed;
+    if (!perms) return false;
+    return perms[meta.permKey as keyof PermissionStatus];
+  })();
+
+  const progress = neededSteps.length > 0
+    ? (stepIdx / neededSteps.length) * 100
+    : 100;
 
   return (
     <>
@@ -197,18 +246,18 @@ export default function StartupPermissionGuard({ children }: { children: React.R
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70 backdrop-blur-sm"
+          className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/75 backdrop-blur-sm"
         >
           <motion.div
             key={currentStep}
-            initial={{ y: 80, opacity: 0 }}
+            initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            transition={{ type: 'spring', damping: 22, stiffness: 280 }}
-            className="w-full max-w-lg bg-gray-900 rounded-t-3xl px-6 pb-10 pt-8 shadow-2xl border border-white/10"
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', damping: 24, stiffness: 300 }}
+            className="w-full max-w-lg bg-gray-900 rounded-t-3xl px-6 pb-12 pt-6 shadow-2xl border border-white/10"
           >
             {/* Progress bar */}
-            <div className="h-1 w-full bg-white/10 rounded-full mb-6">
+            <div className="h-1 w-full bg-white/10 rounded-full mb-5">
               <div
                 className="h-1 bg-indigo-500 rounded-full transition-all duration-500"
                 style={{ width: `${progress}%` }}
@@ -216,56 +265,88 @@ export default function StartupPermissionGuard({ children }: { children: React.R
             </div>
 
             {/* Step counter */}
-            <p className="text-xs text-gray-500 mb-4 font-mono">
-              {stepIdx + 1} / {neededSteps.length}
+            <p className="text-xs text-gray-500 mb-4 font-mono tracking-wide">
+              STEP {stepIdx + 1} OF {neededSteps.length}
             </p>
 
             {/* Icon */}
-            <div className="flex justify-center mb-5">
+            <div className="flex justify-center mb-4">
               <div className="p-4 bg-white/5 rounded-2xl">{meta.icon}</div>
             </div>
 
-            {/* Title + description */}
-            <h2 className="text-white text-xl font-semibold text-center mb-2">{meta.title}</h2>
-            <p className="text-gray-400 text-sm text-center mb-8 leading-relaxed">
+            {/* Title */}
+            <h2 className="text-white text-xl font-semibold text-center mb-2">
+              {meta.title}
+            </h2>
+
+            {/* Description */}
+            <p className="text-gray-400 text-sm text-center mb-5 leading-relaxed">
               {meta.description}
             </p>
 
+            {/* Step-by-step instructions */}
+            <div className="bg-white/5 rounded-xl p-4 mb-5">
+              {meta.instructions.map((line, i) => (
+                <div key={i} className="flex items-start gap-3 mb-2 last:mb-0">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold mt-0.5">
+                    {i + 1}
+                  </span>
+                  <span className="text-gray-300 text-sm leading-snug">{line}</span>
+                </div>
+              ))}
+            </div>
+
             {/* Status badge */}
-            {granted ? (
-              <div className="flex items-center justify-center gap-2 text-green-400 text-sm mb-6">
+            {isGranted ? (
+              <div className="flex items-center justify-center gap-2 text-green-400 text-sm mb-5">
                 <CheckCircle2 className="w-4 h-4" />
                 <span>{meta.grantedLabel}</span>
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-2 text-red-400 text-sm mb-6">
+              <div className="flex items-center justify-center gap-2 text-amber-400 text-sm mb-5">
                 <XCircle className="w-4 h-4" />
-                <span>Not granted yet</span>
+                <span>Not done yet — this is required</span>
               </div>
             )}
 
-            {/* Action button */}
-            {!granted && (
+            {/* Primary action button */}
+            {!isGranted && (
               <button
                 onClick={handleAction}
                 disabled={waiting}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-medium py-3.5 rounded-xl transition-colors mb-3"
+                className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-semibold py-4 rounded-xl transition-colors mb-3 text-base"
               >
-                {meta.openSettings ? <Settings className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                <Settings className="w-4 h-4" />
                 {waiting ? 'Opening…' : meta.actionLabel}
               </button>
             )}
 
-            {/* Next / Done button */}
-            {(granted || !waiting) && (
+            {/* Manual confirm for autostart step */}
+            {currentStep === 'autostart' && !autostartConfirmed && (
               <button
-                onClick={granted ? advanceOrClose : handleSkip}
-                className="w-full flex items-center justify-center gap-1 text-gray-400 hover:text-gray-200 text-sm py-2 transition-colors"
+                onClick={() => setAutostartConfirmed(true)}
+                className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-medium py-3.5 rounded-xl transition-colors mb-3"
               >
-                {granted ? (isLast ? 'Done' : 'Continue') : 'Skip for now'}
-                <ChevronRight className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 text-green-400" />
+                I've enabled it
               </button>
             )}
+
+            {/* Continue button — only available once step is granted/confirmed */}
+            {isGranted && (
+              <button
+                onClick={advance}
+                className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold py-4 rounded-xl transition-colors text-base"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {isLast ? 'All done — Continue' : 'Continue'}
+              </button>
+            )}
+
+            {/* Hard requirement notice — NO skip button */}
+            <p className="text-center text-gray-600 text-xs mt-4">
+              These permissions are required for GPS tracking to work in the background.
+            </p>
           </motion.div>
         </motion.div>
       </AnimatePresence>

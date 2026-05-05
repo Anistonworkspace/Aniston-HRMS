@@ -172,6 +172,17 @@ export default function AppShell() {
     return () => { offSocketEvent('shift:assigned', handleShiftAssigned); };
   }, [dispatch]);
 
+  // GPS auto-restarted event — fired by MainActivity.onResume() via evaluateJavascript
+  // when it detects saved credentials and restarts the service. Invalidate attendance
+  // cache so the UI reflects active tracking without the employee navigating to Attend.
+  useEffect(() => {
+    const handleGpsAutoRestarted = () => {
+      dispatch(api.util.invalidateTags(['Attendance'] as any[]));
+    };
+    window.addEventListener('gps:auto-restarted', handleGpsAutoRestarted);
+    return () => window.removeEventListener('gps:auto-restarted', handleGpsAutoRestarted);
+  }, [dispatch]);
+
   // GPS-off watcher — only active on Android native, only while GPS service is running.
   // Polls every 30 s and fires on visibilitychange so the employee is prompted immediately
   // when they turn off GPS mid-shift.

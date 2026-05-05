@@ -12,7 +12,10 @@ import android.util.Log;
 /**
  * Restarts GpsTrackingService after:
  *   1. Device reboot  (BOOT_COMPLETED / LOCKED_BOOT_COMPLETED)
- *   2. App removed from recents (ACTION_TASK_REMOVED via onTaskRemoved → alarm)
+ *   2. App removed from recents (ACTION_TASK_REMOVED via onTaskRemoved → dual alarm)
+ *
+ * Dual-alarm strategy: a fast alarm at 500ms catches normal task removal; a second
+ * alarm at 8s is a safety net for OEMs that delay process death (Xiaomi/Samsung/Oppo).
  *
  * Only restarts if prefs still contain valid credentials (employee is actively tracking).
  * Force Stop clears SharedPreferences AND kills this receiver, so it correctly stays dead.
@@ -45,16 +48,21 @@ public class GpsRestartReceiver extends BroadcastReceiver {
         String token      = prefs.getString(GpsTrackingService.EXTRA_TOKEN, null);
         String employeeId = prefs.getString(GpsTrackingService.EXTRA_EMPLOYEE_ID, null);
 
-        // No credentials = employee never started tracking or Force Stop was used → do nothing
         if (token == null || employeeId == null) {
             Log.d(TAG, "No credentials in prefs — not restarting GPS service");
+            return;
+        }
+
+        // If service is already alive (e.g. Strategy-1 immediate restart succeeded), skip.
+        if (GpsTrackingService.sIsRunning) {
+            Log.d(TAG, "GPS service already running — skipping alarm restart");
             return;
         }
 
         Log.i(TAG, "Restarting GPS service for employee: " + employeeId);
 
         Intent serviceIntent = new Intent(context, GpsTrackingService.class);
-        // No extras needed — service will call restoreFromPrefs() when intent is null
+        // null extras → service calls restoreFromPrefs() to recover credentials
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(serviceIntent);
@@ -67,28 +75,35 @@ public class GpsRestartReceiver extends BroadcastReceiver {
     }
 
     /**
-     * Schedule a one-shot alarm to restart the service 3 seconds after task removal.
+     * Schedules TWO alarms to restart the service after task removal.
+     *   Alarm 1 — 500 ms: catches normal swipe-from-recents (process still alive)
+     *   Alarm 2 — 8 s:    safety net for OEMs that delay killing the process
+     * AlarmManager fires even when the app process is fully dead.
      * Called from GpsTrackingService.onTaskRemoved().
-     * AlarmManager fires even when the app process is dead.
      */
     public static void scheduleRestart(Context context) {
+        scheduleAlarm(context, 500L,   100); // fast alarm  — request code 100
+        scheduleAlarm(context, 8_000L, 101); // backup alarm — request code 101
+    }
+
+    private static void scheduleAlarm(Context context, long delayMs, int requestCode) {
         Intent intent = new Intent(context, GpsRestartReceiver.class);
         intent.setAction(ACTION_RESTART_GPS);
         PendingIntent pi = PendingIntent.getBroadcast(
-                context, 101, intent,
+                context, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
 
-        long triggerAt = System.currentTimeMillis() + 3_000L; // 3 seconds after removal
+        long triggerAt = System.currentTimeMillis() + delayMs;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Android 12+: SCHEDULE_EXACT_ALARM requires runtime permission grant
+                // Android 12+: prefer canScheduleExactAlarms(); USE_EXACT_ALARM (API 33)
+                // does not require the user-facing permission dialog.
                 if (am.canScheduleExactAlarms()) {
                     am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
                 } else {
-                    // Permission not granted — fall back to inexact (fires within ~15s)
                     am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
                 }
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -96,6 +111,7 @@ public class GpsRestartReceiver extends BroadcastReceiver {
             } else {
                 am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi);
             }
+            Log.d(TAG, "Scheduled GPS restart in " + delayMs + "ms (requestCode=" + requestCode + ")");
         } catch (SecurityException e) {
             Log.w(TAG, "Exact alarm permission denied, falling back to inexact: " + e.getMessage());
             try {
@@ -104,6 +120,5 @@ public class GpsRestartReceiver extends BroadcastReceiver {
                 Log.e(TAG, "Failed to schedule inexact alarm: " + ex.getMessage());
             }
         }
-        Log.d(TAG, "Scheduled GPS restart in 3s via AlarmManager");
     }
 }

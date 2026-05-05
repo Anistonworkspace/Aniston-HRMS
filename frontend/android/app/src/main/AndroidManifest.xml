@@ -25,6 +25,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Allow AlarmManager exact alarm (Android 12+) for service restart after task removal -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Android 13+ alternative exact-alarm permission (no user prompt needed unlike SCHEDULE_EXACT_ALARM) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- Battery optimization exemption — required to keep GPS service alive on Samsung/Xiaomi/Oppo/OnePlus -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
