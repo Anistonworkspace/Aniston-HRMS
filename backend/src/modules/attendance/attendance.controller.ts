@@ -209,13 +209,27 @@ export class AttendanceController {
   async handleRegularization(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { action, remarks } = req.body;
+      const { action, remarks, approvalType } = req.body;
       if (!['APPROVED', 'REJECTED', 'MANAGER_REVIEWED'].includes(action)) {
         res.status(400).json({ success: false, data: null, error: { code: 'INVALID_ACTION', message: 'Action must be APPROVED, REJECTED, or MANAGER_REVIEWED' } });
         return;
       }
-      const result = await attendanceService.handleRegularization(id, action, req.user!.userId, remarks, req.user!.role);
+      const result = await attendanceService.handleRegularization(id, action, req.user!.userId, remarks, req.user!.role, approvalType);
       res.json({ success: true, data: result, message: `Regularization ${action.toLowerCase()}` });
+    } catch (err) { next(err); }
+  }
+
+  async getRegularizations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status, search, date, page, limit } = req.query as Record<string, string>;
+      const result = await attendanceService.getRegularizations(req.user!.organizationId, {
+        status,
+        search,
+        date,
+        page: page ? parseInt(page) : 1,
+        limit: limit ? parseInt(limit) : 50,
+      });
+      res.json({ success: true, data: result.regs, meta: { total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages } });
     } catch (err) { next(err); }
   }
 

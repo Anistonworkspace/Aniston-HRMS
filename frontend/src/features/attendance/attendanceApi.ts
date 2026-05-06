@@ -273,7 +273,19 @@ export const attendanceApi = api.injectEndpoints({
       query: () => '/attendance/regularizations/pending',
       providesTags: ['Attendance'],
     }),
-    handleRegularization: builder.mutation<any, { id: string; action: string; remarks?: string }>({
+    // All regularizations with filters (HR view)
+    getRegularizations: builder.query<any, { status?: string; search?: string; date?: string; page?: number }>({
+      query: (params) => {
+        const q = new URLSearchParams();
+        if (params.status) q.set('status', params.status);
+        if (params.search) q.set('search', params.search);
+        if (params.date) q.set('date', params.date);
+        if (params.page) q.set('page', String(params.page));
+        return `/attendance/regularizations?${q.toString()}`;
+      },
+      providesTags: ['Attendance'],
+    }),
+    handleRegularization: builder.mutation<any, { id: string; action: string; remarks?: string; approvalType?: string }>({
       query: ({ id, ...body }) => ({ url: `/attendance/regularization/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
@@ -466,6 +478,7 @@ export const {
   useSetAgentLiveModeMutation,
   useGetAgentLiveModeQuery,
   useGetPendingRegularizationsQuery,
+  useGetRegularizationsQuery,
   useHandleRegularizationMutation,
   useGetHybridScheduleQuery,
   useSetHybridScheduleMutation,

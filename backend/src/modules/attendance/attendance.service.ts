@@ -2030,13 +2030,14 @@ export class AttendanceService {
 
     if (!record) throw new NotFoundError('Attendance record');
 
+    // Ensure attendanceId is always set (date-based path resolves it from the found/created record)
+    attendanceId = record.id;
+
     // ===== PHASE 3: Block future date regularization =====
     const today = getISTToday();
     if (new Date(record.date) > today) {
       throw new BadRequestError('Cannot submit regularization for future dates.');
     }
-
-    if (!attendanceId) throw new BadRequestError('Attendance record ID is required for regularization.');
 
     const existing = await prisma.attendanceRegularization.findUnique({
       where: { attendanceId },
@@ -2179,7 +2180,8 @@ export class AttendanceService {
     action: 'APPROVED' | 'REJECTED' | 'MANAGER_REVIEWED',
     approvedBy: string,
     remarks?: string,
-    approverRole?: string
+    approverRole?: string,
+    approvalType?: 'FULL_DAY' | 'HALF_DAY'
   ) {
     const reg = await prisma.attendanceRegularization.findUnique({
       where: { id: regularizationId },
@@ -2242,8 +2244,9 @@ export class AttendanceService {
       // If approved: apply requested check-in/check-out corrections and recalculate hours.
       // Only reset checkOut if requestedCheckOut is explicitly provided — otherwise preserve original.
       if (action === 'APPROVED') {
+        const attendanceStatus = approvalType === 'HALF_DAY' ? 'HALF_DAY' : 'PRESENT';
         const updateData: any = {
-          status: 'PRESENT',
+          status: attendanceStatus,
           notes: `Regularization approved by ${approverRole || 'HR'} (userId: ${approvedBy}) — requested: ${reg.requestedCheckIn ? `checkIn=${new Date(reg.requestedCheckIn).toTimeString().slice(0,5)}` : ''}${reg.requestedCheckOut ? ` checkOut=${new Date(reg.requestedCheckOut).toTimeString().slice(0,5)}` : ''}`,
         };
         if (reg.requestedCheckIn) updateData.checkIn = reg.requestedCheckIn;
@@ -2351,6 +2354,60 @@ export class AttendanceService {
     }
 
     return updated;
+  }
+
+  async getRegularizations(
+    organizationId: string,
+    options: { status?: string; search?: string; date?: string; page?: number; limit?: number }
+  ) {
+    const { status, search, date, page = 1, limit = 50 } = options;
+
+    const statusFilter: string[] = status && status !== 'ALL'
+      ? [status]
+      : ['PENDING', 'MANAGER_REVIEWED', 'APPROVED', 'REJECTED'];
+
+    const where: any = {
+      attendance: { employee: { organizationId } },
+      status: { in: statusFilter },
+    };
+
+    if (date) {
+      const [y, m, d] = date.split('-').map(Number);
+      const dayStart = new Date(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}T00:00:00.000Z`);
+      const dayEnd = new Date(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}T23:59:59.999Z`);
+      where.attendance = { ...where.attendance, date: { gte: dayStart, lte: dayEnd } };
+    }
+
+    if (search) {
+      where.attendance = {
+        ...where.attendance,
+        employee: {
+          ...where.attendance.employee,
+          OR: [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { employeeCode: { contains: search, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+
+    const [regs, total] = await Promise.all([
+      prisma.attendanceRegularization.findMany({
+        where,
+        include: {
+          attendance: {
+            include: { employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, email: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.attendanceRegularization.count({ where }),
+    ]);
+
+    return { regs, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   /**

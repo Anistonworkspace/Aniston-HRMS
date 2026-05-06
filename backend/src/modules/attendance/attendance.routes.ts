@@ -75,6 +75,12 @@ router.get(
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   (req, res, next) => attendanceController.getPendingRegularizations(req, res, next)
 );
+// All regularizations with filters (HR view)
+router.get(
+  '/regularizations',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  (req, res, next) => attendanceController.getRegularizations(req, res, next)
+);
 
 // Hybrid schedule
 router.get('/hybrid-schedule/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),

@@ -738,14 +738,10 @@ function AttendancePersonalView() {
   const [showRegModal, setShowRegModal] = useState(false);
   const [regDate, setRegDate] = useState<string | null>(null); // null = today
   const [regReason, setRegReason] = useState('');
-  const [regCheckIn, setRegCheckIn] = useState('');
-  const [regCheckOut, setRegCheckOut] = useState('');
 
   const openRegModal = (dateStr?: string) => {
     setRegDate(dateStr || null);
     setRegReason('');
-    setRegCheckIn('');
-    setRegCheckOut('');
     setShowRegModal(true);
   };
 
@@ -761,15 +757,11 @@ function AttendancePersonalView() {
       await submitRegularization({
         ...(attendanceId ? { attendanceId } : { date: dateForRequest }),
         reason: regReason.trim(),
-        ...(regCheckIn ? { requestedCheckIn: new Date(regCheckIn).toISOString() } : {}),
-        ...(regCheckOut ? { requestedCheckOut: new Date(regCheckOut).toISOString() } : {}),
       }).unwrap();
       toast.success('Regularization request submitted. HR will review it shortly.');
       setShowRegModal(false);
       setRegDate(null);
       setRegReason('');
-      setRegCheckIn('');
-      setRegCheckOut('');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to submit regularization request.');
     } finally {
@@ -1755,7 +1747,7 @@ function AttendancePersonalView() {
                 </div>
               </div>
               <button
-                onClick={() => { setShowRegModal(false); setRegDate(null); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
+                onClick={() => { setShowRegModal(false); setRegDate(null); setRegReason(''); }}
                 className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400"
               >
                 <X size={18} />
@@ -1789,34 +1781,12 @@ function AttendancePersonalView() {
                 )}
               </div>
 
-              {/* Time corrections (optional) */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Requested Check-In</label>
-                  <input
-                    type="datetime-local"
-                    value={regCheckIn}
-                    onChange={(e) => setRegCheckIn(e.target.value)}
-                    className="input-glass w-full text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Requested Check-Out</label>
-                  <input
-                    type="datetime-local"
-                    value={regCheckOut}
-                    onChange={(e) => setRegCheckOut(e.target.value)}
-                    className="input-glass w-full text-sm"
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] text-gray-400">Time corrections are optional. Leave blank to keep original times.</p>
             </div>
 
             {/* Footer */}
             <div className="px-5 pb-5 flex gap-3">
               <button
-                onClick={() => { setShowRegModal(false); setRegDate(null); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
+                onClick={() => { setShowRegModal(false); setRegDate(null); setRegReason(''); }}
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel
