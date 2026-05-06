@@ -123,6 +123,7 @@ export const api = createApi({
     'Attendance',
     'Leave',
     'LeaveBalance',
+    'LeaveApproval',
     'Payroll',
     'WalkIn',
     'Document',
