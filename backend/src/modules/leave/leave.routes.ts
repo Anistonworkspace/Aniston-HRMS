@@ -863,10 +863,24 @@ router.post(
 
       const employee = await db.employee.findFirst({
         where: { id: employeeId, organizationId: req.user!.organizationId, deletedAt: null },
-        select: { id: true, firstName: true, lastName: true },
+        select: { id: true, firstName: true, lastName: true, user: { select: { role: true } } },
       });
       if (!employee) {
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+      }
+
+      // HR cannot adjust balances for HR, Admin, or their own account — only SUPER_ADMIN/ADMIN can do that
+      const requesterRole = req.user!.role;
+      const targetRole = employee.user?.role;
+      const HR_PROTECTED_ROLES = ['HR', 'ADMIN', 'SUPER_ADMIN'];
+      if (requesterRole === 'HR' && (targetRole && HR_PROTECTED_ROLES.includes(targetRole))) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: `HR cannot adjust leave balances for ${targetRole} accounts. Only Super Admin or Admin can perform this action.`,
+          },
+        });
       }
 
       const leaveType = await db.leaveType.findFirst({

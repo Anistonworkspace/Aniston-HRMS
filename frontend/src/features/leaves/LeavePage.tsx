@@ -479,8 +479,12 @@ function LeaveManagementView() {
                 // Managers can only act on PENDING leaves — MANAGER_APPROVED is forwarded to HR (read-only for managers)
                 const canAct = (leave.status === 'PENDING' || leave.status === 'MANAGER_APPROVED') &&
                   !(user?.role === 'MANAGER' && leave.status === 'MANAGER_APPROVED');
-                // HR/Admin can open the review panel on approved leaves to revoke them
+                // HR/Admin can open the review panel on approved/conditional leaves to revoke or take action
                 const canRevoke = isHRAdmin && (leave.status === 'APPROVED' || leave.status === 'APPROVED_WITH_CONDITION');
+                // Conditional leaves are clickable for HR to see full detail + employee response
+                const isConditional = leave.status === 'APPROVED_WITH_CONDITION';
+                // Find condition note for display in card
+                const condNotePreview = leave.approvalDecisions?.find((d: any) => d.action === 'APPROVED_WITH_CONDITION' && d.conditionNote)?.conditionNote;
 
                 return (
                   <motion.div
@@ -488,7 +492,8 @@ function LeaveManagementView() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.03 }}
-                    className="layer-card p-5"
+                    onClick={isConditional && isHRAdmin ? () => setReviewLeaveId(leave.id) : undefined}
+                    className={`layer-card p-5 ${isConditional && isHRAdmin ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                       <div className="flex items-start gap-3 flex-1">
@@ -544,22 +549,41 @@ function LeaveManagementView() {
                               <CheckCircle size={11} /> Manager approved — awaiting HR final decision
                             </p>
                           )}
+                          {/* Condition note preview for HR — shows employee response status */}
+                          {isConditional && condNotePreview && (
+                            <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                              <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1 mb-0.5">
+                                <AlertTriangle size={11} /> Condition
+                              </p>
+                              <p className="text-[11px] text-amber-800 line-clamp-1">{condNotePreview}</p>
+                              {leave.conditionResponse ? (
+                                <p className="text-[10px] text-emerald-600 mt-0.5 flex items-center gap-1">
+                                  <CheckCircle size={10} /> Employee responded — click to review
+                                </p>
+                              ) : (
+                                <p className="text-[10px] text-amber-500 mt-0.5">Awaiting employee response</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                         <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
-                          {leave.status.replace(/_/g, ' ')}
+                          {leave.status === 'APPROVED_WITH_CONDITION' ? 'Conditional' : leave.status.replace(/_/g, ' ')}
                         </span>
                         {canRevoke && (
                           <motion.button
-                            aria-label="Revoke approved leave"
+                            aria-label={isConditional ? 'View conditional leave details' : 'Revoke approved leave'}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
-                            onClick={() => setReviewLeaveId(leave.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                            onClick={(e) => { e.stopPropagation(); setReviewLeaveId(leave.id); }}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                              isConditional
+                                ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                                : 'bg-red-50 text-red-700 hover:bg-red-100'
+                            }`}
                           >
-                            <XCircle size={14} />
-                            Revoke
+                            {isConditional ? <><FileText size={14} /> View</> : <><XCircle size={14} /> Revoke</>}
                           </motion.button>
                         )}
                         {leave.status === 'MANAGER_APPROVED' && user?.role === 'MANAGER' && (
@@ -1155,7 +1179,6 @@ function EmployeeOverviewTab() {
                 <th className="px-4 py-3 font-medium text-center">Used</th>
                 <th className="px-4 py-3 font-medium text-center">Pending</th>
                 <th className="px-4 py-3 font-medium text-center">Remaining</th>
-                <th className="px-4 py-3 font-medium text-center">Applied</th>
                 <th className="px-4 py-3 font-medium text-center">Approved</th>
                 <th className="px-4 py-3 font-medium w-8" />
               </tr>
@@ -1229,7 +1252,6 @@ function EmployeeOverviewTab() {
                       {emp.totalRemaining}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-center font-mono text-gray-600" data-mono>{emp.leavesApplied}</td>
                   <td className="px-4 py-3 text-center font-mono text-emerald-600 font-medium" data-mono>{emp.leavesApproved}</td>
                   <td className="px-4 py-3 text-right">
                     <ChevronRight size={14} className="text-gray-300 group-hover:text-brand-500 transition-colors" />
@@ -2181,6 +2203,7 @@ function LeavePersonalView() {
   const { perms } = useEmpPerms();
   const { t } = useTranslation();
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [applyInitialTypeId, setApplyInitialTypeId] = useState<string | undefined>(undefined);
   const [leavePage, setLeavePage] = useState(1);
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<string>('');
   const { data: balancesRes, isLoading: balancesLoading } = useGetLeaveBalancesQuery();
@@ -2196,6 +2219,11 @@ function LeavePersonalView() {
   const [selectedHoliday, setSelectedHoliday] = useState<any>(null);
   const user = useAppSelector((s) => s.auth.user);
   const dispatch = useAppDispatch();
+
+  const openApplyModal = (typeId?: string) => {
+    setApplyInitialTypeId(typeId);
+    setShowApplyModal(true);
+  };
 
   // Real-time: listen for leave approval/rejection by HR/Manager
   useEffect(() => {
@@ -2377,7 +2405,7 @@ function LeavePersonalView() {
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => setShowApplyModal(true)}
+              onClick={() => openApplyModal()}
               className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 active:bg-brand-800 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/30"
             >
               <Plus size={14} className="md:hidden" />
@@ -2442,26 +2470,49 @@ function LeavePersonalView() {
         </div>
       )}
 
-      {/* Unpaid Leave — always shown if policy allows it */}
+      {/* Unpaid Leave — always shown when an unpaid leave type exists */}
       {!balancesLoading && (() => {
-        const policy = defaultLeavePolicy;
-        const lwpRule = policy?.rules?.find((r: any) => r.employeeCategory === 'ALL' && r.isAllowed !== false);
-        const lwpEnabled = policy ? (lwpRule !== undefined ? lwpRule.isAllowed !== false : false) : false;
         const lwpType = allLeaveTypes.find((lt: any) => !lt.isPaid);
-        if (!lwpEnabled || !lwpType) return null;
+        if (!lwpType) return null;
+        // Check if monthly paid quota is full — show a more prominent banner in that case
+        const quotaFull = maxPaidPerMonthDisplay > 0 && (() => {
+          // Count paid leaves used this month from local data (approximate)
+          const now = new Date();
+          const paidLeaves = leaves.filter((l: any) => {
+            if (!['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'].includes(l.status)) return false;
+            if (!l.leaveType?.isPaid) return false;
+            const start = new Date(l.startDate);
+            return start.getFullYear() === now.getFullYear() && start.getMonth() === now.getMonth();
+          });
+          return paidLeaves.length >= maxPaidPerMonthDisplay;
+        })();
         return (
-          <div className="mb-6 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">📋</span>
-              <div>
+          <div className={`mb-6 rounded-xl px-4 py-3 flex items-center justify-between gap-3 ${
+            quotaFull
+              ? 'bg-orange-50 border border-orange-200'
+              : 'bg-gray-50 border border-gray-200'
+          }`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-xl shrink-0">📋</span>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-700">{lwpType.name}</p>
-                <p className="text-[11px] text-gray-400">Unpaid — apply when paid leaves are exhausted. No balance limit.</p>
+                {quotaFull ? (
+                  <p className="text-[11px] text-orange-600 font-medium">
+                    Monthly paid leave quota full — apply here for unpaid leave
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-gray-400">Unpaid — no balance limit. Apply when paid leaves are exhausted.</p>
+                )}
               </div>
             </div>
             {perms.canApplyLeaves && (
               <button
-                onClick={() => setShowApplyModal(true)}
-                className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white transition-colors"
+                onClick={() => openApplyModal(lwpType.id)}
+                className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  quotaFull
+                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300'
+                    : 'text-gray-600 border border-gray-300 hover:bg-white'
+                }`}
               >
                 Apply
               </button>
@@ -2564,22 +2615,22 @@ function LeavePersonalView() {
                     key={holiday.id}
                     onClick={() => setSelectedHoliday(holiday)}
                     className={cn(
-                      'flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all active:scale-[0.98]',
+                      'flex items-center gap-2 py-2.5 px-3 rounded-lg cursor-pointer transition-all active:scale-[0.98]',
                       isPast ? 'bg-gray-50 opacity-60' : 'bg-blue-50 hover:bg-blue-100'
                     )}
                   >
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">{holiday.name}</p>
-                      <p className="text-xs text-gray-500">{formatDate(holiday.date, 'long')}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-700 truncate">{holiday.name}</p>
+                      <p className="text-xs text-gray-500 truncate">{formatDate(holiday.date, 'long')}</p>
                     </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {holiday.isOptional && (
-                        <span className="badge badge-info text-xs">Optional</span>
+                        <span className="badge badge-info text-[10px] whitespace-nowrap">Optional</span>
                       )}
                       {isPast ? (
-                        <span className="text-xs text-gray-400">Past</span>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">Past</span>
                       ) : (
-                        <span className="text-xs text-blue-500 font-medium">
+                        <span className="text-xs text-blue-500 font-medium whitespace-nowrap">
                           {Math.ceil((new Date(holiday.date).getTime() - new Date().getTime()) / 86400000)}d
                         </span>
                       )}
@@ -2657,9 +2708,10 @@ function LeavePersonalView() {
       {/* Apply Leave Wizard */}
       {showApplyModal && (
         <LeaveApplyWizard
-          leaveTypes={leaveTypes}
+          leaveTypes={allLeaveTypes}
           balances={balances}
-          onClose={() => setShowApplyModal(false)}
+          initialLeaveTypeId={applyInitialTypeId}
+          onClose={() => { setShowApplyModal(false); setApplyInitialTypeId(undefined); }}
         />
       )}
     </div>
@@ -2670,7 +2722,7 @@ function LeaveRequestCard({ leave }: { leave: any }) {
   const { t } = useTranslation();
   const [cancelLeave] = useCancelLeaveMutation();
   const [submitConditionResponse, { isLoading: submitting }] = useSubmitConditionResponseMutation();
-  const [showConditionPanel, setShowConditionPanel] = useState(false);
+  const [showConditionModal, setShowConditionModal] = useState(false);
   const [conditionReply, setConditionReply] = useState('');
 
   const handleCancel = async () => {
@@ -2691,7 +2743,7 @@ function LeaveRequestCard({ leave }: { leave: any }) {
     try {
       await submitConditionResponse({ id: leave.id, response: conditionReply.trim() }).unwrap();
       toast.success('Response sent to HR!');
-      setShowConditionPanel(false);
+      setShowConditionModal(false);
       setConditionReply('');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to send response');
@@ -2711,104 +2763,180 @@ function LeaveRequestCard({ leave }: { leave: any }) {
 
   const conditionNote = leave.approvalDecisions?.find((d: any) => d.action === 'APPROVED_WITH_CONDITION' && d.conditionNote)?.conditionNote;
   const hasRespondedToCondition = !!leave.conditionResponse;
+  const isConditional = leave.status === 'APPROVED_WITH_CONDITION';
 
   return (
-    <div className="py-3 px-4 bg-surface-2 rounded-lg space-y-2">
-      {/* Main row */}
-      <div className="flex items-start gap-3 min-w-0">
-        <div className="mt-0.5">{currentStatusIcon}</div>
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <p className="text-sm font-medium text-gray-800 truncate">
-              {leave.leaveType?.name || 'Leave'}
+    <>
+      <div className="py-3 px-4 bg-surface-2 rounded-lg">
+        {/* Main row */}
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="mt-0.5 shrink-0">{currentStatusIcon}</div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              <p className="text-sm font-medium text-gray-800 truncate">
+                {leave.leaveType?.name || 'Leave'}
+              </p>
+              <span className="text-xs text-gray-400 shrink-0">
+                {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
+              </span>
+              <span className={`badge ${getStatusColor(leave.status)} text-xs shrink-0`}>
+                {leave.status === 'MANAGER_APPROVED' ? 'Mgr Approved'
+                  : leave.status === 'APPROVED_WITH_CONDITION' ? 'Conditional'
+                  : leave.status}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {formatDate(leave.startDate)} — {formatDate(leave.endDate)}
             </p>
-            <span className="text-xs text-gray-400 shrink-0">
-              {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
-            </span>
-            <span className={`badge ${getStatusColor(leave.status)} text-xs shrink-0`}>
-              {leave.status === 'MANAGER_APPROVED' ? 'Mgr Approved'
-                : leave.status === 'APPROVED_WITH_CONDITION' ? 'Conditional'
-                : leave.status}
-            </span>
+            {leave.reason && (
+              <p className="text-xs text-gray-400 mt-0.5 truncate">{leave.reason}</p>
+            )}
+            {/* Condition response status hint */}
+            {isConditional && conditionNote && (
+              <p className={cn('text-[11px] mt-1 flex items-center gap-1', hasRespondedToCondition ? 'text-emerald-600' : 'text-amber-600')}>
+                {hasRespondedToCondition
+                  ? <><CheckCircle size={10} /> Response sent — awaiting HR decision</>
+                  : <><AlertTriangle size={10} /> HR set a condition — tap to respond</>}
+              </p>
+            )}
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {formatDate(leave.startDate)} — {formatDate(leave.endDate)}
-          </p>
-          {leave.reason && (
-            <p className="text-xs text-gray-400 mt-0.5 truncate">{leave.reason}</p>
-          )}
-        </div>
-        {/* Actions — shrink-0 so they never disappear */}
-        <div className="flex items-center gap-2 shrink-0">
-          {leave.status === 'APPROVED_WITH_CONDITION' && conditionNote && (
-            <button
-              onClick={() => setShowConditionPanel((v) => !v)}
-              className={cn(
-                'text-xs px-2 py-1 rounded-lg font-medium transition-colors shrink-0',
-                hasRespondedToCondition
-                  ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                  : 'bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-300 animate-pulse'
-              )}
-            >
-              {hasRespondedToCondition ? 'View' : 'Respond'}
-            </button>
-          )}
-          {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
-            <button
-              onClick={handleCancel}
-              className="text-xs text-red-400 hover:text-red-600 transition-colors shrink-0"
-            >
-              {t('common.cancel')}
-            </button>
-          )}
+          {/* Actions — shrink-0 so they never disappear */}
+          <div className="flex items-center gap-2 shrink-0">
+            {isConditional && conditionNote && (
+              <button
+                onClick={() => setShowConditionModal(true)}
+                className={cn(
+                  'text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors shrink-0',
+                  hasRespondedToCondition
+                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : 'bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-300'
+                )}
+              >
+                {hasRespondedToCondition ? 'View' : 'Respond'}
+              </button>
+            )}
+            {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
+              <button
+                onClick={handleCancel}
+                className="text-xs text-red-400 hover:text-red-600 transition-colors shrink-0"
+              >
+                {t('common.cancel')}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Condition panel — expanded inline */}
-      {showConditionPanel && leave.status === 'APPROVED_WITH_CONDITION' && conditionNote && (
-        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
-          <div>
-            <p className="text-[11px] font-semibold text-amber-700 mb-1 flex items-center gap-1">
-              <AlertTriangle size={11} /> HR Condition
-            </p>
-            <p className="text-xs text-amber-900">{conditionNote}</p>
-          </div>
-          {hasRespondedToCondition ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2">
-              <p className="text-[11px] font-semibold text-emerald-700 mb-0.5">Your Response</p>
-              <p className="text-xs text-emerald-900 italic">"{leave.conditionResponse}"</p>
-              <p className="text-[10px] text-emerald-500 mt-1">HR has been notified. Awaiting final decision.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <textarea
-                value={conditionReply}
-                onChange={(e) => setConditionReply(e.target.value)}
-                className="input-glass w-full text-xs"
-                rows={2}
-                placeholder="Type your acknowledgement or response to HR's condition..."
-              />
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => setShowConditionPanel(false)}
-                  className="text-xs px-3 py-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={handleConditionReply}
-                  disabled={submitting || conditionReply.trim().length < 3}
-                  className="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
-                >
-                  {submitting ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-                  Send Response
+      {/* Condition bottom-sheet popup */}
+      <AnimatePresence>
+        {showConditionModal && isConditional && conditionNote && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowConditionModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 60 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 60 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-lg mx-auto"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Conditional Approval</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">{leave.leaveType?.name} · {formatDate(leave.startDate)} – {formatDate(leave.endDate)}</p>
+                </div>
+                <button onClick={() => setShowConditionModal(false)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+                  <X size={18} className="text-gray-400" />
                 </button>
               </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+
+              <div className="px-5 py-4 space-y-4">
+                {/* Leave details */}
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="bg-gray-50 rounded-xl p-2.5">
+                    <p className="font-bold text-gray-800 font-mono" data-mono>{Number(leave.days)}</p>
+                    <p className="text-gray-400 mt-0.5">Day{Number(leave.days) !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-xl p-2.5">
+                    <p className="font-bold text-amber-700">Conditional</p>
+                    <p className="text-amber-500 mt-0.5">Status</p>
+                  </div>
+                  <div className={cn('rounded-xl p-2.5', hasRespondedToCondition ? 'bg-emerald-50' : 'bg-orange-50')}>
+                    <p className={cn('font-bold text-xs', hasRespondedToCondition ? 'text-emerald-700' : 'text-orange-600')}>
+                      {hasRespondedToCondition ? 'Responded' : 'Pending'}
+                    </p>
+                    <p className={cn('mt-0.5 text-[10px]', hasRespondedToCondition ? 'text-emerald-500' : 'text-orange-400')}>Your reply</p>
+                  </div>
+                </div>
+
+                {/* HR Condition */}
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5">
+                    <AlertTriangle size={13} /> HR Condition
+                  </p>
+                  <p className="text-sm text-amber-900 leading-relaxed">{conditionNote}</p>
+                </div>
+
+                {/* Employee response */}
+                {hasRespondedToCondition ? (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-emerald-700 mb-1.5 flex items-center gap-1.5">
+                      <CheckCircle size={13} /> Your Response
+                    </p>
+                    <p className="text-sm text-emerald-900 italic">"{leave.conditionResponse}"</p>
+                    {leave.conditionRespondedAt && (
+                      <p className="text-[11px] text-emerald-500 mt-2">
+                        Sent {new Date(leave.conditionRespondedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-emerald-600 mt-1 font-medium">HR has been notified and will take final action shortly.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <label className="block text-xs font-semibold text-gray-700">Your Response <span className="text-red-400">*</span></label>
+                    <textarea
+                      value={conditionReply}
+                      onChange={(e) => setConditionReply(e.target.value)}
+                      className="input-glass w-full text-sm"
+                      rows={3}
+                      placeholder="Acknowledge or respond to HR's condition…"
+                      autoFocus
+                    />
+                    <p className="text-[11px] text-gray-400">Min 3 characters. HR will be notified immediately.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 pb-5 flex gap-3">
+                <button
+                  onClick={() => setShowConditionModal(false)}
+                  className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-gray-600 font-medium"
+                >
+                  {hasRespondedToCondition ? 'Close' : 'Later'}
+                </button>
+                {!hasRespondedToCondition && (
+                  <button
+                    onClick={handleConditionReply}
+                    disabled={submitting || conditionReply.trim().length < 3}
+                    className="flex-1 py-2.5 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors font-medium"
+                  >
+                    {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                    Send Response
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 

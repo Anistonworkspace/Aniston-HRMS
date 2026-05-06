@@ -1027,6 +1027,47 @@ export class LeaveService {
       warnings.push(`Insufficient balance. Available: ${available} day(s), Requested: ${days} day(s).`);
     }
 
+    // Monthly paid leave quota info (informational preview only)
+    let monthlyQuota: { maxPerMonth: number; usedThisMonth: number; remainingThisMonth: number; willExceed: boolean } | null = null;
+    if (leaveType.isPaid) {
+      try {
+        const globalPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
+        const maxPaidPerMonth = (globalPolicy as any).maxPaidLeavesPerMonth ?? 0;
+        if (maxPaidPerMonth > 0) {
+          const activePaidTypeIds = (globalPolicy.rules as any[])
+            .filter((r: any) => r.employeeCategory === 'ACTIVE' && r.isAllowed && r.leaveType?.isPaid !== false)
+            .map((r: any) => r.leaveTypeId);
+          const mStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+          const mEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+          const monthRequests = await prisma.leaveRequest.findMany({
+            where: {
+              employeeId,
+              leaveTypeId: { in: activePaidTypeIds },
+              status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
+              startDate: { lte: mEnd },
+              endDate: { gte: mStart },
+            },
+            select: { startDate: true, endDate: true, days: true },
+          });
+          let usedThisMonth = 0;
+          for (const req of monthRequests) {
+            const reqStart = new Date(req.startDate);
+            const reqEnd = new Date(req.endDate);
+            const reqTotalCal = Math.max(1, Math.floor((reqEnd.getTime() - reqStart.getTime()) / 86400000) + 1);
+            const reqOverlapStart = reqStart > mStart ? reqStart : mStart;
+            const reqOverlapEnd = reqEnd < mEnd ? reqEnd : mEnd;
+            const reqCalOverlap = Math.max(0, Math.floor((reqOverlapEnd.getTime() - reqOverlapStart.getTime()) / 86400000) + 1);
+            usedThisMonth += Math.round(Number(req.days) * (reqCalOverlap / reqTotalCal));
+          }
+          const remainingThisMonth = Math.max(0, maxPaidPerMonth - usedThisMonth);
+          monthlyQuota = { maxPerMonth: maxPaidPerMonth, usedThisMonth, remainingThisMonth, willExceed: usedThisMonth + days > maxPaidPerMonth };
+          if (monthlyQuota.willExceed) {
+            warnings.push(`Monthly paid leave limit: you have used ${usedThisMonth}/${maxPaidPerMonth} days this month. This leave may exceed the limit — excess days will need to be taken as unpaid leave.`);
+          }
+        }
+      } catch { /* non-blocking */ }
+    }
+
     return {
       days,
       leaveTypeName: leaveType.name,
@@ -1035,6 +1076,7 @@ export class LeaveService {
       balance: { allocated, used, pending, available, remainingAfter },
       holidays: holidaysInRange.map(h => ({ name: h.name, date: h.date })),
       nonWorkingDaysExcluded: nonWorkingDaysInRange.length,
+      monthlyQuota,
       warnings,
     };
   }
