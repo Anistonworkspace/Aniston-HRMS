@@ -152,6 +152,13 @@ model Employee {
   accountHolderName   String?
   accountType         String?       // SAVINGS / CURRENT
 
+  // Bank verification — dual confirmation by HR and employee
+  bankVerifiedByHr          Boolean   @default(false)
+  bankVerifiedByHrAt        DateTime?
+  bankVerifiedByHrId        String?   // userId of the HR who verified
+  bankVerifiedByEmployee    Boolean   @default(false)
+  bankVerifiedByEmployeeAt  DateTime?
+
   // KYC extracted (auto-filled from verified documents)
   panNumber        String?          // From verified PAN document OCR
   aadhaarEncrypted String?          // AES-256-GCM encrypted, from verified Aadhaar OCR

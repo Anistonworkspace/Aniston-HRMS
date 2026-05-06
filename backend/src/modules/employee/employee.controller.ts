@@ -686,6 +686,31 @@ export class EmployeeController {
       res.json({ success: true, data: employee });
     } catch (err) { next(err); }
   }
+
+  async verifyBankByHr(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { verified } = z.object({ verified: z.boolean() }).parse(req.body);
+      const result = await employeeService.verifyBankByHr(
+        req.params.id,
+        req.user!.organizationId,
+        req.user!.userId,
+        verified,
+      );
+      res.json({ success: true, data: result, message: verified ? 'Bank details verified' : 'Bank verification revoked' });
+    } catch (err) { next(err); }
+  }
+
+  async confirmBankByEmployee(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { confirmed } = z.object({ confirmed: z.boolean() }).parse(req.body);
+      const result = await employeeService.confirmBankByEmployee(
+        req.user!.employeeId!,
+        req.user!.organizationId,
+        confirmed,
+      );
+      res.json({ success: true, data: result, message: confirmed ? 'Bank details confirmed' : 'Bank details flagged' });
+    } catch (err) { next(err); }
+  }
 }
 
 export const employeeController = new EmployeeController();

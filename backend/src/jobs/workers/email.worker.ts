@@ -1573,6 +1573,94 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.orgName || 'Aniston Technologies')
   ),
 
+  'bank-verified-by-hr': (ctx) => emailLayout(
+    ctx.verified ? '#059669' : '#DC2626', ctx.verified ? '✅' : '⚠️',
+    ctx.verified ? 'Bank Details Verified by HR' : 'Bank Verification Revoked',
+    `${esc(ctx.orgName || 'Aniston Technologies')}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">
+      Hello <strong>${esc(ctx.employeeName || 'there')}</strong>,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      ${ctx.verified
+        ? 'HR has <strong>verified</strong> your bank account details on record. Your salary will be processed to the verified account.'
+        : 'HR has <strong>revoked verification</strong> of your bank account details. This may be due to a discrepancy. Please contact HR to resolve this.'}
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:14px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;width:160px;">Account Holder</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.accountHolderName)}</td>
+          </tr>
+          ${ctx.bankName ? `<tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Bank</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.bankName)}</td>
+          </tr>` : ''}
+          ${ctx.bankBranchName ? `<tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Branch</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.bankBranchName)}</td>
+          </tr>` : ''}
+          ${ctx.ifscCode ? `<tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">IFSC Code</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;font-family:monospace;">${esc(ctx.ifscCode)}</td>
+          </tr>` : ''}
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Action Date</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.verifiedAt)}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+    ${ctx.verified
+      ? ctaButton(ctx.profileUrl || 'https://hr.anistonav.com/profile', 'View My Profile', '#059669')
+      : `<div style="background:#FEF2F2;border:1px solid #FECACA;padding:14px;margin-bottom:20px;">
+          <p style="color:#991B1B;font-size:14px;margin:0;">Please contact your HR team to get your bank details corrected and re-verified.</p>
+        </div>
+        ${ctaButton(ctx.profileUrl || 'https://hr.anistonav.com/profile', 'Go to My Profile', '#DC2626')}`
+    }`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.profileUrl)
+  ),
+
+  'bank-confirmed-by-employee': (ctx) => emailLayout(
+    ctx.confirmed ? '#059669' : '#DC2626', ctx.confirmed ? '✅' : '🚨',
+    ctx.confirmed ? 'Employee Confirmed Bank Details' : 'Employee Flagged Bank Details as Incorrect',
+    `${esc(ctx.orgName || 'Aniston Technologies')}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">
+      Hello HR Team,
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      ${ctx.confirmed
+        ? `<strong>${esc(ctx.employeeName)}</strong> has confirmed that their bank account details on file are correct.`
+        : `<strong>${esc(ctx.employeeName)}</strong> has flagged their bank account details as <strong style="color:#DC2626;">incorrect</strong>. Please review and update their bank details.`
+      }
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${ctx.confirmed ? '#F0FDF4' : '#FEF2F2'};border:1px solid ${ctx.confirmed ? '#86EFAC' : '#FECACA'};margin:0 0 20px;">
+      <tr><td style="padding:14px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;width:160px;">Employee</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.employeeName)} (${esc(ctx.employeeCode)})</td>
+          </tr>
+          ${ctx.accountHolderName ? `<tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Account Holder</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.accountHolderName)}</td>
+          </tr>` : ''}
+          ${ctx.bankName ? `<tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Bank</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.bankName)}</td>
+          </tr>` : ''}
+          ${ctx.bankBranchName ? `<tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;">Branch</td>
+            <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:600;">${esc(ctx.bankBranchName)}</td>
+          </tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+    ${!ctx.confirmed ? '<p style="color:#DC2626;font-size:14px;font-weight:600;margin:0 0 16px;">Action Required: Please update and correct this employee\'s bank details immediately to avoid payroll issues.</p>' : ''}
+    ${ctaButton(ctx.employeeProfileUrl || 'https://hr.anistonav.com/employees', ctx.confirmed ? 'View Employee Profile' : 'Update Bank Details Now', ctx.confirmed ? '#059669' : '#DC2626')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.employeeProfileUrl)
+  ),
+
   'bank-branch-update': (ctx) => emailLayout(
     '#059669', '🏦', 'Action Required: Update Your Bank Branch Name',
     `${esc(ctx.orgName || 'Aniston Technologies')}`,

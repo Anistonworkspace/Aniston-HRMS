@@ -203,6 +203,18 @@ export const employeeApi = api.injectEndpoints({
     sendBankBranchCampaign: builder.mutation<{ success: boolean; data: { sent: number; total: number; message: string } }, void>({
       query: () => ({ url: '/employees/bank-branch-campaign', method: 'POST' }),
     }),
+
+    // HR verifies or revokes bank details for an employee
+    verifyBankByHr: builder.mutation<{ success: boolean; data: { verified: boolean } }, { employeeId: string; verified: boolean }>({
+      query: ({ employeeId, verified }) => ({ url: `/employees/${employeeId}/verify-bank`, method: 'POST', body: { verified } }),
+      invalidatesTags: (_result, _err, { employeeId }) => [{ type: 'Employee', id: employeeId }],
+    }),
+
+    // Employee self-confirms or flags their own bank details
+    confirmBankByEmployee: builder.mutation<{ success: boolean; data: { confirmed: boolean } }, { confirmed: boolean }>({
+      query: ({ confirmed }) => ({ url: '/employees/me/confirm-bank', method: 'POST', body: { confirmed } }),
+      invalidatesTags: ['Employee'],
+    }),
   }),
 });
 
@@ -226,4 +238,6 @@ export const {
   useSendUnifiedBulkEmailMutation,
   useGetOrgChartQuery,
   useGetEmployeePeersQuery,
+  useVerifyBankByHrMutation,
+  useConfirmBankByEmployeeMutation,
 } = employeeApi;

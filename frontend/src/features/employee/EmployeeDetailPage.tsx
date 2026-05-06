@@ -6,9 +6,9 @@ import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation, ScanLine, CheckCircle2, Zap,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation, ScanLine, CheckCircle2, Zap, ShieldCheck, ShieldOff,
 } from 'lucide-react';
-import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
+import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation, useVerifyBankByHrMutation } from './employeeApi';
 import { useGetEmployeeMfaStatusQuery, useAdminToggleMfaMutation } from '../auth/authApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useGetHybridScheduleQuery, useGetEmployeeGPSTrailQuery } from '../attendance/attendanceApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
@@ -52,6 +52,7 @@ export default function EmployeeDetailPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('attendance');
   const [showEditModal, setShowEditModal] = useState(false);
   const [updateEmployee, { isLoading: savingEmployee }] = useUpdateEmployeeMutation();
+  const [verifyBankByHr, { isLoading: verifyingBank }] = useVerifyBankByHrMutation();
   const [sendActivationInvite, { isLoading: sendingInvite }] = useSendActivationInviteMutation();
   const [mfaConfirmAction, setMfaConfirmAction] = useState<'disable' | 'enable' | null>(null);
   const employeeUserId = (employee as any)?.user?.id ?? '';
@@ -457,21 +458,88 @@ export default function EmployeeDetailPage() {
                 {/* Bank Details — HR only */}
                 {isManagement && (
                   <div className="layer-card p-5">
-                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
-                      <DollarSign size={15} className="text-emerald-500" /> Bank Details
-                    </h3>
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                        <DollarSign size={15} className="text-emerald-500" /> Bank Details
+                      </h3>
+                      {employee.bankAccountNumber && (
+                        <div className="flex flex-wrap gap-1.5 justify-end">
+                          {(employee as any).bankVerifiedByHr ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                              <ShieldCheck size={11} /> Verified by HR
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                              <ShieldOff size={11} /> Not Verified
+                            </span>
+                          )}
+                          {(employee as any).bankVerifiedByEmployee ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                              <Check size={11} /> Confirmed by Employee
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                              <Clock size={11} /> Awaiting Employee
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     {employee.bankAccountNumber ? (
-                      <dl className="space-y-2.5">
-                        <InfoRow label="Account Holder" value={employee.accountHolderName || '—'} />
-                        <InfoRow label="Bank" value={employee.bankName || '—'} />
-                        <InfoRow label="Branch" value={(employee as any).bankBranchName || '—'} />
-                        <InfoRow label="Account No." value={isReadableAccountNumber(employee.bankAccountNumber) ? employee.bankAccountNumber : '⚠ Re-entry required'} mono />
-                        <InfoRow label="IFSC" value={employee.ifscCode || '—'} mono />
-                        <InfoRow label="Account Type" value={employee.accountType || '—'} />
-                        {((employee as any).epfUan || (employee as any).epfMemberId) && (
-                          <InfoRow label="EPF / UAN" value={(employee as any).epfUan || (employee as any).epfMemberId} mono />
-                        )}
-                      </dl>
+                      <>
+                        <dl className="space-y-2.5 mb-4">
+                          <InfoRow label="Account Holder" value={employee.accountHolderName || '—'} />
+                          <InfoRow label="Bank" value={employee.bankName || '—'} />
+                          <InfoRow label="Branch" value={(employee as any).bankBranchName || '—'} />
+                          <InfoRow label="Account No." value={isReadableAccountNumber(employee.bankAccountNumber) ? employee.bankAccountNumber : '⚠ Re-entry required'} mono />
+                          <InfoRow label="IFSC" value={employee.ifscCode || '—'} mono />
+                          <InfoRow label="Account Type" value={employee.accountType || '—'} />
+                          {((employee as any).epfUan || (employee as any).epfMemberId) && (
+                            <InfoRow label="EPF / UAN" value={(employee as any).epfUan || (employee as any).epfMemberId} mono />
+                          )}
+                          {(employee as any).bankVerifiedByHr && (employee as any).bankVerifiedByHrAt && (
+                            <InfoRow label="HR Verified On" value={new Date((employee as any).bankVerifiedByHrAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} />
+                          )}
+                          {(employee as any).bankVerifiedByEmployee && (employee as any).bankVerifiedByEmployeeAt && (
+                            <InfoRow label="Employee Confirmed" value={new Date((employee as any).bankVerifiedByEmployeeAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} />
+                          )}
+                        </dl>
+                        <div className="flex gap-2 pt-1 border-t border-gray-100">
+                          {(employee as any).bankVerifiedByHr ? (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await verifyBankByHr({ employeeId: employee.id, verified: false }).unwrap();
+                                  toast.success('Bank verification revoked');
+                                } catch (err: any) {
+                                  toast.error(err?.data?.error?.message || 'Failed to revoke verification');
+                                }
+                              }}
+                              disabled={verifyingBank}
+                              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            >
+                              {verifyingBank ? <Loader2 size={12} className="animate-spin" /> : <ShieldOff size={12} />}
+                              Revoke Verification
+                            </button>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await verifyBankByHr({ employeeId: employee.id, verified: true }).unwrap();
+                                  toast.success('Bank details verified');
+                                } catch (err: any) {
+                                  toast.error(err?.data?.error?.message || 'Failed to verify bank');
+                                }
+                              }}
+                              disabled={verifyingBank}
+                              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                            >
+                              {verifyingBank ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                              Verify Bank Details
+                            </button>
+                          )}
+                        </div>
+                      </>
                     ) : (
                       <p className="text-xs text-gray-400">No bank details on file</p>
                     )}

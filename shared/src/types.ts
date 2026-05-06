@@ -177,6 +177,10 @@ export interface EmployeeDetail extends EmployeeListItem {
   ifscCode?: string | null;
   accountHolderName?: string | null;
   accountType?: string | null;
+  bankVerifiedByHr?: boolean;
+  bankVerifiedByHrAt?: string | null;
+  bankVerifiedByEmployee?: boolean;
+  bankVerifiedByEmployeeAt?: string | null;
   currentShift?: {
     id?: string;
     name: string;

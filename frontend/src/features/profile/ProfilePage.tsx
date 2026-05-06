@@ -8,7 +8,7 @@ import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
 import { useGetMeQuery, useChangePasswordMutation, useGetMfaStatusQuery } from '../auth/authApi';
 import { MFASetupModal, MFADisableModal } from '../auth/MFASetupModal';
-import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
+import { useUpdateEmployeeMutation, useGetEmployeeQuery, useConfirmBankByEmployeeMutation } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
 import { useGetMyProfileEditRequestsQuery, useApplyApprovedEditMutation } from './profileEditRequestApi';
 import ProfileUpdateRequestModal from './ProfileUpdateRequestModal';
@@ -30,6 +30,7 @@ export default function ProfilePage() {
   const employee = empRes?.data;
 
   const [updateEmployee, { isLoading: updating }] = useUpdateEmployeeMutation();
+  const [confirmBank, { isLoading: confirmingBank }] = useConfirmBankByEmployeeMutation();
   const [submitResignation, { isLoading: resigning }] = useSubmitResignationMutation();
   const [applyApprovedEdit, { isLoading: applyingEdit }] = useApplyApprovedEditMutation();
   const [showEdit, setShowEdit] = useState(false);
@@ -905,6 +906,30 @@ export default function ProfilePage() {
             )}
           </div>
 
+          {/* Dual verification status badges */}
+          {employee?.bankAccountNumber && !showBankEdit && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {(employee as any).bankVerifiedByHr ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                  <ShieldCheck size={11} /> Verified by HR
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                  <ShieldOff size={11} /> Awaiting HR Verification
+                </span>
+              )}
+              {(employee as any).bankVerifiedByEmployee ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                  <CheckCircle2 size={11} /> Confirmed by You
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                  <Clock size={11} /> Not Yet Confirmed
+                </span>
+              )}
+            </div>
+          )}
+
           {showBankEdit ? (
             <div className="space-y-3">
               {isEmployeeRole ? (
@@ -965,14 +990,54 @@ export default function ProfilePage() {
               </button>
             </div>
           ) : employee?.bankAccountNumber ? (
-            <dl className="space-y-3">
-              <ProfileRow label="Account Holder" value={employee.accountHolderName} />
-              <ProfileRow label="Bank" value={employee.bankName} />
-              <ProfileRow label="Branch" value={(employee as any).bankBranchName} />
-              <ProfileRow label="Account Number" value={employee.bankAccountNumber ? `••••${employee.bankAccountNumber.slice(-4)}` : undefined} mono />
-              <ProfileRow label="IFSC Code" value={employee.ifscCode} mono />
-              <ProfileRow label="Account Type" value={employee.accountType} />
-            </dl>
+            <>
+              <dl className="space-y-3 mb-4">
+                <ProfileRow label="Account Holder" value={employee.accountHolderName} />
+                <ProfileRow label="Bank" value={employee.bankName} />
+                <ProfileRow label="Branch" value={(employee as any).bankBranchName} />
+                <ProfileRow label="Account Number" value={employee.bankAccountNumber ? `••••${employee.bankAccountNumber.slice(-4)}` : undefined} mono />
+                <ProfileRow label="IFSC Code" value={employee.ifscCode} mono />
+                <ProfileRow label="Account Type" value={employee.accountType} />
+              </dl>
+              {/* Employee confirm / flag buttons */}
+              {isEmployeeRole && (
+                <div className="flex gap-2 pt-3 border-t border-gray-100">
+                  {(employee as any).bankVerifiedByEmployee ? (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await confirmBank({ confirmed: false }).unwrap();
+                          toast.success('Bank details flagged — HR has been notified');
+                        } catch (err: any) {
+                          toast.error(err?.data?.error?.message || 'Failed');
+                        }
+                      }}
+                      disabled={confirmingBank}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      {confirmingBank ? <Loader2 size={12} className="animate-spin" /> : <AlertTriangle size={12} />}
+                      Flag as Incorrect
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await confirmBank({ confirmed: true }).unwrap();
+                          toast.success('Bank details confirmed');
+                        } catch (err: any) {
+                          toast.error(err?.data?.error?.message || 'Failed');
+                        }
+                      }}
+                      disabled={confirmingBank}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                    >
+                      {confirmingBank ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                      Confirm Details Are Correct
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-4">
               <CreditCard size={32} className="mx-auto text-gray-300 mb-2" />

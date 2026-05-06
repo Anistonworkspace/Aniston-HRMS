@@ -152,6 +152,11 @@ router.post('/me/resign', (req, res, next) =>
   employeeController.submitResignation(req, res, next)
 );
 
+// Bank confirmation — employee self-confirms or flags their own bank details
+router.post('/me/confirm-bank', (req, res, next) =>
+  employeeController.confirmBankByEmployee(req, res, next)
+);
+
 // Direct employee creation disabled — use invitation flow instead:
 // POST /api/invitations → employee accepts → User + Employee created automatically
 // router.post('/', requirePermission('employee', 'create'), (req, res, next) =>
@@ -326,5 +331,12 @@ router.post('/bank-branch-campaign', requirePermission('employee', 'manage'), as
     res.json({ success: true, data: { sent, total: employees.length, message: `Campaign emails queued for ${sent} employee(s).` } });
   } catch (err) { next(err); }
 });
+
+// Bank verification — HR verifies or revokes an employee's bank details
+router.post(
+  '/:id/verify-bank',
+  requirePermission('employee', 'manage'),
+  (req, res, next) => employeeController.verifyBankByHr(req, res, next)
+);
 
 export { router as employeeRouter };

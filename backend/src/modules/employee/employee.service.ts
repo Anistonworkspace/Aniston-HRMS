@@ -595,6 +595,16 @@ export class EmployeeService {
       updateData.ifscCode = ifscNorm;
     }
 
+    // If any bank field is being changed, reset both verification flags — verification must be redone
+    const BANK_FIELDS = ['bankAccountNumber', 'bankName', 'bankBranchName', 'ifscCode', 'accountHolderName', 'accountType'];
+    if (BANK_FIELDS.some(f => updateData[f] !== undefined)) {
+      updateData.bankVerifiedByHr = false;
+      updateData.bankVerifiedByHrAt = null;
+      updateData.bankVerifiedByHrId = null;
+      updateData.bankVerifiedByEmployee = false;
+      updateData.bankVerifiedByEmployeeAt = null;
+    }
+
     // Encrypt sensitive fields before writing to DB
     if (updateData.panNumber) updateData.panNumber = encrypt(updateData.panNumber);
     if (updateData.bankAccountNumber) updateData.bankAccountNumber = encrypt(updateData.bankAccountNumber);
@@ -865,6 +875,138 @@ export class EmployeeService {
     }
 
     return employee;
+  }
+
+  async verifyBankByHr(employeeId: string, organizationId: string, reviewerId: string, verified: boolean) {
+    const emp = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: {
+        id: true, firstName: true, lastName: true, employeeCode: true, email: true, personalEmail: true,
+        bankName: true, bankBranchName: true, accountHolderName: true, ifscCode: true,
+        bankVerifiedByHr: true, bankVerifiedByEmployee: true,
+        user: { select: { id: true } },
+      },
+    });
+    if (!emp) throw new NotFoundError('Employee');
+
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        bankVerifiedByHr: verified,
+        bankVerifiedByHrAt: verified ? new Date() : null,
+        bankVerifiedByHrId: verified ? reviewerId : null,
+      },
+    });
+
+    await createAuditLog({
+      userId: reviewerId, organizationId, entity: 'Employee', entityId: employeeId,
+      action: verified ? 'BANK_VERIFIED_BY_HR' : 'BANK_UNVERIFIED_BY_HR',
+      newValue: { bankVerifiedByHr: verified },
+    });
+
+    // Email employee
+    const recipientEmail = (emp as any).personalEmail || emp.email;
+    if (recipientEmail) {
+      enqueueEmail({
+        to: recipientEmail,
+        subject: verified ? 'Bank Details Verified by HR' : 'Bank Details Verification Revoked',
+        template: 'bank-verified-by-hr',
+        context: {
+          employeeName: `${emp.firstName} ${emp.lastName}`,
+          employeeCode: emp.employeeCode,
+          bankName: emp.bankName || '',
+          bankBranchName: emp.bankBranchName || '',
+          accountHolderName: emp.accountHolderName || '',
+          ifscCode: emp.ifscCode || '',
+          verified,
+          verifiedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          profileUrl: 'https://hr.anistonav.com/profile',
+        },
+      }).catch(() => {});
+    }
+
+    // In-app notification to employee
+    if (emp.user?.id) {
+      enqueueNotification({
+        userId: emp.user.id, organizationId,
+        type: 'BANK_VERIFIED_BY_HR',
+        title: verified ? 'Bank Details Verified by HR' : 'Bank Verification Revoked',
+        message: verified
+          ? 'HR has verified your bank account details.'
+          : 'HR has revoked verification of your bank details. Please contact HR.',
+        link: '/profile',
+      }).catch(() => {});
+    }
+
+    return { verified };
+  }
+
+  async confirmBankByEmployee(employeeId: string, organizationId: string, confirmed: boolean) {
+    const emp = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: {
+        id: true, firstName: true, lastName: true, employeeCode: true, email: true,
+        bankName: true, bankBranchName: true, accountHolderName: true, ifscCode: true,
+      },
+    });
+    if (!emp) throw new NotFoundError('Employee');
+
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        bankVerifiedByEmployee: confirmed,
+        bankVerifiedByEmployeeAt: confirmed ? new Date() : null,
+      },
+    });
+
+    await createAuditLog({
+      userId: employeeId, organizationId, entity: 'Employee', entityId: employeeId,
+      action: confirmed ? 'BANK_CONFIRMED_BY_EMPLOYEE' : 'BANK_REJECTED_BY_EMPLOYEE',
+      newValue: { bankVerifiedByEmployee: confirmed },
+    });
+
+    // Notify HR via email (important — especially on rejection)
+    const [org, hrUsers] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { adminNotificationEmail: true, name: true } }),
+      prisma.user.findMany({
+        where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
+        select: { id: true, email: true },
+      }),
+    ]);
+    const subject = confirmed
+      ? `Bank Details Self-Confirmed — ${emp.firstName} ${emp.lastName} (${emp.employeeCode})`
+      : `⚠️ Bank Details Flagged as Incorrect — ${emp.firstName} ${emp.lastName} (${emp.employeeCode})`;
+    const emailContext = {
+      employeeName: `${emp.firstName} ${emp.lastName}`,
+      employeeCode: emp.employeeCode,
+      bankName: emp.bankName || '',
+      bankBranchName: emp.bankBranchName || '',
+      accountHolderName: emp.accountHolderName || '',
+      confirmed,
+      orgName: org?.name || '',
+      employeeProfileUrl: `https://hr.anistonav.com/employees/${employeeId}`,
+    };
+    const hrEmailsSent = new Set<string>();
+    for (const hr of hrUsers) {
+      if (hr.email) {
+        enqueueEmail({ to: hr.email, subject, template: 'bank-confirmed-by-employee', context: emailContext }).catch(() => {});
+        hrEmailsSent.add(hr.email);
+      }
+      enqueueNotification({
+        userId: hr.id, organizationId,
+        type: 'BANK_EMPLOYEE_ACTION',
+        title: confirmed ? `Bank Confirmed — ${emp.firstName} ${emp.lastName}` : `⚠️ Bank Flagged — ${emp.firstName} ${emp.lastName}`,
+        message: confirmed
+          ? `${emp.firstName} ${emp.lastName} confirmed their bank details are correct.`
+          : `${emp.firstName} ${emp.lastName} flagged their bank details as incorrect. Please review.`,
+        link: `/employees/${employeeId}`,
+      }).catch(() => {});
+    }
+    if (org?.adminNotificationEmail && !hrEmailsSent.has(org.adminNotificationEmail)) {
+      enqueueEmail({ to: org.adminNotificationEmail, subject, template: 'bank-confirmed-by-employee', context: emailContext }).catch(() => {});
+    }
+
+    return { confirmed };
   }
 
   async changeRole(employeeId: string, role: string, organizationId: string, changedBy: string) {

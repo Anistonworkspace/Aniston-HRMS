@@ -279,6 +279,12 @@ export class ProfileEditRequestService {
         bankBranchName: sanitized.bankBranchName,
         bankAccountNumber: sanitized.bankAccountNumber ? encrypt(sanitized.bankAccountNumber) : sanitized.bankAccountNumber,
         ifscCode: sanitized.ifscCode,
+        // Reset verification flags — changes must be re-verified
+        bankVerifiedByHr: false,
+        bankVerifiedByHrAt: null,
+        bankVerifiedByHrId: null,
+        bankVerifiedByEmployee: false,
+        bankVerifiedByEmployeeAt: null,
       };
     } else if (category === 'EPF_DETAILS') {
       updateData = {
