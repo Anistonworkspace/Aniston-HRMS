@@ -1041,7 +1041,9 @@ function AttendancePersonalView() {
   if (!perms.canViewAttendanceHistory) return <PermDenied action="view attendance history" />;
 
   // BLOCKING: Location permission denied — cannot use attendance at all
-  if (!isDesktop && locationStatus === 'denied') {
+  // FIELD shift employees: StartupPermissionGuard already requested permissions at install.
+  // If denied, GpsTrackingService handles it internally — don't block the Field Sales UI.
+  if (!isDesktop && !isFieldShift && locationStatus === 'denied') {
     return (
       <div className="page-container">
         <div className="min-h-[70vh] flex items-center justify-center">
@@ -1079,7 +1081,8 @@ function AttendancePersonalView() {
   }
 
   // BLOCKING: Device GPS/Location Services is off (browser permission granted, but hardware disabled)
-  if (!isDesktop && locationStatus === 'gps_off') {
+  // FIELD shift employees: native GpsTrackingService manages GPS state — don't block their UI.
+  if (!isDesktop && !isFieldShift && locationStatus === 'gps_off') {
     return (
       <div className="page-container">
         <div className="min-h-[70vh] flex items-center justify-center">
@@ -1117,7 +1120,8 @@ function AttendancePersonalView() {
   }
 
   // BLOCKING: Location permission not yet asked — prompt user to grant (mobile only)
-  if (!isDesktop && (locationStatus === 'prompt' || locationStatus === 'checking')) {
+  // FIELD shift employees: StartupPermissionGuard handles this at app start — skip for them.
+  if (!isDesktop && !isFieldShift && (locationStatus === 'prompt' || locationStatus === 'checking')) {
     return (
       <div className="page-container">
         <div className="min-h-[70vh] flex items-center justify-center">

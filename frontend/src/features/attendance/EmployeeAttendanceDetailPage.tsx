@@ -1031,7 +1031,7 @@ export default function EmployeeAttendanceDetailPage() {
                           <div className="flex items-center gap-1.5">
                             {formatDate(r.date)}
                             {isFieldRow && r.checkIn && (
-                              <Navigation size={9} className="text-green-500 flex-shrink-0" title="Click to view GPS / Check-in map" />
+                              <Navigation size={9} className="text-green-500 flex-shrink-0" aria-label="Click to view GPS / Check-in map" />
                             )}
                           </div>
                         </td>
