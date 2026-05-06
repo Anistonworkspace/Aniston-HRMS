@@ -225,6 +225,16 @@ export const leaveApi = api.injectEndpoints({
       invalidatesTags: (result, error, { id }) => [{ type: 'Leave' as const, id }, 'Leave'],
     }),
 
+    postConditionMessage: builder.mutation<any, { id: string; message: string; senderRole: 'HR' | 'EMPLOYEE' }>({
+      query: ({ id, message, senderRole }) => ({ url: `/leaves/${id}/condition-message`, method: 'POST', body: { message, senderRole } }),
+      invalidatesTags: ['Leave', 'LeaveApproval'],
+    }),
+
+    resolveConditionalLeave: builder.mutation<any, { id: string; action: 'APPROVE' | 'REJECT'; remarks?: string }>({
+      query: ({ id, action, remarks }) => ({ url: `/leaves/${id}/resolve-condition`, method: 'POST', body: { action, remarks } }),
+      invalidatesTags: ['Leave', 'LeaveApproval', 'LeaveBalance'],
+    }),
+
     createEmployeeAdjustment: builder.mutation<any, {
       employeeId: string;
       adjustmentType: 'PREVIOUS_USED' | 'BALANCE_CORRECTION';
@@ -289,4 +299,6 @@ export const {
   useRecalculateEmployeeAllocationMutation,
   // Condition Response
   useSubmitConditionResponseMutation,
+  usePostConditionMessageMutation,
+  useResolveConditionalLeaveMutation,
 } = leaveApi;

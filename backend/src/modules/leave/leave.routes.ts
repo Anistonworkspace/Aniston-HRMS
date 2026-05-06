@@ -91,8 +91,14 @@ router.get('/:id/hr-review',
 // Handover
 router.patch('/:id/handover', (req, res, next) => leaveController.updateHandover(req, res, next));
 
-// Employee condition response (reply to APPROVED_WITH_CONDITION)
+// Employee condition response (reply to APPROVED_WITH_CONDITION) — legacy single-field
 router.post('/:id/condition-response', (req, res, next) => leaveController.submitConditionResponse(req, res, next));
+
+// Condition thread message (HR or Employee)
+router.post('/:id/condition-message', (req, res, next) => leaveController.postConditionMessage(req, res, next));
+
+// HR resolves conditional leave (APPROVE or REJECT)
+router.post('/:id/resolve-condition', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => leaveController.resolveConditionalLeave(req, res, next));
 
 // Audit & notifications
 router.get('/:id/audit', (req, res, next) => leaveController.getLeaveAudit(req, res, next));

@@ -958,6 +958,48 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.orgName || 'Aniston Technologies')
   ),
 
+  // Sent to employee when HR posts a follow-up message in the condition thread
+  'leave-condition-hr-reply': (ctx) => emailLayout(
+    'linear-gradient(135deg,#F59E0B 0%,#D97706 100%)', '&#128172;', 'HR Replied to Your Leave Condition', `HR sent a follow-up on your ${esc(ctx.leaveType)} leave`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">HR has sent a follow-up message regarding your <strong>${esc(ctx.leaveType)}</strong> leave (${new Date(ctx.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} — ${new Date(ctx.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}).</p>
+    ${ctx.conditionNote ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF3C7;border:1px solid #FDE68A;margin:0 0 16px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#92400E;font-weight:600;font-size:13px;margin:0 0 6px;">Original Condition</p>
+        <p style="color:#78350F;font-size:13px;margin:0;line-height:1.5;">${esc(ctx.conditionNote)}</p>
+      </td></tr>
+    </table>` : ''}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#DBEAFE;border:1px solid #93C5FD;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#1E40AF;font-weight:600;font-size:13px;margin:0 0 6px;">HR's Message</p>
+        <p style="color:#1E3A8A;font-size:14px;margin:0;line-height:1.6;font-style:italic;">"${esc(ctx.hrMessage)}"</p>
+      </td></tr>
+    </table>
+    <p style="color:#374151;font-size:14px;">Please open the app to view and respond.</p>
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'View &amp; Respond')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
+  // Sent to HR when employee posts a follow-up message in the condition thread
+  'leave-condition-employee-reply': (ctx) => emailLayout(
+    'linear-gradient(135deg,#6366F1 0%,#4F46E5 100%)', '&#128172;', 'Employee Replied to Leave Condition', `${esc(ctx.employeeName)} sent a follow-up on their leave`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;"><strong>${esc(ctx.employeeName)}</strong> has sent a follow-up message on their <strong>${esc(ctx.leaveType)}</strong> leave request (${new Date(ctx.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} — ${new Date(ctx.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}).</p>
+    ${ctx.conditionNote ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF3C7;border:1px solid #FDE68A;margin:0 0 16px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#92400E;font-weight:600;font-size:13px;margin:0 0 6px;">Your Original Condition</p>
+        <p style="color:#78350F;font-size:13px;margin:0;line-height:1.5;">${esc(ctx.conditionNote)}</p>
+      </td></tr>
+    </table>` : ''}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#DCFCE7;border:1px solid #86EFAC;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#166534;font-weight:600;font-size:13px;margin:0 0 6px;">Employee's Message</p>
+        <p style="color:#14532D;font-size:14px;margin:0;line-height:1.6;font-style:italic;">"${esc(ctx.employeeMessage)}"</p>
+      </td></tr>
+    </table>
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves?tab=approvals`, 'Review &amp; Respond')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
   // ── Regularization Templates ──
 
   // Sent to HR/Admin when employee submits an attendance regularization request

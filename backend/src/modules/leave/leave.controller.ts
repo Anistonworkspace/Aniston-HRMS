@@ -198,6 +198,33 @@ export class LeaveController {
 
   // ── Condition Response ──
 
+  async postConditionMessage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { message, senderRole } = req.body;
+      if (!message || typeof message !== 'string' || message.trim().length < 2) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Message is required (min 2 chars)' } });
+        return;
+      }
+      const role: 'HR' | 'EMPLOYEE' = senderRole || (req.user!.role === 'EMPLOYEE' || req.user!.role === 'INTERN' ? 'EMPLOYEE' : 'HR');
+      const result = await leaveService.postConditionMessage(id, req.user!.userId, role, message, req.user!.organizationId);
+      res.status(201).json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async resolveConditionalLeave(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { action, remarks } = req.body;
+      if (!action || !['APPROVE', 'REJECT'].includes(action)) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'action must be APPROVE or REJECT' } });
+        return;
+      }
+      const result = await leaveService.resolveConditionalLeave(id, req.user!.userId, action, remarks, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   async submitConditionResponse(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.user!.employeeId) {

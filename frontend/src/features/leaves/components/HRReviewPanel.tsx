@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield, AlertCircle, BarChart2, ChevronDown, ChevronUp, ListTodo, Zap } from 'lucide-react';
-import { useGetHrReviewQuery, useHandleLeaveActionMutation } from '../leaveApi';
+import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield, AlertCircle, BarChart2, ChevronDown, ChevronUp, ListTodo, Zap, MessageSquare } from 'lucide-react';
+import { useGetHrReviewQuery, useHandleLeaveActionMutation, usePostConditionMessageMutation, useResolveConditionalLeaveMutation } from '../leaveApi';
 import { useGetPerformanceSummaryQuery } from '../../performance/performanceApi';
 import TaskAuditPanel from './TaskAuditPanel';
 import HandoverSection from './HandoverSection';
@@ -15,10 +15,14 @@ interface HRReviewPanelProps {
 export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) {
   const { data: res, isLoading } = useGetHrReviewQuery(leaveId);
   const [handleAction, { isLoading: acting }] = useHandleLeaveActionMutation();
+  const [postConditionMessage, { isLoading: sendingMsg }] = usePostConditionMessageMutation();
+  const [resolveConditionalLeave, { isLoading: resolving }] = useResolveConditionalLeaveMutation();
   const [remarks, setRemarks] = useState('');
   const [conditionNote, setConditionNote] = useState('');
   const [showCondition, setShowCondition] = useState(false);
   const [showTaskPanel, setShowTaskPanel] = useState(true);
+  const [conditionReply, setConditionReply] = useState('');
+  const [resolveRemarks, setResolveRemarks] = useState('');
 
   const data = res?.data;
 
@@ -186,38 +190,100 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
             />
           </div>
 
-          {/* Condition note (shown when already conditionally approved) */}
-          {data.status === 'APPROVED_WITH_CONDITION' && (() => {
-            const condDecision = data.approvalDecisions?.find((d: any) => d.action === 'APPROVED_WITH_CONDITION' && d.conditionNote);
-            const empResponse = (data as any).conditionResponse;
-            const empRespondedAt = (data as any).conditionRespondedAt;
-            return (
-              <div className="space-y-3">
-                {condDecision?.conditionNote && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-amber-700 mb-1.5 flex items-center gap-1.5">
-                      <AlertTriangle size={12} /> HR Condition
-                    </p>
-                    <p className="text-sm text-amber-900">{condDecision.conditionNote}</p>
-                  </div>
-                )}
-                {empResponse ? (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-emerald-700 mb-1.5 flex items-center gap-1.5">
-                      <CheckCircle size={12} /> Employee Response
-                      {empRespondedAt && <span className="font-normal text-emerald-500 ml-1">— {new Date(empRespondedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
-                    </p>
-                    <p className="text-sm text-emerald-900 italic">"{empResponse}"</p>
-                    <p className="text-[11px] text-emerald-600 mt-2">Employee has responded. You can now approve or revoke below.</p>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-gray-50 text-gray-500 border border-gray-200">
-                    <Clock size={12} /> Waiting for employee to respond to the condition...
-                  </div>
-                )}
+          {/* Condition Thread — shown when leave is in conditional state */}
+          {data.status === 'APPROVED_WITH_CONDITION' && (
+            <div className="mt-4 space-y-3">
+              <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <MessageSquare size={14} className="text-amber-500" />
+                Condition Thread
+              </h4>
+
+              {/* Original condition */}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                <p className="text-[11px] font-semibold text-amber-700 mb-1">HR Condition (original)</p>
+                <p className="text-sm text-amber-800">{data.approvalDecisions?.find((d: any) => d.action === 'APPROVED_WITH_CONDITION')?.conditionNote}</p>
               </div>
-            );
-          })()}
+
+              {/* Message thread */}
+              {(data.conditionMessages || []).length > 0 && (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {(data.conditionMessages || []).map((msg: any) => (
+                    <div key={msg.id} className={`rounded-lg px-3 py-2 text-sm ${msg.senderRole === 'HR' ? 'bg-blue-50 border border-blue-100 ml-4' : 'bg-green-50 border border-green-100 mr-4'}`}>
+                      <p className={`text-[10px] font-semibold mb-0.5 ${msg.senderRole === 'HR' ? 'text-blue-600' : 'text-green-600'}`}>
+                        {msg.senderRole === 'HR' ? 'HR' : 'Employee'} · {new Date(msg.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                      </p>
+                      <p className={msg.senderRole === 'HR' ? 'text-blue-800' : 'text-green-800'}>{msg.message}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* HR reply input */}
+              <div className="space-y-2">
+                <textarea
+                  value={conditionReply}
+                  onChange={(e) => setConditionReply(e.target.value)}
+                  placeholder="Send a follow-up message to the employee..."
+                  className="input-glass w-full text-sm"
+                  rows={2}
+                />
+                <button
+                  disabled={!conditionReply.trim() || sendingMsg}
+                  onClick={async () => {
+                    if (!conditionReply.trim()) return;
+                    try {
+                      await postConditionMessage({ id: data.id, message: conditionReply.trim(), senderRole: 'HR' }).unwrap();
+                      setConditionReply('');
+                      toast.success('Message sent to employee');
+                    } catch { toast.error('Failed to send message'); }
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+                >
+                  {sendingMsg ? 'Sending...' : 'Send Message'}
+                </button>
+              </div>
+
+              {/* Final resolution buttons */}
+              <div className="pt-3 border-t border-gray-100 space-y-2">
+                <p className="text-xs text-gray-500 font-medium">Final Decision</p>
+                <input
+                  type="text"
+                  value={resolveRemarks}
+                  onChange={(e) => setResolveRemarks(e.target.value)}
+                  placeholder="Remarks (optional)"
+                  className="input-glass w-full text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    disabled={resolving}
+                    onClick={async () => {
+                      try {
+                        await resolveConditionalLeave({ id: data.id, action: 'APPROVE', remarks: resolveRemarks || undefined }).unwrap();
+                        toast.success('Leave approved!');
+                        onClose();
+                      } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to approve'); }
+                    }}
+                    className="flex-1 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {resolving ? <Loader2 size={13} className="animate-spin mx-auto" /> : 'Approve Leave'}
+                  </button>
+                  <button
+                    disabled={resolving}
+                    onClick={async () => {
+                      try {
+                        await resolveConditionalLeave({ id: data.id, action: 'REJECT', remarks: resolveRemarks || undefined }).unwrap();
+                        toast.success('Leave rejected');
+                        onClose();
+                      } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to reject'); }
+                    }}
+                    className="flex-1 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {resolving ? <Loader2 size={13} className="animate-spin mx-auto" /> : 'Reject Leave'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Remarks */}
           <div>
@@ -249,7 +315,7 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
 
         {/* Actions */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-2 shrink-0 flex-wrap">
-          {(data.status === 'APPROVED' || data.status === 'APPROVED_WITH_CONDITION') ? (
+          {data.status === 'APPROVED' ? (
             <>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-emerald-700 flex items-center gap-1.5">
@@ -268,6 +334,12 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
               </button>
               {acting && <Loader2 size={16} className="animate-spin text-gray-400 ml-2" />}
             </>
+          ) : data.status === 'APPROVED_WITH_CONDITION' ? (
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-amber-700 flex items-center gap-1.5">
+                <AlertTriangle size={13} /> Leave is in <strong>Conditional</strong> state. Use the Approve/Reject buttons in the thread above to finalize.
+              </p>
+            </div>
           ) : (
             <>
               <button

@@ -31,7 +31,7 @@ import {
   useUpdateLeavePolicyMutation,
   useRecalculatePolicyAllocationsMutation,
   useCreateEmployeeAdjustmentMutation,
-  useSubmitConditionResponseMutation,
+  usePostConditionMessageMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -2721,7 +2721,7 @@ function LeavePersonalView() {
 function LeaveRequestCard({ leave }: { leave: any }) {
   const { t } = useTranslation();
   const [cancelLeave] = useCancelLeaveMutation();
-  const [submitConditionResponse, { isLoading: submitting }] = useSubmitConditionResponseMutation();
+  const [postConditionMessage, { isLoading: submitting }] = usePostConditionMessageMutation();
   const [showConditionModal, setShowConditionModal] = useState(false);
   const [conditionReply, setConditionReply] = useState('');
 
@@ -2736,17 +2736,16 @@ function LeaveRequestCard({ leave }: { leave: any }) {
   };
 
   const handleConditionReply = async () => {
-    if (!conditionReply.trim() || conditionReply.trim().length < 3) {
-      toast.error('Please write a response (min 3 chars)');
+    if (!conditionReply.trim() || conditionReply.trim().length < 2) {
+      toast.error('Please write a response (min 2 chars)');
       return;
     }
     try {
-      await submitConditionResponse({ id: leave.id, response: conditionReply.trim() }).unwrap();
-      toast.success('Response sent to HR!');
-      setShowConditionModal(false);
+      await postConditionMessage({ id: leave.id, message: conditionReply.trim(), senderRole: 'EMPLOYEE' }).unwrap();
+      toast.success('Message sent to HR!');
       setConditionReply('');
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to send response');
+      toast.error(err?.data?.error?.message || 'Failed to send message');
     }
   };
 
@@ -2762,7 +2761,8 @@ function LeaveRequestCard({ leave }: { leave: any }) {
   const currentStatusIcon = statusIcon[leave.status] || null;
 
   const conditionNote = leave.approvalDecisions?.find((d: any) => d.action === 'APPROVED_WITH_CONDITION' && d.conditionNote)?.conditionNote;
-  const hasRespondedToCondition = !!leave.conditionResponse;
+  const conditionMessages: any[] = leave.conditionMessages || [];
+  const hasRespondedToCondition = conditionMessages.some((m: any) => m.senderRole === 'EMPLOYEE') || !!leave.conditionResponse;
   const isConditional = leave.status === 'APPROVED_WITH_CONDITION';
 
   return (
@@ -2793,9 +2793,9 @@ function LeaveRequestCard({ leave }: { leave: any }) {
             )}
             {/* Condition response status hint */}
             {isConditional && conditionNote && (
-              <p className={cn('text-[11px] mt-1 flex items-center gap-1', hasRespondedToCondition ? 'text-emerald-600' : 'text-amber-600')}>
-                {hasRespondedToCondition
-                  ? <><CheckCircle size={10} /> Response sent — awaiting HR decision</>
+              <p className={cn('text-[11px] mt-1 flex items-center gap-1', conditionMessages.length > 0 ? 'text-emerald-600' : 'text-amber-600')}>
+                {conditionMessages.length > 0
+                  ? <><CheckCircle size={10} /> Thread active ({conditionMessages.length} message{conditionMessages.length !== 1 ? 's' : ''}) — awaiting HR decision</>
                   : <><AlertTriangle size={10} /> HR set a condition — tap to respond</>}
               </p>
             )}
@@ -2807,12 +2807,12 @@ function LeaveRequestCard({ leave }: { leave: any }) {
                 onClick={() => setShowConditionModal(true)}
                 className={cn(
                   'text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors shrink-0',
-                  hasRespondedToCondition
+                  conditionMessages.length > 0
                     ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                     : 'bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-300'
                 )}
               >
-                {hasRespondedToCondition ? 'View' : 'Respond'}
+                {conditionMessages.length > 0 ? 'View Thread' : 'Respond'}
               </button>
             )}
             {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
@@ -2867,11 +2867,11 @@ function LeaveRequestCard({ leave }: { leave: any }) {
                     <p className="font-bold text-amber-700">Conditional</p>
                     <p className="text-amber-500 mt-0.5">Status</p>
                   </div>
-                  <div className={cn('rounded-xl p-2.5', hasRespondedToCondition ? 'bg-emerald-50' : 'bg-orange-50')}>
-                    <p className={cn('font-bold text-xs', hasRespondedToCondition ? 'text-emerald-700' : 'text-orange-600')}>
-                      {hasRespondedToCondition ? 'Responded' : 'Pending'}
+                  <div className={cn('rounded-xl p-2.5', conditionMessages.length > 0 ? 'bg-emerald-50' : 'bg-orange-50')}>
+                    <p className={cn('font-bold text-xs', conditionMessages.length > 0 ? 'text-emerald-700' : 'text-orange-600')}>
+                      {conditionMessages.length > 0 ? `${conditionMessages.length} msg${conditionMessages.length !== 1 ? 's' : ''}` : 'Pending'}
                     </p>
-                    <p className={cn('mt-0.5 text-[10px]', hasRespondedToCondition ? 'text-emerald-500' : 'text-orange-400')}>Your reply</p>
+                    <p className={cn('mt-0.5 text-[10px]', conditionMessages.length > 0 ? 'text-emerald-500' : 'text-orange-400')}>Thread</p>
                   </div>
                 </div>
 
@@ -2883,34 +2883,35 @@ function LeaveRequestCard({ leave }: { leave: any }) {
                   <p className="text-sm text-amber-900 leading-relaxed">{conditionNote}</p>
                 </div>
 
-                {/* Employee response */}
-                {hasRespondedToCondition ? (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-emerald-700 mb-1.5 flex items-center gap-1.5">
-                      <CheckCircle size={13} /> Your Response
-                    </p>
-                    <p className="text-sm text-emerald-900 italic">"{leave.conditionResponse}"</p>
-                    {leave.conditionRespondedAt && (
-                      <p className="text-[11px] text-emerald-500 mt-2">
-                        Sent {new Date(leave.conditionRespondedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </p>
-                    )}
-                    <p className="text-[11px] text-emerald-600 mt-1 font-medium">HR has been notified and will take final action shortly.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <label className="block text-xs font-semibold text-gray-700">Your Response <span className="text-red-400">*</span></label>
-                    <textarea
-                      value={conditionReply}
-                      onChange={(e) => setConditionReply(e.target.value)}
-                      className="input-glass w-full text-sm"
-                      rows={3}
-                      placeholder="Acknowledge or respond to HR's condition…"
-                      autoFocus
-                    />
-                    <p className="text-[11px] text-gray-400">Min 3 characters. HR will be notified immediately.</p>
+                {/* Message thread */}
+                {conditionMessages.length > 0 && (
+                  <div className="space-y-2 max-h-44 overflow-y-auto">
+                    {conditionMessages.map((msg: any) => (
+                      <div key={msg.id} className={`rounded-lg px-3 py-2 text-sm ${msg.senderRole === 'HR' ? 'bg-blue-50 border border-blue-100' : 'bg-green-50 border border-green-100 ml-4'}`}>
+                        <p className={`text-[10px] font-semibold mb-0.5 ${msg.senderRole === 'HR' ? 'text-blue-600' : 'text-green-600'}`}>
+                          {msg.senderRole === 'HR' ? 'HR' : 'You'} · {new Date(msg.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                        <p className={msg.senderRole === 'HR' ? 'text-blue-800' : 'text-green-800'}>{msg.message}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
+
+                {/* Reply input — always available */}
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    {conditionMessages.length > 0 ? 'Send another message' : 'Your Response'} <span className="text-red-400">*</span>
+                  </label>
+                  <textarea
+                    value={conditionReply}
+                    onChange={(e) => setConditionReply(e.target.value)}
+                    className="input-glass w-full text-sm"
+                    rows={3}
+                    placeholder="Acknowledge or respond to HR's condition…"
+                    autoFocus={conditionMessages.length === 0}
+                  />
+                  <p className="text-[11px] text-gray-400">Min 2 characters. HR will be notified immediately.</p>
+                </div>
               </div>
 
               {/* Footer */}
@@ -2919,18 +2920,16 @@ function LeaveRequestCard({ leave }: { leave: any }) {
                   onClick={() => setShowConditionModal(false)}
                   className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-gray-600 font-medium"
                 >
-                  {hasRespondedToCondition ? 'Close' : 'Later'}
+                  Close
                 </button>
-                {!hasRespondedToCondition && (
-                  <button
-                    onClick={handleConditionReply}
-                    disabled={submitting || conditionReply.trim().length < 3}
-                    className="flex-1 py-2.5 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors font-medium"
-                  >
-                    {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                    Send Response
-                  </button>
-                )}
+                <button
+                  onClick={handleConditionReply}
+                  disabled={submitting || conditionReply.trim().length < 2}
+                  className="flex-1 py-2.5 text-sm bg-amber-600 text-white rounded-xl hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors font-medium"
+                >
+                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  Send Message
+                </button>
               </div>
             </motion.div>
           </motion.div>

@@ -851,6 +851,7 @@ export class LeaveService {
             },
           },
           approvalDecisions: { orderBy: { createdAt: 'desc' }, take: 1, select: { conditionNote: true, action: true } },
+          conditionMessages: { orderBy: { createdAt: 'asc' } },
         },
       }),
       prisma.leaveRequest.count({ where }),
@@ -1546,6 +1547,7 @@ export class LeaveService {
         },
         handovers: true,
         approvalDecisions: { orderBy: { createdAt: 'asc' } },
+        conditionMessages: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!request) throw new NotFoundError('Leave request');
@@ -1722,6 +1724,272 @@ export class LeaveService {
     } catch (err: any) {
       logger.warn(`[ConditionResponse] sendNotification error: ${err.message}`);
     }
+  }
+
+  // =====================
+  // CONDITION THREAD
+  // =====================
+
+  /**
+   * Post a message in the condition thread (HR or Employee)
+   */
+  async postConditionMessage(
+    requestId: string,
+    senderId: string,
+    senderRole: 'HR' | 'EMPLOYEE',
+    message: string,
+    organizationId: string,
+  ) {
+    // Fetch the request; use employee.organizationId for org boundary check
+    const rawRequest = await prisma.leaveRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        employee: { include: { user: true } },
+        leaveType: true,
+        conditionMessages: { orderBy: { createdAt: 'asc' } },
+        approvalDecisions: { where: { action: 'APPROVED_WITH_CONDITION' }, orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!rawRequest) throw new NotFoundError('Leave request not found');
+    if ((rawRequest.employee as any).organizationId !== organizationId) {
+      throw new BadRequestError('Unauthorized: leave request not in your organization');
+    }
+    if (rawRequest.status !== 'APPROVED_WITH_CONDITION') {
+      throw new BadRequestError('Can only send condition messages on leaves in conditional state');
+    }
+
+    const req = rawRequest as typeof rawRequest & {
+      employee: { firstName: string; lastName: string; user?: { email?: string } };
+      leaveType: { name: string };
+      approvalDecisions: Array<{ conditionNote?: string | null }>;
+    };
+
+    const msg = await prisma.leaveConditionMessage.create({
+      data: {
+        leaveRequestId: requestId,
+        senderId,
+        senderRole,
+        message: message.trim(),
+        organizationId,
+      },
+    });
+
+    // Send email notification to the other party (non-blocking)
+    const conditionNote = req.approvalDecisions[0]?.conditionNote || '';
+    const empName = `${req.employee.firstName} ${req.employee.lastName}`;
+    const leaveTypeName = req.leaveType.name;
+    const startDate = req.startDate.toISOString().split('T')[0];
+    const endDate = req.endDate.toISOString().split('T')[0];
+
+    (async () => {
+      try {
+        const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true, adminNotificationEmail: true } });
+        const appUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'https://hr.anistonav.com';
+        const orgName = org?.name || 'Aniston Technologies';
+
+        if (senderRole === 'HR') {
+          // Notify employee
+          const empEmail = req.employee.user?.email;
+          if (empEmail) {
+            await enqueueEmail({
+              to: empEmail,
+              subject: `HR has replied to your leave condition`,
+              template: 'leave-condition-hr-reply',
+              context: { employeeName: empName, leaveType: leaveTypeName, startDate, endDate, conditionNote, hrMessage: message.trim(), appUrl, orgName },
+            });
+          }
+        } else {
+          // Notify HR/Admin
+          const hrUsers = await prisma.user.findMany({
+            where: { organizationId, role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] }, status: 'ACTIVE' },
+            select: { email: true, id: true },
+          });
+          const recipients = new Set<string>();
+          for (const u of hrUsers) {
+            if (u.email && !recipients.has(u.email)) {
+              recipients.add(u.email);
+              await enqueueEmail({
+                to: u.email,
+                subject: `${empName} replied to leave condition`,
+                template: 'leave-condition-employee-reply',
+                context: { employeeName: empName, leaveType: leaveTypeName, startDate, endDate, conditionNote, employeeMessage: message.trim(), appUrl, orgName },
+              });
+            }
+          }
+        }
+      } catch { /* non-blocking */ }
+    })();
+
+    return msg;
+  }
+
+  /**
+   * HR resolves a conditional leave — final APPROVE or REJECT
+   */
+  async resolveConditionalLeave(
+    requestId: string,
+    approvedBy: string,
+    action: 'APPROVE' | 'REJECT',
+    remarks: string | undefined,
+    organizationId: string,
+  ) {
+    // Fetch the request; check org boundary via employee
+    const rawRequest = await prisma.leaveRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        employee: { include: { user: true } },
+        leaveType: true,
+        approvalDecisions: { where: { action: 'APPROVED_WITH_CONDITION' }, orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!rawRequest) throw new NotFoundError('Leave request not found');
+    if ((rawRequest.employee as any).organizationId !== organizationId) {
+      throw new BadRequestError('Unauthorized: leave request not in your organization');
+    }
+    if (rawRequest.status !== 'APPROVED_WITH_CONDITION') {
+      throw new BadRequestError('Leave is not in conditional state');
+    }
+
+    const req = rawRequest as typeof rawRequest & {
+      employee: { firstName: string; lastName: string; user?: { email?: string } };
+      leaveType: { name: string };
+    };
+
+    const approverUser = await prisma.user.findUnique({ where: { id: approvedBy }, select: { role: true } });
+    const appUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'https://hr.anistonav.com';
+
+    if (action === 'APPROVE') {
+      await prisma.$transaction(async (tx) => {
+        await tx.leaveRequest.update({ where: { id: requestId }, data: { status: 'APPROVED', approvedBy, approverRemarks: remarks || null } });
+
+        const year = new Date(req.startDate).getFullYear();
+        const balance = await tx.leaveBalance.findUnique({
+          where: { employeeId_leaveTypeId_year: { employeeId: req.employeeId, leaveTypeId: req.leaveTypeId, year } },
+        });
+        if (balance) {
+          const days = Number(req.days);
+          const safePending = Math.min(Number(balance.pending), days);
+          await tx.leaveBalance.update({
+            where: { id: balance.id },
+            data: { used: { increment: days }, pending: { decrement: safePending } },
+          });
+        }
+
+        // Create ON_LEAVE attendance records
+        const orgData = await tx.organization.findUnique({ where: { id: organizationId }, select: { workingDays: true } });
+        const workingDayStr: string = (orgData as any)?.workingDays || '1,2,3,4,5';
+        const workingDaysSet = new Set(workingDayStr.split(',').map((d: string) => parseInt(d, 10)));
+        const orgHolidays = await tx.holiday.findMany({
+          where: { organizationId, date: { gte: new Date(req.startDate), lte: new Date(req.endDate) }, type: { in: ['PUBLIC', 'CUSTOM'] } },
+          select: { date: true },
+        });
+        const holidayDateSet = new Set(orgHolidays.map((h: any) => new Date(h.date).toISOString().split('T')[0]));
+        const current = new Date(req.startDate);
+        const leaveEnd = new Date(req.endDate);
+        while (current <= leaveEnd) {
+          const dow = current.getDay();
+          const dateStr = current.toISOString().split('T')[0];
+          if (workingDaysSet.has(dow) && !holidayDateSet.has(dateStr)) {
+            const dateOnly = new Date(current);
+            dateOnly.setHours(0, 0, 0, 0);
+            await tx.attendanceRecord.upsert({
+              where: { employeeId_date: { employeeId: req.employeeId, date: dateOnly } },
+              update: { status: 'ON_LEAVE', source: 'MANUAL_HR', notes: `Leave: ${req.leaveType.name}` },
+              create: { employeeId: req.employeeId, date: dateOnly, status: 'ON_LEAVE', source: 'MANUAL_HR', notes: `Leave: ${req.leaveType.name}`, workMode: 'OFFICE' },
+            });
+          }
+          current.setDate(current.getDate() + 1);
+        }
+
+        await tx.leaveApprovalDecision.create({
+          data: {
+            leaveRequestId: requestId,
+            actorId: approvedBy,
+            actorRole: approverUser?.role || 'HR',
+            action: 'APPROVED',
+            comment: remarks || null,
+            organizationId,
+          },
+        });
+      });
+
+      (async () => {
+        try {
+          const empEmail = req.employee.user?.email;
+          const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+          if (empEmail) {
+            await enqueueEmail({
+              to: empEmail,
+              subject: `Your leave has been approved`,
+              template: 'leave-approved',
+              context: {
+                employeeName: `${req.employee.firstName} ${req.employee.lastName}`,
+                leaveType: req.leaveType.name,
+                startDate: req.startDate.toISOString().split('T')[0],
+                endDate: req.endDate.toISOString().split('T')[0],
+                days: Number(req.days),
+                approverRemarks: remarks || '',
+                appUrl,
+                orgName: org?.name || 'Aniston Technologies',
+              },
+            });
+          }
+        } catch { /* non-blocking */ }
+      })();
+
+    } else {
+      // REJECT
+      await prisma.$transaction(async (tx) => {
+        await tx.leaveRequest.update({ where: { id: requestId }, data: { status: 'REJECTED', approverRemarks: remarks || null } });
+
+        const year = new Date(req.startDate).getFullYear();
+        const balance = await tx.leaveBalance.findUnique({
+          where: { employeeId_leaveTypeId_year: { employeeId: req.employeeId, leaveTypeId: req.leaveTypeId, year } },
+        });
+        if (balance) {
+          const days = Number(req.days);
+          const safePending = Math.min(Number(balance.pending), days);
+          await tx.leaveBalance.update({ where: { id: balance.id }, data: { pending: { decrement: safePending } } });
+        }
+
+        await tx.leaveApprovalDecision.create({
+          data: {
+            leaveRequestId: requestId,
+            actorId: approvedBy,
+            actorRole: approverUser?.role || 'HR',
+            action: 'REJECTED',
+            comment: remarks || null,
+            organizationId,
+          },
+        });
+      });
+
+      (async () => {
+        try {
+          const empEmail = req.employee.user?.email;
+          const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+          if (empEmail) {
+            await enqueueEmail({
+              to: empEmail,
+              subject: `Your leave request has been rejected`,
+              template: 'leave-rejected',
+              context: {
+                employeeName: `${req.employee.firstName} ${req.employee.lastName}`,
+                leaveType: req.leaveType.name,
+                startDate: req.startDate.toISOString().split('T')[0],
+                endDate: req.endDate.toISOString().split('T')[0],
+                days: Number(req.days),
+                approverRemarks: remarks || 'Leave rejected after condition review.',
+                appUrl,
+                orgName: org?.name || 'Aniston Technologies',
+              },
+            });
+          }
+        } catch { /* non-blocking */ }
+      })();
+    }
+
+    return { success: true, action };
   }
 
   // =====================
@@ -1973,7 +2241,7 @@ export class LeaveService {
       });
 
       if (balance) {
-        if (finalStatus === 'APPROVED' || finalStatus === 'APPROVED_WITH_CONDITION') {
+        if (finalStatus === 'APPROVED') {
           // Guard: only decrement pending if it is actually ≥ requested days (prevents negative balance)
           const safePendingDecrement = Math.min(Number(balance.pending), Number(request.days));
           await tx.leaveBalance.update({
@@ -2005,9 +2273,12 @@ export class LeaveService {
             }
             current.setDate(current.getDate() + 1);
           }
+        } else if (finalStatus === 'APPROVED_WITH_CONDITION') {
+          // Conditional approval — do NOT deduct used balance or create attendance records yet.
+          // The pending balance stays as-is (reserved). Final deduction happens in resolveConditionalLeave.
         } else if (finalStatus === 'REJECTED') {
-          if (request.status === 'APPROVED' || request.status === 'APPROVED_WITH_CONDITION') {
-            // Revoking an approved leave — reverse used balance and remove attendance records
+          if (request.status === 'APPROVED') {
+            // Revoking a fully-approved leave — reverse used balance and remove attendance records
             const safeUsedDecrement = Math.min(Number(balance.used), Number(request.days));
             await tx.leaveBalance.update({
               where: { id: balance.id },
@@ -2022,6 +2293,13 @@ export class LeaveService {
                 source: 'MANUAL_HR',
                 notes: { startsWith: 'Leave:' },
               },
+            });
+          } else if (request.status === 'APPROVED_WITH_CONDITION') {
+            // Revoking a conditional leave — only pending was reserved, never deducted from used
+            const safePendingDecrement = Math.min(Number(balance.pending), Number(request.days));
+            await tx.leaveBalance.update({
+              where: { id: balance.id },
+              data: { pending: { decrement: safePendingDecrement } },
             });
           } else {
             // Standard rejection from PENDING/MANAGER_APPROVED — reverse pending balance
@@ -2132,8 +2410,8 @@ export class LeaveService {
             where: { id: balance.id },
             data: { pending: { decrement: safeDecrement } },
           });
-        } else if (request.status === 'APPROVED' || request.status === 'APPROVED_WITH_CONDITION') {
-          // Reverse used balance (auto-approved or HR-approved) — guard against going below 0
+        } else if (request.status === 'APPROVED') {
+          // Reverse used balance — guard against going below 0
           const safeDecrement = Math.min(Number(balance.used), Number(request.days));
           await tx.leaveBalance.update({
             where: { id: balance.id },
@@ -2149,6 +2427,13 @@ export class LeaveService {
               status: 'ON_LEAVE',
               source: 'MANUAL_HR',
             },
+          });
+        } else if (request.status === 'APPROVED_WITH_CONDITION') {
+          // Conditional approval — only pending was reserved (used was NOT deducted)
+          const safeDecrement = Math.min(Number(balance.pending), Number(request.days));
+          await tx.leaveBalance.update({
+            where: { id: balance.id },
+            data: { pending: { decrement: safeDecrement } },
           });
         }
         // DRAFT: no balance was incremented, nothing to reverse
