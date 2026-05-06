@@ -73,7 +73,7 @@ function makePoint(offsetMs: number, lat = 12.9716, lng = 77.5946, opts: { accur
   };
 }
 
-const BASE_TIME = new Date('2026-04-29T08:00:00.000Z').getTime();
+const BASE_TIME = Date.now();
 
 function makeFieldEmployee(overrides: Record<string, any> = {}) {
   return {

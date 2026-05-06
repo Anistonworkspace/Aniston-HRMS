@@ -59,7 +59,6 @@
     "win": {
       "target": "nsis",
       "icon": "assets/icon.png",
-      "fileDescription": "Aniston HRMS Desktop Activity Agent",
       "legalTrademarks": "Aniston Technologies LLP"
     },
     "nsis": {
