@@ -362,6 +362,16 @@ jobs:
               echo "psql not available or DATABASE_URL not set — skipping"
             fi
 
+            echo "=== [6.8/17] Running LeaveConditionMessage migration ==="
+            if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
+              psql "$DEPLOY_DATABASE_URL" \
+                -f "prisma/migrations/20260506000000_add_leave_condition_messages/migration.sql" \
+                2>/dev/null || true
+              echo "✅ LeaveConditionMessage table migration complete"
+            else
+              echo "psql not available or DATABASE_URL not set — skipping"
+            fi
+
             echo "=== [7/17] Generating Prisma client (after schema sync) ==="
             npx --no-install prisma generate
             echo "✅ Prisma client regenerated"

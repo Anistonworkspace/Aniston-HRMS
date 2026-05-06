@@ -28,8 +28,6 @@ export default defineConfig({
         'icon-512.png',
         'icon-maskable-192.png',
         'icon-maskable-512.png',
-        'offline.html',
-        'screenshots/*.png',
         'apple-splash/*.png',
         'widgets/*.json',
       ],
@@ -93,27 +91,6 @@ export default defineConfig({
         ],
 
         screenshots: [
-          {
-            src: '/screenshots/mobile-dashboard.png',
-            sizes: '1080x1920',
-            type: 'image/png',
-            form_factor: 'narrow',
-            label: 'Aniston HRMS — Dashboard',
-          },
-          {
-            src: '/screenshots/mobile-attendance.png',
-            sizes: '1080x1920',
-            type: 'image/png',
-            form_factor: 'narrow',
-            label: 'Aniston HRMS — Attendance Tracker',
-          },
-          {
-            src: '/screenshots/mobile-leave.png',
-            sizes: '1080x1920',
-            type: 'image/png',
-            form_factor: 'narrow',
-            label: 'Aniston HRMS — Leave Management',
-          },
           {
             src: '/screenshots/desktop-dashboard.png',
             sizes: '1280x800',

@@ -13,7 +13,7 @@ interface HRReviewPanelProps {
 }
 
 export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) {
-  const { data: res, isLoading } = useGetHrReviewQuery(leaveId);
+  const { data: res, isLoading, isError } = useGetHrReviewQuery(leaveId);
   const [handleAction, { isLoading: acting }] = useHandleLeaveActionMutation();
   const [postConditionMessage, { isLoading: sendingMsg }] = usePostConditionMessageMutation();
   const [resolveConditionalLeave, { isLoading: resolving }] = useResolveConditionalLeaveMutation();
@@ -51,7 +51,17 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
     );
   }
 
-  if (!data) return null;
+  if (isError || !data) {
+    return (
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl w-full max-w-2xl p-8 flex flex-col items-center gap-4">
+          <AlertCircle size={32} className="text-red-400" />
+          <p className="text-sm text-gray-600 text-center">Failed to load review data. Please try again.</p>
+          <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Close</button>
+        </div>
+      </div>
+    );
+  }
 
   const audit = data.taskAudits?.[0] || null;
   const isHighRisk = data.riskLevel === 'HIGH' || data.riskLevel === 'CRITICAL';
