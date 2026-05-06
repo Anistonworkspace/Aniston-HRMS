@@ -459,8 +459,10 @@ export class LeaveService {
       }
     }
 
-    // 7b. Global monthly paid-leave limit for ACTIVE employees (cross-type, cross-month)
-    // Iterate every calendar month this leave spans and verify quota independently.
+    // 7b. Global monthly paid-leave limit for ACTIVE employees (cross-type, cross-month).
+    // Instead of hard-blocking, we auto-split the excess days into unpaid (LWP).
+    // monthlyCapUnpaidDays accumulates how many days must become LWP due to cap overflow.
+    let monthlyCapUnpaidDays = 0;
     if (leaveType.isPaid && employee.status === 'ACTIVE') {
       try {
         const globalPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
@@ -471,30 +473,23 @@ export class LeaveService {
             .map((r: any) => r.leaveTypeId);
 
           if (activePaidTypeIds.length > 0) {
-            // Compute calendar-day span of the full request (used for proportional splits)
             const totalCalDays = Math.max(
               1,
               Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1
             );
 
-            // Iterate each calendar month the leave overlaps
             let cur = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
             const lastMonthStart = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
             while (cur <= lastMonthStart) {
               const mStart = new Date(cur.getFullYear(), cur.getMonth(), 1);
               const mEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
 
-              // Calendar overlap of this request with this month
               const overlapStart = startDate > mStart ? startDate : mStart;
               const overlapEnd = endDate < mEnd ? endDate : mEnd;
               const calOverlap = Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1;
-
-              // Proportionally scale working days to this month
               const daysInMonth = Math.round(days * (calOverlap / totalCalDays));
 
               if (daysInMonth > 0) {
-                // Use overlap logic: find existing requests that OVERLAP this month
-                // (not just those starting in it) to correctly count cross-month leaves.
                 const overlappingRequests = await prisma.leaveRequest.findMany({
                   where: {
                     employeeId,
@@ -503,10 +498,9 @@ export class LeaveService {
                     startDate: { lte: mEnd },
                     endDate: { gte: mStart },
                   },
-                  select: { startDate: true, endDate: true, days: true },
+                  select: { startDate: true, endDate: true, paidDays: true, days: true },
                 });
 
-                // For each overlapping request, compute the portion of its days that falls in this month
                 let alreadyUsedInMonth = 0;
                 for (const req of overlappingRequests) {
                   const reqStart = new Date(req.startDate);
@@ -515,15 +509,16 @@ export class LeaveService {
                   const reqOverlapStart = reqStart > mStart ? reqStart : mStart;
                   const reqOverlapEnd = reqEnd < mEnd ? reqEnd : mEnd;
                   const reqCalOverlap = Math.max(0, Math.floor((reqOverlapEnd.getTime() - reqOverlapStart.getTime()) / 86400000) + 1);
-                  const reqDaysInMonth = Math.round(Number(req.days) * (reqCalOverlap / reqTotalCal));
+                  // Use paidDays if recorded, otherwise fall back to days
+                  const reqPaid = Number((req as any).paidDays ?? req.days);
+                  const reqDaysInMonth = Math.round(reqPaid * (reqCalOverlap / reqTotalCal));
                   alreadyUsedInMonth += reqDaysInMonth;
                 }
 
-                if (alreadyUsedInMonth + daysInMonth > maxPaidPerMonth) {
-                  const monthLabel = mStart.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
-                  throw new BadRequestError(
-                    `Monthly paid leave limit exceeded for ${monthLabel}. Policy allows ${maxPaidPerMonth} paid leave day(s) per month. Already used: ${alreadyUsedInMonth}d, This leave adds: ${daysInMonth}d. Apply for Leave Without Pay (LWP) for remaining days.`
-                  );
+                const allowedInMonth = maxPaidPerMonth - alreadyUsedInMonth;
+                if (allowedInMonth < daysInMonth) {
+                  // Auto-split: excess days become unpaid
+                  monthlyCapUnpaidDays += daysInMonth - Math.max(0, allowedInMonth);
                 }
               }
 
@@ -533,7 +528,6 @@ export class LeaveService {
         }
       } catch (err: any) {
         if (err.statusCode === 400) throw err;
-        // Non-blocking: if policy fetch fails, fall through
       }
     }
 
@@ -656,17 +650,26 @@ export class LeaveService {
     });
 
     // ── Balance check with unpaid-overflow auto-split ──────────────────────────
+    // Two sources of unpaid days:
+    //   1. monthlyCapUnpaidDays — days forced unpaid because monthly paid cap exceeded
+    //   2. balance-overflow — days forced unpaid because paid balance is exhausted
     let paidDays = days;
     let unpaidDays = 0;
     let lwpLeaveType: any = null;
     let lwpBalance: any = null;
+
+    // Fetch the org-level allowUnpaidLeave toggle once (used for both split sources)
+    let allowUnpaidLeave = true;
+    try {
+      const globalPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
+      allowUnpaidLeave = (globalPolicy as any).allowUnpaidLeave !== false;
+    } catch { /* non-blocking */ }
 
     if (leaveType.isPaid) {
       if (!balance) {
         throw new BadRequestError(`No ${leaveType.name} balance allocated for this year. Please contact HR.`);
       }
 
-      // Enforce maxCarryForward — carried-forward days should not exceed policy cap
       const maxCf = (leaveType as any).maxCarryForward != null ? Number((leaveType as any).maxCarryForward) : null;
       const effectiveCf = maxCf !== null
         ? Math.min(Number(balance.carriedForward), maxCf)
@@ -674,32 +677,46 @@ export class LeaveService {
 
       const available = Number(balance.allocated) + effectiveCf - Number(balance.used) - Number(balance.pending);
 
-      if (days > available) {
-        // Try auto-split: use whatever paid balance is left, mark the rest as LWP
-        if (available > 0) {
-          lwpLeaveType = await prisma.leaveType.findFirst({
-            where: { organizationId: employee.organizationId, isPaid: false, isActive: true, deletedAt: null },
-            orderBy: { createdAt: 'asc' },
-          });
+      // Days that must become unpaid: max of cap-overflow and balance-overflow
+      const capUnpaid = Math.min(monthlyCapUnpaidDays, days); // days that exceed monthly cap
+      const balanceUnpaid = days > available ? days - available : 0; // days that exceed balance
+      const totalUnpaidNeeded = Math.max(capUnpaid, balanceUnpaid);
+
+      if (totalUnpaidNeeded > 0) {
+        if (!allowUnpaidLeave) {
+          if (balanceUnpaid > 0) {
+            throw new BadRequestError(`Insufficient ${leaveType.name} balance. Available: ${available} day(s), Requested: ${days} day(s). Unpaid leave is currently disabled by HR.`);
+          } else {
+            throw new BadRequestError(`Monthly paid leave cap exceeded. ${monthlyCapUnpaidDays} day(s) would need to be unpaid, but unpaid leave is currently disabled by HR. Please contact HR.`);
+          }
         }
 
-        if (available <= 0 || !lwpLeaveType) {
-          // No paid balance left at all, or no LWP type configured
-          const hint = lwpLeaveType
-            ? `You have 0 paid ${leaveType.name} days remaining.`
-            : `No Leave Without Pay (LWP) type is configured in your organisation. Contact HR.`;
+        // Find the unpaid leave type (system-managed, no leave type record needed from DB
+        // but we still look for one for balance/request tracking)
+        lwpLeaveType = await prisma.leaveType.findFirst({
+          where: { organizationId: employee.organizationId, isPaid: false, isActive: true, deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        if (balanceUnpaid > 0 && available <= 0 && !lwpLeaveType) {
           throw new BadRequestError(
-            `Insufficient ${leaveType.name} balance. Available: ${available} day(s), Requested: ${days} day(s). ${hint}`
+            `Insufficient ${leaveType.name} balance. Available: ${available} day(s), Requested: ${days} day(s). Contact HR to configure unpaid leave.`
           );
         }
 
-        // Split: first N days paid, remainder as LWP
-        paidDays = available;
-        unpaidDays = days - available;
+        paidDays = days - totalUnpaidNeeded;
+        unpaidDays = totalUnpaidNeeded;
 
-        lwpBalance = await prisma.leaveBalance.findUnique({
-          where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: lwpLeaveType.id, year } },
-        });
+        if (lwpLeaveType) {
+          lwpBalance = await prisma.leaveBalance.findUnique({
+            where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: lwpLeaveType.id, year } },
+          });
+        }
+      }
+    } else {
+      // Applying directly for unpaid leave — check allowUnpaidLeave toggle
+      if (!allowUnpaidLeave) {
+        throw new BadRequestError('Unpaid leave is currently disabled by HR. Please contact HR for assistance.');
       }
     }
 
@@ -751,6 +768,8 @@ export class LeaveService {
           startDate,
           endDate,
           days: paidDays,
+          paidDays: leaveType.isPaid ? paidDays : 0,
+          unpaidDays: leaveType.isPaid ? unpaidDays : days,
           isHalfDay: data.isHalfDay && unpaidDays === 0,
           halfDaySession: (data.isHalfDay && unpaidDays === 0) ? (data.halfDaySession || null) : null,
           reason: data.reason,
@@ -1072,6 +1091,22 @@ export class LeaveService {
       } catch { /* non-blocking */ }
     }
 
+    // Compute split preview: how many days will be paid vs unpaid
+    let splitPreview: { paidDays: number; unpaidDays: number; reason: string } | null = null;
+    if (leaveType.isPaid && days > 0) {
+      const capUnpaid = monthlyQuota && monthlyQuota.willExceed
+        ? Math.max(0, days - monthlyQuota.remainingThisMonth)
+        : 0;
+      const balUnpaid = days > available ? Math.max(0, days - available) : 0;
+      const totalUnpaid = Math.min(days, Math.max(capUnpaid, balUnpaid));
+      if (totalUnpaid > 0) {
+        const reason = capUnpaid >= balUnpaid
+          ? `Monthly paid leave cap (${monthlyQuota?.maxPerMonth}/month) exceeded`
+          : `Insufficient ${leaveType.name} balance`;
+        splitPreview = { paidDays: days - totalUnpaid, unpaidDays: totalUnpaid, reason };
+      }
+    }
+
     return {
       days,
       leaveTypeName: leaveType.name,
@@ -1081,6 +1116,7 @@ export class LeaveService {
       holidays: holidaysInRange.map(h => ({ name: h.name, date: h.date })),
       nonWorkingDaysExcluded: nonWorkingDaysInRange.length,
       monthlyQuota,
+      splitPreview,
       warnings,
     };
   }

@@ -362,6 +362,24 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                     </div>
                   );
                 })()}
+                {/* Split preview — shows paid/unpaid breakdown when auto-split will occur */}
+                {preview?.splitPreview && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                    <p className="text-[11px] font-semibold text-amber-700 mb-1.5">⚡ Leave Split Preview</p>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="flex items-center gap-1 text-[11px] text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 rounded-full">
+                        ✓ {preview.splitPreview.paidDays} paid day{preview.splitPreview.paidDays !== 1 ? 's' : ''}
+                      </span>
+                      <span className="text-[11px] text-gray-400">+</span>
+                      <span className="flex items-center gap-1 text-[11px] text-amber-700 font-medium bg-amber-100 px-2 py-0.5 rounded-full">
+                        ⚠ {preview.splitPreview.unpaidDays} unpaid day{preview.splitPreview.unpaidDays !== 1 ? 's' : ''} (LWP)
+                      </span>
+                    </div>
+                    {preview.splitPreview.reason && (
+                      <p className="text-[10px] text-amber-600 mt-1.5">{preview.splitPreview.reason}</p>
+                    )}
+                  </div>
+                )}
                 {preview?.warnings?.filter((w: string) =>
                   !w.toLowerCase().includes('monthly paid leave limit')
                 ).length > 0 && (

@@ -984,6 +984,8 @@ model LeaveRequest {
   riskScore          Int?               // cached from task audit
   conditionResponse     String?          // employee's reply to APPROVED_WITH_CONDITION
   conditionRespondedAt  DateTime?        // when employee submitted the response
+  paidDays      Decimal            @default(0) @db.Decimal(4, 1) // days charged to paid balance
+  unpaidDays    Decimal            @default(0) @db.Decimal(4, 1) // days charged as unpaid (LWP)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
@@ -3263,6 +3265,7 @@ model LeavePolicy {
   probationDurationMonths Int               @default(3)
   internDurationMonths    Int               @default(3)
   maxPaidLeavesPerMonth   Int               @default(0)  // 0 = unlimited; >0 = combined daily cap across all paid ACTIVE leave types per calendar month
+  allowUnpaidLeave        Boolean           @default(true) // HR toggle — when false employees cannot apply unpaid leave
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   deletedAt               DateTime?

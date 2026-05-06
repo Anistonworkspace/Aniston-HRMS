@@ -1177,6 +1177,7 @@ function EmployeeOverviewTab() {
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium text-center">Allocated</th>
                 <th className="px-4 py-3 font-medium text-center">Used</th>
+                <th className="px-4 py-3 font-medium text-center">Unpaid</th>
                 <th className="px-4 py-3 font-medium text-center">Pending</th>
                 <th className="px-4 py-3 font-medium text-center">Remaining</th>
                 <th className="px-4 py-3 font-medium text-center">Approved</th>
@@ -1246,6 +1247,9 @@ function EmployeeOverviewTab() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-center font-mono font-medium text-amber-600" data-mono>{emp.totalUsed}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-orange-500" data-mono>
+                    {emp.totalUnpaidDays > 0 ? emp.totalUnpaidDays : <span className="text-gray-300">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-center font-mono font-medium text-blue-600" data-mono>{emp.totalPending}</td>
                   <td className="px-4 py-3 text-center">
                     <span className={`font-mono font-bold ${emp.totalRemaining < 2 ? 'text-red-600' : emp.totalRemaining < 5 ? 'text-amber-600' : 'text-emerald-600'}`} data-mono>
@@ -2294,12 +2298,8 @@ function LeavePersonalView() {
   const defaultLeavePolicy = defaultLeavePolicies.find((p: any) => p.isDefault) ?? defaultLeavePolicies[0];
   const maxPaidPerMonthDisplay: number = defaultLeavePolicy?.maxPaidLeavesPerMonth ?? 0;
 
-  // Determine if unpaid leave is enabled from policy rules
-  const lwpTypeFromPolicy = allLeaveTypes.find((lt: any) => !lt.isPaid);
-  const lwpPolicyRule = defaultLeavePolicy?.rules?.find(
-    (r: any) => lwpTypeFromPolicy && r.leaveTypeId === lwpTypeFromPolicy.id && r.employeeCategory === 'ALL'
-  );
-  const unpaidLeaveEnabled: boolean = lwpPolicyRule ? lwpPolicyRule.isAllowed !== false : true;
+  // Unpaid leave enabled — read directly from policy.allowUnpaidLeave (system-level toggle)
+  const unpaidLeaveEnabled: boolean = defaultLeavePolicy ? defaultLeavePolicy.allowUnpaidLeave !== false : true;
 
   // Employee-level permission gate
   if (!perms.canViewLeaveBalance) return <PermDenied action="view leave balance" />;
@@ -2485,21 +2485,21 @@ function LeavePersonalView() {
         </div>
       )}
 
-      {/* Unpaid Leave — shown when an unpaid leave type exists (dimmed when HR disables it) */}
+      {/* Unpaid Leave card — system-managed, always visible (HR toggle controls it) */}
       {!balancesLoading && (() => {
-        const lwpType = allLeaveTypes.find((lt: any) => !lt.isPaid);
-        if (!lwpType) return null;
-        // Check if monthly paid quota is full — show a more prominent banner in that case
+        // Check if monthly paid quota is full — show orange banner
         const quotaFull = unpaidLeaveEnabled && maxPaidPerMonthDisplay > 0 && (() => {
           const now = new Date();
-          const paidLeaves = leaves.filter((l: any) => {
+          const paidThisMonth = leaves.filter((l: any) => {
             if (!['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'].includes(l.status)) return false;
-            if (!l.leaveType?.isPaid) return false;
+            if (l.leaveType?.isPaid === false) return false;
             const start = new Date(l.startDate);
             return start.getFullYear() === now.getFullYear() && start.getMonth() === now.getMonth();
           });
-          return paidLeaves.length >= maxPaidPerMonthDisplay;
+          return paidThisMonth.reduce((s: number, l: any) => s + Number(l.paidDays ?? l.days), 0) >= maxPaidPerMonthDisplay;
         })();
+        // Find LWP type if one exists (for applying)
+        const lwpType = allLeaveTypes.find((lt: any) => !lt.isPaid);
         return (
           <div className={`mb-6 rounded-xl px-4 py-3 flex items-center justify-between gap-3 ${
             !unpaidLeaveEnabled
@@ -2512,7 +2512,7 @@ function LeavePersonalView() {
               <span className="text-xl shrink-0">📋</span>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                  {lwpType.name}
+                  Leave Without Pay (LWP)
                   {!unpaidLeaveEnabled && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-200 rounded px-1.5 py-0.5">Disabled by HR</span>
                   )}
@@ -2521,10 +2521,10 @@ function LeavePersonalView() {
                   <p className="text-[11px] text-gray-400">Unpaid leave is currently disabled. Contact HR.</p>
                 ) : quotaFull ? (
                   <p className="text-[11px] text-orange-600 font-medium">
-                    Monthly paid leave quota full — apply here for unpaid leave
+                    Monthly paid leave quota full — you can apply for unpaid leave
                   </p>
                 ) : (
-                  <p className="text-[11px] text-gray-400">Unpaid — no balance limit. Apply when paid leaves are exhausted.</p>
+                  <p className="text-[11px] text-gray-400">No balance limit. System auto-splits when paid quota is exceeded.</p>
                 )}
               </div>
             </div>
@@ -2535,7 +2535,7 @@ function LeavePersonalView() {
                     toast.error('Unpaid leave is currently disabled by HR. Please contact HR for assistance.');
                     return;
                   }
-                  openApplyModal(lwpType.id);
+                  openApplyModal(lwpType?.id);
                 }}
                 className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                   !unpaidLeaveEnabled
@@ -3039,14 +3039,8 @@ function PolicySettingsTab() {
     });
     setMaxPaidPerMonth(policy.maxPaidLeavesPerMonth ?? 0);
 
-    // Single unpaid leave toggle — read from first LWP type's ALL rule
-    const firstLwp = lwpTypes[0];
-    if (firstLwp) {
-      const rule = findRule(firstLwp.id, 'ALL');
-      setUnpaidEnabled(rule ? rule.isAllowed !== false : true);
-    } else {
-      setUnpaidEnabled(true);
-    }
+    // Unpaid leave toggle — read directly from policy.allowUnpaidLeave field
+    setUnpaidEnabled(policy.allowUnpaidLeave !== false);
   };
 
   useEffect(() => {
@@ -3070,7 +3064,7 @@ function PolicySettingsTab() {
       rules.push({ leaveTypeId, employeeCategory: 'INTERN', yearlyDays, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: true });
     });
 
-    // LWP rules — use unpaidEnabled for all LWP types
+    // LWP rules — keep any existing LWP type rules in sync too
     lwpTypes.forEach((lt: any) => {
       rules.push({ leaveTypeId: lt.id, employeeCategory: 'ALL', yearlyDays: 0, monthlyDays: 0, accrualType: 'UPFRONT', isProrata: false, isAllowed: unpaidEnabled });
     });
@@ -3083,6 +3077,7 @@ function PolicySettingsTab() {
           probationDurationMonths: durations.probationMonths,
           internDurationMonths: durations.internMonths,
           maxPaidLeavesPerMonth: maxPaidPerMonth,
+          allowUnpaidLeave: unpaidEnabled,
           rules,
         },
       }).unwrap();
@@ -3294,11 +3289,9 @@ function PolicySettingsTab() {
               onChange={(v) => editing && setUnpaidEnabled(v)}
             />
           </div>
-          {lwpTypes.length === 0 && (
-            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-              No unpaid leave type found. Create a leave type and set its audience — unpaid handling is automatic.
-            </p>
-          )}
+          <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+            Unpaid leave is system-managed. When enabled, employees can apply for Leave Without Pay when their paid balance is exhausted or the monthly paid cap is exceeded.
+          </p>
         </div>
       </div>
 

@@ -193,15 +193,18 @@ router.get(
           startDate: { gte: yearStart, lte: yearEnd },
         },
         _count: { id: true },
-        _sum: { days: true },
+        _sum: { days: true, unpaidDays: true },
       });
 
-      const leaveCountMap = new Map<string, { applied: number; approved: number; pending: number; totalDays: number }>();
+      const leaveCountMap = new Map<string, { applied: number; approved: number; pending: number; totalDays: number; totalUnpaidDays: number }>();
       leaveCounts.forEach((lc) => {
-        const existing = leaveCountMap.get(lc.employeeId) || { applied: 0, approved: 0, pending: 0, totalDays: 0 };
+        const existing = leaveCountMap.get(lc.employeeId) || { applied: 0, approved: 0, pending: 0, totalDays: 0, totalUnpaidDays: 0 };
         existing.applied += lc._count.id;
         existing.totalDays += Number(lc._sum.days || 0);
-        if (lc.status === 'APPROVED' || lc.status === 'APPROVED_WITH_CONDITION') existing.approved += lc._count.id;
+        if (lc.status === 'APPROVED' || lc.status === 'APPROVED_WITH_CONDITION') {
+          existing.approved += lc._count.id;
+          existing.totalUnpaidDays += Number((lc._sum as any).unpaidDays || 0);
+        }
         if (lc.status === 'PENDING' || lc.status === 'MANAGER_APPROVED') existing.pending += lc._count.id;
         leaveCountMap.set(lc.employeeId, existing);
       });
@@ -281,6 +284,7 @@ router.get(
           totalUsed,
           totalPending,
           totalRemaining,
+          totalUnpaidDays: counts.totalUnpaidDays,
           totalPolicyAllocated,
           totalManualAdjustment,
           totalPreviousUsed,
@@ -410,11 +414,17 @@ router.get(
       const totalPending = paidBalances.reduce((s, b) => s + b.pending, 0);
       const totalRemaining = totalAllocated - totalUsed - totalPending;
 
+      // Count total unpaid days from approved requests (unpaidDays field + direct unpaid type requests)
+      const totalUnpaidDays = requests
+        .filter((r) => r.status === 'APPROVED' || r.status === 'APPROVED_WITH_CONDITION')
+        .reduce((s, r) => s + Number((r as any).unpaidDays ?? 0), 0);
+
       const summary = {
         totalAllocated,
         totalUsed,
         totalPending,
         totalRemaining,
+        totalUnpaidDays,
         leavesApplied: requests.length,
         leavesApproved: requests.filter((r) => r.status === 'APPROVED' || r.status === 'APPROVED_WITH_CONDITION').length,
         leavesPending: requests.filter((r) => r.status === 'PENDING' || r.status === 'MANAGER_APPROVED').length,
@@ -540,7 +550,7 @@ router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
 router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, rules } = req.body;
+    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, allowUnpaidLeave, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
         where: { organizationId: req.user!.organizationId, isDefault: true, id: { not: req.params.id } },
@@ -554,6 +564,7 @@ router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
     if (probationDurationMonths !== undefined) updateData.probationDurationMonths = probationDurationMonths;
     if (internDurationMonths !== undefined) updateData.internDurationMonths = internDurationMonths;
     if (maxPaidLeavesPerMonth !== undefined) updateData.maxPaidLeavesPerMonth = maxPaidLeavesPerMonth;
+    if (allowUnpaidLeave !== undefined) updateData.allowUnpaidLeave = allowUnpaidLeave;
 
     const policy = await prisma.leavePolicy.update({
       where: { id: req.params.id },

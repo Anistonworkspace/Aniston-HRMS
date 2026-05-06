@@ -372,6 +372,16 @@ jobs:
               echo "psql not available or DATABASE_URL not set — skipping"
             fi
 
+            echo "=== [6.9/17] Running leave unpaid tracking migration ==="
+            if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
+              psql "$DEPLOY_DATABASE_URL" \
+                -f "prisma/migrations/20260506000001_leave_unpaid_tracking/migration.sql" \
+                2>/dev/null || true
+              echo "✅ Leave unpaid tracking columns migration complete"
+            else
+              echo "psql not available or DATABASE_URL not set — skipping"
+            fi
+
             echo "=== [7/17] Generating Prisma client (after schema sync) ==="
             npx --no-install prisma generate
             echo "✅ Prisma client regenerated"
