@@ -44,6 +44,10 @@ router.get('/account-activity', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, r
   settingsController.getAccountActivity(req, res, next)
 );
 
+router.delete('/account-activity', authorize(Role.SUPER_ADMIN), (req, res, next) =>
+  settingsController.deleteActivityLogs(req, res, next)
+);
+
 // Email Configuration
 router.get('/email', requirePermission('settings', 'read'), (req, res, next) =>
   settingsController.getEmailConfig(req, res, next)

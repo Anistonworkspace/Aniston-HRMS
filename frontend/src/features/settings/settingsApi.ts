@@ -231,6 +231,10 @@ export const settingsApi = api.injectEndpoints({
       query: (params) => ({ url: '/settings/account-activity', params }),
       providesTags: ['Settings'],
     }),
+    deleteActivityLogs: builder.mutation<any, { ids?: string[]; fromDate?: string; toDate?: string }>({
+      query: (body) => ({ url: '/settings/account-activity', method: 'DELETE', body }),
+      invalidatesTags: ['Settings'],
+    }),
   }),
 });
 
@@ -274,4 +278,5 @@ export const {
   useUpsertDocumentTemplateMutation,
   useDeleteDocumentTemplateMutation,
   useGetAccountActivityQuery,
+  useDeleteActivityLogsMutation,
 } = settingsApi;

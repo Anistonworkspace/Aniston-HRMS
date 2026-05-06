@@ -209,6 +209,21 @@ export class SettingsController {
       next(err);
     }
   }
+
+  async deleteActivityLogs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { ids, fromDate, toDate } = req.body;
+      const result = await settingsService.deleteActivityLogs({
+        organizationId: req.user!.organizationId,
+        ids: Array.isArray(ids) ? ids : undefined,
+        fromDate: fromDate ? new Date(fromDate) : undefined,
+        toDate: toDate ? new Date(toDate) : undefined,
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const settingsController = new SettingsController();

@@ -631,6 +631,34 @@ export class SettingsService {
       },
     };
   }
+
+  async deleteActivityLogs(params: {
+    organizationId: string;
+    ids?: string[];
+    fromDate?: Date;
+    toDate?: Date;
+  }) {
+    const { organizationId, ids, fromDate, toDate } = params;
+
+    if (ids && ids.length > 0) {
+      const result = await prisma.auditLog.deleteMany({
+        where: { organizationId, id: { in: ids } },
+      });
+      return { deleted: result.count };
+    }
+
+    if (fromDate || toDate) {
+      const dateFilter: any = {};
+      if (fromDate) dateFilter.gte = fromDate;
+      if (toDate) dateFilter.lte = toDate;
+      const result = await prisma.auditLog.deleteMany({
+        where: { organizationId, createdAt: dateFilter },
+      });
+      return { deleted: result.count };
+    }
+
+    throw new BadRequestError('Provide either ids or a date range to delete');
+  }
 }
 
 export const settingsService = new SettingsService();
