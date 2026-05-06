@@ -88,6 +88,20 @@ vi.mock('../modules/task-integration/task-integration.service.js', () => ({
   },
 }));
 
+vi.mock('../modules/leave/leave-policy.service.js', () => ({
+  leavePolicyService: {
+    getOrCreateDefaultPolicy: vi.fn().mockResolvedValue({
+      id: 'policy-001',
+      organizationId: 'org-leave-001',
+      allowUnpaidLeave: true,
+      maxPaidLeavesPerMonth: 0,
+      rules: [],
+    }),
+    getEmployeeCategory: vi.fn().mockReturnValue('ACTIVE'),
+    _resolveFromPolicy: vi.fn().mockReturnValue(null),
+  },
+}));
+
 vi.mock('../config/env.js', () => ({
   env: {
     NODE_ENV: 'test',
@@ -100,6 +114,7 @@ vi.mock('../config/env.js', () => ({
 import { LeaveService } from '../modules/leave/leave.service.js';
 import { prisma } from '../lib/prisma.js';
 import { invalidateDashboardCache } from '../sockets/index.js';
+import { leavePolicyService } from '../modules/leave/leave-policy.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -215,30 +230,23 @@ describe('LeaveService', () => {
   // ── applyLeave — balance checks ───────────────────────────────────────────
 
   describe('applyLeave — balance check', () => {
-    it('throws BadRequestError with insufficient balance message when days > available', async () => {
+    it('throws BadRequestError when days > available and allowUnpaidLeave is disabled', async () => {
+      // When HR disables unpaid leave, excess-balance requests must still be rejected
+      vi.mocked(leavePolicyService.getOrCreateDefaultPolicy).mockResolvedValue({
+        id: 'policy-001',
+        organizationId: ORG_ID,
+        allowUnpaidLeave: false,
+        maxPaidLeavesPerMonth: 0,
+        rules: [],
+      } as any);
+
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce(makeEmployee() as any);
       vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(makeLeaveType() as any);
       vi.mocked(prisma.leaveRequest.count).mockResolvedValueOnce(0);
 
-      // Balance: 3 days available but requesting 5
+      // Balance: 2 available but requesting 3
       const balance = makeBalance({ allocated: 5, used: 3, pending: 0, carriedForward: 0 });
-      // available = 5 - 3 - 0 = 2
       vi.mocked(prisma.leaveBalance.findUnique).mockResolvedValueOnce(balance as any);
-
-      // Mock $transaction to simulate the overlap check + create path
-      vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
-        // Simulate the overlap check: no overlap
-        const txMock = {
-          leaveRequest: {
-            findFirst: vi.fn().mockResolvedValue(null),
-            create: vi.fn().mockResolvedValue({ ...makeLeaveRequest(), status: 'PENDING' }),
-          },
-          leaveBalance: { update: vi.fn().mockResolvedValue({}) },
-          holiday: { findMany: vi.fn().mockResolvedValue([]) },
-          attendanceRecord: { upsert: vi.fn().mockResolvedValue({}) },
-        };
-        return fn(txMock);
-      });
 
       await expect(
         service.applyLeave(EMP_ID, {
@@ -249,6 +257,50 @@ describe('LeaveService', () => {
           isHalfDay: false,
         } as any)
       ).rejects.toThrow(/Insufficient.*balance/i);
+
+      // Restore default for subsequent tests
+      vi.mocked(leavePolicyService.getOrCreateDefaultPolicy).mockResolvedValue({
+        id: 'policy-001',
+        organizationId: ORG_ID,
+        allowUnpaidLeave: true,
+        maxPaidLeavesPerMonth: 0,
+        rules: [],
+      } as any);
+    });
+
+    it('auto-splits excess days as unpaid when allowUnpaidLeave is enabled', async () => {
+      vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce(makeEmployee() as any);
+      vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(makeLeaveType() as any);
+      vi.mocked(prisma.leaveRequest.count).mockResolvedValueOnce(0);
+
+      // 2 days available, requesting 3 — 1 day should auto-split to unpaid
+      const balance = makeBalance({ allocated: 5, used: 3, pending: 0, carriedForward: 0 });
+      vi.mocked(prisma.leaveBalance.findUnique).mockResolvedValueOnce(balance as any);
+
+      const createdRequest = makeLeaveRequest({ days: 3 });
+      vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
+        const txMock = {
+          leaveRequest: {
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue(createdRequest),
+          },
+          leaveBalance: { update: vi.fn().mockResolvedValue({}) },
+          holiday: { findMany: vi.fn().mockResolvedValue([]) },
+          attendanceRecord: { upsert: vi.fn().mockResolvedValue({}) },
+        };
+        return fn(txMock);
+      });
+
+      const result = await service.applyLeave(EMP_ID, {
+        leaveTypeId: LEAVE_TYPE_ID,
+        startDate: '2027-06-10',
+        endDate: '2027-06-12',
+        reason: 'Vacation',
+        isHalfDay: false,
+      } as any);
+
+      expect(result).toBeDefined();
+      expect(result.status).toBe('PENDING');
     });
 
     it('allows application when balance is sufficient', async () => {
