@@ -549,7 +549,7 @@ export default function EmployeeAttendanceDetailPage() {
                   <div className="space-y-1">
                     {detail.anomalies.map((a: any) => (
                       <div key={a.id} className={cn('p-1.5 rounded-lg text-[10px] font-medium', ANOMALY_COLORS[a.type] || 'bg-gray-50 text-gray-600')}>
-                        <AlertTriangle size={9} className="inline mr-1" />{a.description}
+                        <AlertTriangle size={9} className="inline mr-1" />{a.description.replace(/(\d+) min/g, (_: string, n: string) => fmtMins(Number(n)))}
                       </div>
                     ))}
                   </div>
@@ -705,22 +705,24 @@ export default function EmployeeAttendanceDetailPage() {
                   <div key={i} className="text-center text-[8px] font-semibold text-gray-400 py-0.5">{d}</div>
                 ))}
               </div>
-              {/* Dismiss backdrop for marking popover */}
-              {markingDate && <div className="fixed inset-0 z-20" onClick={() => setMarkingDate(null)} />}
               <div className="grid grid-cols-7 gap-0.5">
                 {calendarDays.map((day: any, idx: number) => (
                   <div key={idx} className="relative">
                     <button disabled={day.date === 0}
                       onClick={() => {
                         if (!day.dateStr) return;
-                        setSelectedDate(day.dateStr);
-                        // HR can mark past/today dates only (not holidays or weekends), but not their own
-                        if (isHR && isSelf) {
-                          toast.error('You are HR. You cannot do manual marking for your own account. Use the calendar to mark attendance for other employees.');
-                        } else if (isHR && day.dateStr <= new Date().toISOString().split('T')[0] && day.status !== 'HOLIDAY' && day.status !== 'WEEKEND') {
+                        const today = new Date().toISOString().split('T')[0];
+                        const isMarkable = isHR && !isSelf && day.dateStr <= today && day.status !== 'HOLIDAY' && day.status !== 'WEEKEND';
+                        if (isMarkable) {
+                          // HR click on markable date: open centered modal, do NOT change left card date
                           setMarkingDate(markingDate === day.dateStr ? null : day.dateStr);
                         } else {
+                          // Normal click: change selected date in left card
+                          setSelectedDate(day.dateStr);
                           setMarkingDate(null);
+                          if (isHR && isSelf) {
+                            toast.error('HR cannot manually mark their own attendance.');
+                          }
                         }
                       }}
                       className={cn(
@@ -746,42 +748,49 @@ export default function EmployeeAttendanceDetailPage() {
                           {STATUS_LABEL[day.status] || ''}
                         </span>
                       )}
-                      {/* HR manual mark indicator — small shield dot in top-right corner */}
                       {day.isManualHR && day.date > 0 && (
                         <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-400" title="HR Manual" />
                       )}
                     </button>
-                    {/* HR marking popover */}
-                    {isHR && markingDate === day.dateStr && (
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg p-1.5 min-w-[90px]" onClick={e => e.stopPropagation()}>
-                        <p className="text-[8px] text-gray-400 font-medium px-1 mb-1">Mark as</p>
-                        {([
-                          { s: 'PRESENT', label: 'Present', cls: 'text-emerald-600' },
-                          { s: 'HALF_DAY', label: 'Half Day', cls: 'text-amber-600' },
-                          { s: 'ABSENT', label: 'Absent', cls: 'text-red-500' },
-                          { s: 'WEEKEND', label: 'Week Off', cls: 'text-gray-400' },
-                        ] as const).map(({ s, label, cls }) => (
-                          <button key={s}
-                            disabled={isMarking}
-                            onClick={async () => {
-                              try {
-                                await markAttendance({ employeeId: employeeId!, date: day.dateStr, status: s }).unwrap();
-                                toast.success(`Marked ${label} for ${day.dateStr}`);
-                                setMarkingDate(null);
-                              } catch { toast.error('Failed to mark attendance'); }
-                            }}
-                            className={cn(
-                              'w-full text-left text-[9px] font-medium px-1.5 py-1 rounded-lg hover:bg-gray-50 transition-colors',
-                              cls
-                            )}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
+
+              {/* HR Mark Attendance — centered modal */}
+              {isHR && markingDate && (
+                <>
+                  <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setMarkingDate(null)} />
+                  <div className="fixed inset-0 z-50 flex items-center justify-center">
+                    <div className="bg-white rounded-2xl shadow-2xl p-5 w-64" onClick={e => e.stopPropagation()}>
+                      <p className="text-xs font-semibold text-gray-800 mb-0.5 text-center">Mark Attendance</p>
+                      <p className="text-[10px] text-gray-400 text-center mb-4">{formatDate(markingDate, 'long')}</p>
+                      <div className="space-y-2">
+                        {([
+                          { s: 'PRESENT',  label: 'Present',  cls: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200' },
+                          { s: 'HALF_DAY', label: 'Half Day', cls: 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200' },
+                          { s: 'ABSENT',   label: 'Absent',   cls: 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200' },
+                          { s: 'WEEKEND',  label: 'Week Off', cls: 'bg-gray-50 text-gray-500 hover:bg-gray-100 border border-gray-200' },
+                        ] as const).map(({ s, label, cls }) => (
+                          <button key={s} disabled={isMarking}
+                            onClick={async () => {
+                              try {
+                                await markAttendance({ employeeId: employeeId!, date: markingDate, status: s }).unwrap();
+                                toast.success(`Marked ${label} for ${formatDate(markingDate, 'long')}`);
+                                setMarkingDate(null);
+                              } catch { toast.error('Failed to mark attendance'); }
+                            }}
+                            className={cn('w-full text-sm font-medium px-4 py-2.5 rounded-xl transition-colors text-center', cls, isMarking && 'opacity-50 cursor-not-allowed')}>
+                            {isMarking ? 'Saving…' : label}
+                          </button>
+                        ))}
+                      </div>
+                      <button onClick={() => setMarkingDate(null)} className="mt-3 w-full text-[10px] text-gray-400 hover:text-gray-600 text-center transition-colors">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Compact Legend with descriptions */}
@@ -1335,10 +1344,6 @@ export default function EmployeeAttendanceDetailPage() {
         )}
       </AnimatePresence>
 
-      {/* Dismiss marking popover on outside click */}
-      {markingDate && (
-        <div className="fixed inset-0 z-20" onClick={() => setMarkingDate(null)} />
-      )}
     </div>
   );
 }
