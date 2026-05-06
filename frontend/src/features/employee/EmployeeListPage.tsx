@@ -612,63 +612,63 @@ export default function EmployeeListPage() {
                       onClick={() => navigate(`/employees/${emp.id}`)}
                       className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors"
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2.5">
                           <Avatar employee={emp} />
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-gray-800 truncate">
+                            <p className="text-xs font-medium text-gray-800 truncate">
                               {emp.firstName} {emp.lastName}
                             </p>
-                            <p className="text-xs text-gray-400 truncate">
+                            <p className="text-[10px] text-gray-400 truncate">
                               <span className="font-mono" data-mono>{emp.employeeCode}</span>
                               {' · '}{emp.email}
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <span className="text-sm text-gray-600">{emp.department?.name || '—'}</span>
+                      <td className="px-4 py-2 hidden md:table-cell">
+                        <span className="text-xs text-gray-600">{emp.department?.name || '—'}</span>
                         {emp.designation?.name && (
-                          <p className="text-xs text-gray-400">{emp.designation.name}</p>
+                          <p className="text-[10px] text-gray-400">{emp.designation.name}</p>
                         )}
                       </td>
-                      <td className="px-4 py-3 hidden lg:table-cell">
+                      <td className="px-4 py-2 hidden lg:table-cell">
                         {emp.manager ? (
-                          <span className="text-sm text-gray-600">{emp.manager.firstName} {emp.manager.lastName}</span>
+                          <span className="text-xs text-gray-600">{emp.manager.firstName} {emp.manager.lastName}</span>
                         ) : (
-                          <span className="text-xs text-gray-300">—</span>
+                          <span className="text-[10px] text-gray-300">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 hidden xl:table-cell">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600">
+                      <td className="px-4 py-2 hidden xl:table-cell">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-gray-100 text-gray-600">
                           {emp.workMode?.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td className="px-4 py-3 hidden xl:table-cell">
+                      <td className="px-4 py-2 hidden xl:table-cell">
                         {emp.kycStatus === 'VERIFIED' ? (
-                          <span title="KYC Verified" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700">
-                            <ShieldCheck size={11} /> Granted
+                          <span title="KYC Verified" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 text-emerald-700">
+                            <ShieldCheck size={10} /> Granted
                           </span>
                         ) : (
-                          <span title={`KYC: ${emp.kycStatus ?? 'PENDING'}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600">
-                            <ShieldOff size={11} /> Blocked
+                          <span title={`KYC: ${emp.kycStatus ?? 'PENDING'}`} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-red-50 text-red-600">
+                            <ShieldOff size={10} /> Blocked
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 hidden xl:table-cell">
+                      <td className="px-4 py-2 hidden xl:table-cell">
                         {emp.hasCheckedInToday ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
-                            <LogIn size={11} /> Checked In
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700">
+                            <LogIn size={10} /> Checked In
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-400">
-                            <LogOut size={11} /> Not Yet
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-gray-100 text-gray-400">
+                            <LogOut size={10} /> Not Yet
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 hidden xl:table-cell">
+                      <td className="px-4 py-2 hidden xl:table-cell">
                         {emp.hasShift ? (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
                             emp.currentShift?.shiftType === 'FIELD' ? 'bg-orange-100 text-orange-700' :
                             emp.currentShift?.shiftType === 'PROJECT_SITE' ? 'bg-green-100 text-green-700' :
                             'bg-blue-100 text-blue-700'
@@ -676,23 +676,23 @@ export default function EmployeeListPage() {
                             {emp.currentShift?.name || 'Assigned'}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-yellow-100 text-yellow-700">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-yellow-100 text-yellow-700">
                             No Shift
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 hidden sm:table-cell">
-                        <span className="text-sm text-gray-500">{formatDate(emp.joiningDate)}</span>
+                      <td className="px-4 py-2 hidden sm:table-cell">
+                        <span className="text-[10px] text-gray-500">{formatDate(emp.joiningDate)}</span>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`badge ${getStatusColor(emp.status)}`}>
+                      <td className="px-4 py-2">
+                        <span className={`badge text-[10px] ${getStatusColor(emp.status)}`}>
                           {emp.status?.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td className="px-4 py-3 hidden lg:table-cell">
+                      <td className="px-4 py-2 hidden lg:table-cell">
                         {emp.user?.role ? (
                           <RoleBadge role={emp.user.role} employeeId={emp.id} />
-                        ) : <span className="text-xs text-gray-300">—</span>}
+                        ) : <span className="text-[10px] text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3">
                         <button

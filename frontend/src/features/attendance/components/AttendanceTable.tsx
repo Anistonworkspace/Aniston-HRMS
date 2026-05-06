@@ -1,10 +1,7 @@
 import { memo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  MoreHorizontal, Eye, PenSquare, CheckSquare, MapPin, ClipboardList,
-  ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown,
-} from 'lucide-react';
-import { cn, getStatusColor, getInitials } from '../../../lib/utils';
+import { ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { cn, getStatusColor, getInitials, getUploadUrl } from '../../../lib/utils';
 
 interface AttendanceTableProps {
   records: any[];
@@ -79,7 +76,6 @@ const SortIcon = ({ field, sortBy, sortOrder }: { field: string; sortBy?: string
 
 function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy, sortOrder, onSort }: AttendanceTableProps) {
   const navigate = useNavigate();
-  const [actionMenuId, setActionMenuId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -129,7 +125,6 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
                 { key: 'compliance', label: 'Location', w: 'w-[80px]' },
                 { key: 'anomaly', label: 'Anomaly', w: 'w-[90px]' },
                 { key: 'regularization', label: 'Reg.', w: 'w-[60px]' },
-                { key: 'action', label: '', w: 'w-[36px]' },
               ].map(col => (
                 <th
                   key={col.key}
@@ -151,7 +146,7 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
           <tbody>
             {records.length === 0 ? (
               <tr>
-                <td colSpan={14} className="text-center py-10">
+                <td colSpan={13} className="text-center py-10">
                   <p className="text-sm text-gray-400">No attendance records found</p>
                 </td>
               </tr>
@@ -165,8 +160,17 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
                   {/* Employee */}
                   <td className="px-2.5 py-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-[10px] font-semibold text-brand-700 flex-shrink-0">
-                        {getInitials(r.employee?.firstName, r.employee?.lastName)}
+                      <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-[10px] font-semibold text-brand-700 flex-shrink-0 overflow-hidden">
+                        {r.employee?.photoUrl || r.employee?.avatar ? (
+                          <img
+                            src={getUploadUrl(r.employee.photoUrl || r.employee.avatar)}
+                            alt={getInitials(r.employee?.firstName, r.employee?.lastName)}
+                            className="w-full h-full object-cover"
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          getInitials(r.employee?.firstName, r.employee?.lastName)
+                        )}
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-gray-800 truncate">
@@ -268,37 +272,6 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
                       </span>
                     ) : (
                       <span className="text-[10px] text-gray-300">--</span>
-                    )}
-                  </td>
-                  {/* Action */}
-                  <td className="px-2 py-2 relative">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === r.id ? null : r.id); }}
-                      className="p-1 rounded hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <MoreHorizontal size={14} className="text-gray-400" />
-                    </button>
-                    {actionMenuId === r.id && (
-                      <>
-                        <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setActionMenuId(null); }} />
-                        <div className="absolute right-0 top-full mt-0.5 bg-white rounded-lg border border-gray-200 shadow-lg z-30 min-w-[180px] py-1">
-                          {[
-                            { icon: Eye, label: 'View Day Detail', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}`) },
-                            { icon: PenSquare, label: 'Regularize', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?action=regularize`) },
-                            { icon: CheckSquare, label: 'Mark Attendance', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?action=mark`) },
-                            { icon: MapPin, label: 'View Location', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?tab=map`) },
-                            { icon: ClipboardList, label: 'Activity Logs', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?tab=logs`) },
-                          ].map(a => (
-                            <button
-                              key={a.label}
-                              onClick={(e) => { e.stopPropagation(); a.onClick(); setActionMenuId(null); }}
-                              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
-                            >
-                              <a.icon size={12} /> {a.label}
-                            </button>
-                          ))}
-                        </div>
-                      </>
                     )}
                   </td>
                 </tr>
