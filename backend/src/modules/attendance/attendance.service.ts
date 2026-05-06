@@ -1217,7 +1217,8 @@ export class AttendanceService {
         case 'ON_LEAVE': summary.onLeave++; break;
         case 'WORK_FROM_HOME': summary.workFromHome++; break;
       }
-      if (r.totalHours) totalWorkedHours += Number(r.totalHours);
+      // Cap individual day hours at 9h so anomalous records don't inflate the average
+      if (r.totalHours) totalWorkedHours += Math.min(Number(r.totalHours), 9);
     });
 
     summary.averageHours = summary.present > 0
@@ -2484,7 +2485,8 @@ export class AttendanceService {
         case 'ON_LEAVE': summary.onLeave++; break;
         case 'WORK_FROM_HOME': summary.workFromHome++; break;
       }
-      if (r.totalHours) totalWorkedHours += Number(r.totalHours);
+      // Cap individual day hours at 9h so anomalous records don't inflate the average
+      if (r.totalHours) totalWorkedHours += Math.min(Number(r.totalHours), 9);
     });
 
     summary.averageHours = summary.present > 0
@@ -3308,8 +3310,8 @@ export class AttendanceService {
       // --- LATE ARRIVAL --- (skip for WFH)
       if (!isWfhRecord && record.checkIn && shift) {
         const [shiftH, shiftM] = shift.startTime.split(':').map(Number);
-        const shiftStart = new Date(queryDate);
-        shiftStart.setHours(shiftH, shiftM, 0, 0);
+        // queryDate is UTC-midnight = IST 00:00. Adding shift minutes gives correct IST wall-clock in UTC.
+        const shiftStart = new Date(queryDate.getTime() + (shiftH * 60 + shiftM) * 60000);
         const grace = new Date(shiftStart.getTime() + graceMinutes * 60000);
         if (record.checkIn > grace) {
           const lateMinutes = Math.round((record.checkIn.getTime() - shiftStart.getTime()) / 60000);
@@ -3328,8 +3330,7 @@ export class AttendanceService {
       if (record.checkIn && !record.checkOut && shift) {
         const now = getISTNow();
         const [endH, endM] = shift.endTime.split(':').map(Number);
-        const shiftEnd = new Date(queryDate);
-        shiftEnd.setHours(endH, endM, 0, 0);
+        const shiftEnd = new Date(queryDate.getTime() + (endH * 60 + endM) * 60000);
         if (now > new Date(shiftEnd.getTime() + missingPunchGraceMin * 60000)) {
           anomalies.push({
             attendanceId: record.id, employeeId: empId, date: queryDate,
@@ -3370,8 +3371,8 @@ export class AttendanceService {
       // --- EARLY EXIT --- (skip for WFH)
       if (!isWfhRecord && record.checkOut && shift) {
         const [endH, endM] = shift.endTime.split(':').map(Number);
-        const shiftEnd = new Date(queryDate);
-        shiftEnd.setHours(endH, endM, 0, 0);
+        // queryDate is UTC-midnight = IST 00:00. Adding shift end minutes gives correct IST wall-clock in UTC.
+        const shiftEnd = new Date(queryDate.getTime() + (endH * 60 + endM) * 60000);
         const earlyMinutes = Math.round((shiftEnd.getTime() - record.checkOut.getTime()) / 60000);
         if (earlyMinutes > earlyExitThreshold) {
           anomalies.push({

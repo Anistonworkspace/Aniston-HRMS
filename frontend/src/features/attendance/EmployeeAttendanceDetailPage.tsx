@@ -343,22 +343,26 @@ export default function EmployeeAttendanceDetailPage() {
   const totalHours = Number(selectedRecord?.totalHours || 0);
   const activeHours = Math.max(0, totalHours - breakDuration / 60);
 
-  // Late/early calculations
+  // Late/early calculations — build shift boundary in IST then compare with UTC timestamps.
+  // record.date is stored as UTC-midnight = IST 00:00. Adding shift minutes gives the IST wall-clock in UTC.
+  const recordDateUTCMidnight = selectedRecord
+    ? (() => { const d = new Date(selectedRecord.date); d.setUTCHours(0, 0, 0, 0); return d.getTime(); })()
+    : 0;
+
   const lateBy = (() => {
     if (!selectedRecord?.checkIn || !shift) return 0;
     const [h, m] = shift.startTime.split(':').map(Number);
-    const shiftStart = new Date(selectedRecord.checkIn);
-    shiftStart.setHours(h, m, 0, 0);
-    const diff = Math.round((new Date(selectedRecord.checkIn).getTime() - shiftStart.getTime()) / 60000);
+    // recordDateUTCMidnight = IST 00:00 as UTC. Add shift start minutes to get IST wall-clock in UTC.
+    const shiftStartUTC = recordDateUTCMidnight + (h * 60 + m) * 60000;
+    const diff = Math.round((new Date(selectedRecord.checkIn).getTime() - shiftStartUTC) / 60000);
     return Math.max(0, diff);
   })();
 
   const earlyExitBy = (() => {
     if (!selectedRecord?.checkOut || !shift) return 0;
     const [h, m] = shift.endTime.split(':').map(Number);
-    const shiftEnd = new Date(selectedRecord.checkOut);
-    shiftEnd.setHours(h, m, 0, 0);
-    const diff = Math.round((shiftEnd.getTime() - new Date(selectedRecord.checkOut).getTime()) / 60000);
+    const shiftEndUTC = recordDateUTCMidnight + (h * 60 + m) * 60000;
+    const diff = Math.round((shiftEndUTC - new Date(selectedRecord.checkOut).getTime()) / 60000);
     return Math.max(0, diff);
   })();
 
@@ -849,7 +853,7 @@ export default function EmployeeAttendanceDetailPage() {
               <GpsTrailSection gpsTrail={gpsTrail} gpsVisits={gpsVisits} selectedDate={selectedDate} />
             </Suspense>
           )}
-          {checkInLoc?.lat && (
+          {checkInLoc?.lat && !gpsTrailModal && (
             <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className="h-[200px]" style={{ background: '#f9fafb' }} /></div>}>
               <CheckInSection
                 checkInLoc={checkInLoc}
