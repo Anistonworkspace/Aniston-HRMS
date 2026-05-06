@@ -227,6 +227,10 @@ export const settingsApi = api.injectEndpoints({
     getAiServiceHealth: builder.query<{ success: boolean; data: { status: 'online' | 'offline' | 'degraded'; latencyMs?: number; service?: string; version?: string; url?: string; error?: string; httpStatus?: number } }, void>({
       query: () => '/settings/system-logs/ai-health',
     }),
+    getAccountActivity: builder.query<any, { role: 'HR' | 'EMPLOYEE'; page?: number; limit?: number }>({
+      query: (params) => ({ url: '/settings/account-activity', params }),
+      providesTags: ['Settings'],
+    }),
   }),
 });
 
@@ -269,4 +273,5 @@ export const {
   useGetDocumentTemplatesQuery,
   useUpsertDocumentTemplateMutation,
   useDeleteDocumentTemplateMutation,
+  useGetAccountActivityQuery,
 } = settingsApi;

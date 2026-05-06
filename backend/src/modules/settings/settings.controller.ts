@@ -188,6 +188,27 @@ export class SettingsController {
       next(err);
     }
   }
+
+  async getAccountActivity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const role = (req.query.role as string)?.toUpperCase();
+      if (role !== 'HR' && role !== 'EMPLOYEE') {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'role must be HR or EMPLOYEE' } });
+        return;
+      }
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const result = await settingsService.getAccountActivity({
+        role: role as 'HR' | 'EMPLOYEE',
+        page,
+        limit,
+        organizationId: req.user!.organizationId,
+      });
+      res.json({ success: true, data: result.data, meta: result.meta });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const settingsController = new SettingsController();

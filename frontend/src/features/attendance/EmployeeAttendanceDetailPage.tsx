@@ -80,6 +80,8 @@ export default function EmployeeAttendanceDetailPage() {
   const accessToken = useAppSelector(s => s.auth.accessToken);
   const user = useAppSelector(s => s.auth.user);
   const isHR = user && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role);
+  // HR/Admin/SuperAdmin cannot manually mark or regularize their own attendance
+  const isSelf = !!(user?.employeeId && user.employeeId === employeeId);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -402,7 +404,7 @@ export default function EmployeeAttendanceDetailPage() {
           </div>
           {/* Header actions */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {isHR && (
+            {isHR && !isSelf && (
               <button
                 onClick={() => { setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); setShowRegularizeModal(true); }}
                 className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
@@ -677,8 +679,10 @@ export default function EmployeeAttendanceDetailPage() {
                       onClick={() => {
                         if (!day.dateStr) return;
                         setSelectedDate(day.dateStr);
-                        // HR can mark past/today dates only (not holidays or weekends)
-                        if (isHR && day.dateStr <= new Date().toISOString().split('T')[0] && day.status !== 'HOLIDAY' && day.status !== 'WEEKEND') {
+                        // HR can mark past/today dates only (not holidays or weekends), but not their own
+                        if (isHR && isSelf) {
+                          toast.error('You are HR. You cannot do manual marking for your own account. Use the calendar to mark attendance for other employees.');
+                        } else if (isHR && day.dateStr <= new Date().toISOString().split('T')[0] && day.status !== 'HOLIDAY' && day.status !== 'WEEKEND') {
                           setMarkingDate(markingDate === day.dateStr ? null : day.dateStr);
                         } else {
                           setMarkingDate(null);

@@ -179,6 +179,13 @@ export class AttendanceController {
   async markAttendance(req: Request, res: Response, next: NextFunction) {
     try {
       const data = markAttendanceSchema.parse(req.body);
+      // Prevent HR/Admin/SuperAdmin from manually marking their own attendance record
+      if (req.user!.employeeId && req.user!.employeeId === data.employeeId) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'You cannot manually mark your own attendance. Use the calendar to mark attendance for other employees.' },
+        });
+      }
       const record = await attendanceService.markAttendance(data, req.user!.userId, req.user!.organizationId);
       res.status(201).json({ success: true, data: record, message: 'Attendance marked successfully' });
     } catch (err) { next(err); }

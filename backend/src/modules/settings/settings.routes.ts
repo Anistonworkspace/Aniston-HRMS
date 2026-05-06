@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { settingsController } from './settings.controller.js';
-import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
+import { Role } from '@aniston/shared';
 
 const router = Router();
 
@@ -36,6 +37,11 @@ router.delete('/locations/:id', requirePermission('settings', 'update'), (req, r
 // Audit Logs
 router.get('/audit-logs', (req, res, next) =>
   settingsController.listAuditLogs(req, res, next)
+);
+
+// Account Activity — SUPER_ADMIN and ADMIN only
+router.get('/account-activity', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) =>
+  settingsController.getAccountActivity(req, res, next)
 );
 
 // Email Configuration

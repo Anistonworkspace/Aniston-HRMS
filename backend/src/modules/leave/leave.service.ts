@@ -1147,7 +1147,7 @@ export class LeaveService {
       select: {
         organizationId: true, firstName: true, lastName: true, gender: true,
         joiningDate: true, status: true, managerId: true, email: true,
-        user: { select: { role: true } },
+        user: { select: { id: true, role: true } },
       },
     });
     if (!employee) throw new NotFoundError('Employee');
@@ -1463,6 +1463,18 @@ export class LeaveService {
       logger.warn(`[LeaveNotify] Failed: ${err.message}`)
     );
 
+    // Audit log: employee submitted a leave request
+    if (employee.user?.id) {
+      createAuditLog({
+        userId: employee.user.id,
+        organizationId: employee.organizationId,
+        entity: 'LeaveRequest',
+        entityId: updated.id,
+        action: 'CREATE',
+        newValue: { leaveType: leaveType.name, days, startDate: request.startDate, endDate: request.endDate, status: 'PENDING' },
+      }).catch(() => {});
+    }
+
     return updated;
   }
 
@@ -1736,9 +1748,10 @@ export class LeaveService {
       include: { employee: { select: { managerId: true, userId: true, organizationId: true, firstName: true, lastName: true } } },
     });
     if (!request) throw new NotFoundError('Leave request');
+    if (!request.employee) throw new NotFoundError('Employee for this leave request');
 
     // ── Org boundary check ──
-    if (organizationId && request.employee?.organizationId !== organizationId) {
+    if (organizationId && request.employee.organizationId !== organizationId) {
       throw new BadRequestError('Unauthorized: this leave request does not belong to your organization');
     }
 
@@ -1813,6 +1826,12 @@ export class LeaveService {
     // ── Role-based permission enforcement ──
     const approverUser = await prisma.user.findUnique({ where: { id: approvedBy }, select: { role: true } });
     const approverRole = approverUser?.role;
+
+    // Block self-approval: HR/Admin/Manager cannot approve their own leave
+    // (self-rejection/cancellation is allowed so they can withdraw their own requests)
+    if (action !== 'REJECTED' && request.employee.userId && approvedBy === request.employee.userId) {
+      throw new BadRequestError('You cannot approve your own leave request');
+    }
 
     const isHRAdmin = approverRole && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(approverRole);
     const isManager = approverRole === 'MANAGER';

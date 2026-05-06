@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, Shield, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText, Bug } from 'lucide-react';
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation } from './settingsApi';
+import { Settings, Building2, Shield, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText, Bug, Activity, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation, useGetAccountActivityQuery } from './settingsApi';
 import { useGetAgentDownloadStatusQuery } from '../attendance/attendanceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
@@ -21,7 +21,7 @@ import PasswordResetTab from './PasswordResetTab';
 import CrashReportsTab from './CrashReportsTab';
 // LeaveSettingsTab removed — leave type management is now in Leave Management page
 
-type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates' | 'crash-reports';
+type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates' | 'crash-reports' | 'account-activity';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -31,7 +31,7 @@ export default function SettingsPage() {
   const isHR = user?.role === 'HR';
 
   // Tabs visible to ADMIN system account only
-  const ADMIN_VISIBLE_TABS: Tab[] = ['organization', 'email', 'roles', 'api-integration', 'ai-config', 'agent-setup', 'audit', 'system', 'database-backup', 'system-logs', 'crash-reports'];
+  const ADMIN_VISIBLE_TABS: Tab[] = ['organization', 'email', 'roles', 'salary-privacy', 'api-integration', 'ai-config', 'agent-setup', 'audit', 'system', 'database-backup', 'system-logs', 'crash-reports', 'account-activity'];
   // Tabs visible to HR users only
   const HR_VISIBLE_TABS: Tab[] = ['organization', 'email', 'whatsapp', 'password-reset'];
 
@@ -74,6 +74,7 @@ export default function SettingsPage() {
     { key: 'deletion-requests', label: 'Deletion Requests', icon: UserMinus },
     { key: 'system-logs', label: 'System Logs', icon: Terminal },
     { key: 'crash-reports', label: 'Crash Reports', icon: Bug },
+    { key: 'account-activity', label: 'Account Activity', icon: Activity },
   ];
 
   const tabs = isSuperAdmin
@@ -144,6 +145,7 @@ export default function SettingsPage() {
             {activeTab === 'deletion-requests' && isSuperAdmin && <DeletionRequestsTab />}
             {activeTab === 'system-logs'       && isSuperAdmin && <SystemLogsTab />}
             {activeTab === 'crash-reports'     && (isSuperAdmin || isAdmin) && <CrashReportsTab />}
+            {activeTab === 'account-activity'  && (isSuperAdmin || isAdmin) && <AccountActivityTab />}
           </div>
         </div>
       </div>
@@ -2435,6 +2437,138 @@ function DocumentTemplatesTab() {
           <li>During KYC, the employee sees and uploads exactly the documents configured for their invitation.</li>
         </ol>
       </div>
+    </div>
+  );
+}
+
+// ==================
+// ACCOUNT ACTIVITY TAB
+// ==================
+
+const ACTION_COLOR: Record<string, string> = {
+  CREATE: 'bg-emerald-50 text-emerald-700',
+  UPDATE: 'bg-blue-50 text-blue-700',
+  DELETE: 'bg-red-50 text-red-700',
+  APPROVE: 'bg-indigo-50 text-indigo-700',
+  REJECT: 'bg-orange-50 text-orange-700',
+};
+
+function ActivityList({ role }: { role: 'HR' | 'EMPLOYEE' }) {
+  const [page, setPage] = useState(1);
+  const { data: res, isFetching } = useGetAccountActivityQuery({ role, page, limit: 20 });
+  const logs: any[] = res?.data || [];
+  const meta = res?.meta;
+
+  return (
+    <div>
+      {isFetching && (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />
+          ))}
+        </div>
+      )}
+      {!isFetching && logs.length === 0 && (
+        <div className="text-center py-12">
+          <Activity size={28} className="text-gray-200 mx-auto mb-2" />
+          <p className="text-sm text-gray-400">No activity recorded yet</p>
+        </div>
+      )}
+      {!isFetching && logs.length > 0 && (
+        <div className="space-y-1.5">
+          {logs.map((log: any) => (
+            <div key={log.id} className="flex items-start gap-3 px-3 py-2.5 hover:bg-surface-2 rounded-xl transition-colors">
+              <div className="w-7 h-7 rounded-full bg-brand-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Activity size={13} className="text-brand-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-gray-800 truncate">
+                    {log.actor?.name || log.actor?.email || 'Unknown'}
+                  </span>
+                  <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-md', ACTION_COLOR[log.action] || 'bg-gray-50 text-gray-500')}>
+                    {log.action}
+                  </span>
+                  <span className="text-xs text-gray-500 truncate">{log.entity}</span>
+                </div>
+                <p className="text-[10px] text-gray-400 font-mono mt-0.5" data-mono>
+                  {new Date(log.createdAt).toLocaleString('en-IN')}
+                  {log.ipAddress && <span className="ml-2 text-gray-300">· {log.ipAddress}</span>}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {meta && meta.totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+          <p className="text-xs text-gray-400">
+            {meta.total} total · page {meta.page} of {meta.totalPages}
+          </p>
+          <div className="flex gap-1.5">
+            <button
+              disabled={!meta.hasPrev}
+              onClick={() => setPage(p => p - 1)}
+              className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              disabled={!meta.hasNext}
+              onClick={() => setPage(p => p + 1)}
+              className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccountActivityTab() {
+  const [activeRole, setActiveRole] = useState<'HR' | 'EMPLOYEE'>('HR');
+
+  return (
+    <div className="layer-card p-6">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center">
+          <Activity size={18} className="text-brand-600" />
+        </div>
+        <div>
+          <h2 className="text-lg font-display font-semibold text-gray-800">Account Activity</h2>
+          <p className="text-xs text-gray-500">Track actions performed by HR and Employee accounts</p>
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 mb-5 p-1 bg-gray-100 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveRole('HR')}
+          className={cn(
+            'px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+            activeRole === 'HR'
+              ? 'bg-white text-brand-700 shadow-sm font-semibold'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          HR Activity
+        </button>
+        <button
+          onClick={() => setActiveRole('EMPLOYEE')}
+          className={cn(
+            'px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+            activeRole === 'EMPLOYEE'
+              ? 'bg-white text-brand-700 shadow-sm font-semibold'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Employee Activity
+        </button>
+      </div>
+
+      <ActivityList key={activeRole} role={activeRole} />
     </div>
   );
 }

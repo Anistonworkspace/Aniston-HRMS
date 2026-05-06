@@ -2262,6 +2262,24 @@ export class AttendanceService {
       return updatedReg;
     });
 
+    // Audit log: HR/Manager regularization action
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: reg.employeeId },
+        select: { organizationId: true, firstName: true, lastName: true },
+      });
+      if (emp && approvedBy !== 'SYSTEM') {
+        await createAuditLog({
+          userId: approvedBy,
+          organizationId: emp.organizationId,
+          entity: 'AttendanceRegularization',
+          entityId: regularizationId,
+          action: finalStatus === 'APPROVED' ? 'APPROVE' : finalStatus === 'REJECTED' ? 'REJECT' : 'UPDATE',
+          newValue: { status: finalStatus, employeeName: `${emp.firstName} ${emp.lastName}`, remarks: remarks || null },
+        });
+      }
+    } catch { /* non-blocking */ }
+
     // Real-time update: push attendance:checkin so employee's frontend re-fetches today status
     if (finalStatus === 'APPROVED') {
       try {

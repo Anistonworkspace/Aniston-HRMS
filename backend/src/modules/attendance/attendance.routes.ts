@@ -52,8 +52,18 @@ router.post('/tag-stop', requireEmpPerm('canMarkAttendance'),
   (req, res, next) => attendanceController.tagStop(req, res, next)
 );
 
-// Regularization
-router.post('/regularization', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.submitRegularization(req, res, next));
+// Regularization — management roles (SUPER_ADMIN, ADMIN, HR, MANAGER) cannot self-regularize
+const blockManagementSelfReg = (req: any, res: any, next: any) => {
+  const mgmtRoles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER];
+  if (mgmtRoles.includes(req.user?.role)) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Management accounts cannot submit regularization requests. Use the calendar to mark attendance for other employees.' },
+    });
+  }
+  next();
+};
+router.post('/regularization', blockManagementSelfReg, requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.submitRegularization(req, res, next));
 router.patch(
   '/regularization/:id',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),

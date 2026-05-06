@@ -559,6 +559,78 @@ export class SettingsService {
     await prisma.orgDocumentTemplate.delete({ where: { id } });
     return { success: true };
   }
+
+  // ==================
+  // ACCOUNT ACTIVITY
+  // ==================
+
+  async getAccountActivity(params: { role: 'HR' | 'EMPLOYEE'; page: number; limit: number; organizationId: string }) {
+    const { role, page, limit, organizationId } = params;
+    const skip = (page - 1) * limit;
+
+    // Fetch users in org with the specified role, joining employee for display name
+    const usersInRole = await prisma.user.findMany({
+      where: { organizationId, role },
+      select: {
+        id: true,
+        email: true,
+        employee: { select: { firstName: true, lastName: true } },
+      },
+    });
+    const userIds = usersInRole.map((u) => u.id);
+
+    if (userIds.length === 0) {
+      return {
+        data: [],
+        meta: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+      };
+    }
+
+    const userMap: Record<string, { name: string | null; email: string }> = {};
+    usersInRole.forEach((u) => {
+      const name = u.employee ? `${u.employee.firstName} ${u.employee.lastName}`.trim() : null;
+      userMap[u.id] = { name, email: u.email };
+    });
+
+    const where = { organizationId, userId: { in: userIds } };
+
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          userId: true,
+          entity: true,
+          entityId: true,
+          action: true,
+          newValue: true,
+          ipAddress: true,
+          createdAt: true,
+        },
+      }),
+      prisma.auditLog.count({ where }),
+    ]);
+
+    const enriched = logs.map((log) => ({
+      ...log,
+      actor: userMap[log.userId] || { name: null, email: '' },
+    }));
+
+    return {
+      data: enriched,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
+  }
 }
 
 export const settingsService = new SettingsService();
