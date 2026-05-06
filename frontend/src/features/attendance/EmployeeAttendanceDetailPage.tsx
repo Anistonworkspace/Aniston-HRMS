@@ -21,8 +21,10 @@ import toast from 'react-hot-toast';
 import { cn, formatDate, getInitials, getStatusColor } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 
-// Lazy load map component
-const MapSection = lazy(() => import('./components/MapSection'));
+// Lazy load map components
+const GpsTrailSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.GpsTrailSection })));
+const CheckInSection = lazy(() => import('./components/MapSection').then(m => ({ default: m.CheckInSection })));
+const CheckInModal = lazy(() => import('./components/MapSection').then(m => ({ default: m.CheckInModal })));
 const GpsTrailModal = lazy(() => import('./components/GpsTrailModal'));
 
 // ==========================================
@@ -94,6 +96,11 @@ export default function EmployeeAttendanceDetailPage() {
   // Calendar manual marking popover
   const [markingDate, setMarkingDate] = useState<string | null>(null);
   const [markAttendance, { isLoading: isMarking }] = useMarkAttendanceMutation();
+
+  // Map picker — shown when HR clicks a daily record row for a FIELD employee
+  const [mapPickerRow, setMapPickerRow] = useState<{ date: string; checkInLoc: any; geofenceViolation?: boolean } | null>(null);
+  // Check-in modal — opened from map picker
+  const [checkInModalDate, setCheckInModalDate] = useState<{ date: string; checkInLoc: any; geofenceViolation?: boolean } | null>(null);
 
   // Live hours counter — ticks every second when employee is clocked in today with no checkout
   const [liveElapsedSecs, setLiveElapsedSecs] = useState(0);
@@ -831,17 +838,19 @@ export default function EmployeeAttendanceDetailPage() {
             )}
           </AnimatePresence>
 
-          {/* Map Section (lazy loaded) */}
-          {(checkInLoc?.lat || gpsTrail.length > 0) && (
-            <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className={shiftType === 'FIELD' ? 'h-[320px]' : 'h-[200px]'} style={{ background: '#f9fafb' }} /></div>}>
-              <MapSection
+          {/* Map Sections (lazy loaded) */}
+          {/* FIELD: show GPS Trail then Check-in Location */}
+          {shiftType === 'FIELD' && gpsTrail.length > 0 && (
+            <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className="h-[300px]" style={{ background: '#f9fafb' }} /></div>}>
+              <GpsTrailSection gpsTrail={gpsTrail} gpsVisits={gpsVisits} selectedDate={selectedDate} />
+            </Suspense>
+          )}
+          {checkInLoc?.lat && (
+            <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className="h-[200px]" style={{ background: '#f9fafb' }} /></div>}>
+              <CheckInSection
                 checkInLoc={checkInLoc}
                 geofenceCoords={geofenceCoords}
                 geofence={geofence}
-                shiftType={shiftType}
-                gpsTrail={gpsTrail}
-                gpsVisits={gpsVisits}
-                selectedDate={selectedDate}
                 geofenceViolation={selectedRecord?.geofenceViolation}
               />
             </Suspense>
@@ -1001,37 +1010,37 @@ export default function EmployeeAttendanceDetailPage() {
                     <th className="text-left text-[10px] text-gray-500 px-4 py-1.5">Hours</th>
                     <th className="text-left text-[10px] text-gray-500 px-4 py-1.5">Status</th>
                     <th className="text-left text-[10px] text-gray-500 px-4 py-1.5 hidden md:table-cell">Mode</th>
-                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5 hidden md:table-cell">Flags</th>
                   </tr>
                 </thead>
                 <tbody>
                   {records.slice(0, 31).map((r: any, i: number) => {
                     const rowDate = new Date(r.date).toISOString().split('T')[0];
-                    const isFieldSales = r.workMode === 'FIELD_SALES' || shiftType === 'FIELD';
+                    const isFieldRow = r.workMode === 'FIELD_SALES' || shiftType === 'FIELD';
+                    const rowCheckInLoc = r.checkInLocation as any;
                     return (
-                    <tr key={i} onClick={() => setSelectedDate(rowDate)}
-                      className={cn('border-b border-gray-50 hover:bg-surface-2 cursor-pointer',
-                        rowDate === selectedDate && 'bg-brand-50/50')}>
-                      <td className="px-4 py-1.5 text-gray-600">{formatDate(r.date)}</td>
-                      <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkIn)}</td>
-                      <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkOut)}</td>
-                      <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}</td>
-                      <td className="px-4 py-1.5"><span className={cn('badge text-[9px]', getStatusColor(r.status))}>{r.status?.replace(/_/g, ' ')}</span></td>
-                      <td className="px-4 py-1.5 text-gray-400 hidden md:table-cell">{r.workMode || 'OFFICE'}</td>
-                      <td className="px-4 py-1.5 hidden md:table-cell">
-                        {r.geofenceViolation && <Flag size={10} className="text-red-500 inline" />}
-                        {r.clockInCount > 1 && <span className="text-[9px] text-amber-500 ml-1">x{r.clockInCount}</span>}
-                        {isFieldSales && (
-                          <button
-                            onClick={e => { e.stopPropagation(); setGpsTrailModal({ date: rowDate }); }}
-                            className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-green-600 bg-green-50 border border-green-200 rounded px-1.5 py-0.5 hover:bg-green-100 transition-colors"
-                            title="View GPS Trail"
-                          >
-                            <Navigation size={9} /> GPS
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                      <tr key={i}
+                        onClick={() => {
+                          setSelectedDate(rowDate);
+                          if (isFieldRow && r.checkIn) {
+                            setMapPickerRow({ date: rowDate, checkInLoc: rowCheckInLoc, geofenceViolation: r.geofenceViolation });
+                          }
+                        }}
+                        className={cn('border-b border-gray-50 hover:bg-surface-2 cursor-pointer',
+                          rowDate === selectedDate && 'bg-brand-50/50')}>
+                        <td className="px-4 py-1.5 text-gray-600">
+                          <div className="flex items-center gap-1.5">
+                            {formatDate(r.date)}
+                            {isFieldRow && r.checkIn && (
+                              <Navigation size={9} className="text-green-500 flex-shrink-0" title="Click to view GPS / Check-in map" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkIn)}</td>
+                        <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkOut)}</td>
+                        <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}</td>
+                        <td className="px-4 py-1.5"><span className={cn('badge text-[9px]', getStatusColor(r.status))}>{r.status?.replace(/_/g, ' ')}</span></td>
+                        <td className="px-4 py-1.5 text-gray-400 hidden md:table-cell">{r.workMode || 'OFFICE'}</td>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -1053,6 +1062,81 @@ export default function EmployeeAttendanceDetailPage() {
           />
         )}
       </Suspense>
+
+      {/* Check-in Location Modal — opened from map picker */}
+      <Suspense fallback={null}>
+        {checkInModalDate && (
+          <CheckInModal
+            checkInLoc={checkInModalDate.checkInLoc}
+            geofenceCoords={geofenceCoords}
+            geofence={geofence}
+            geofenceViolation={checkInModalDate.geofenceViolation}
+            date={checkInModalDate.date}
+            onClose={() => setCheckInModalDate(null)}
+          />
+        )}
+      </Suspense>
+
+      {/* Map Picker — shown when HR clicks a FIELD row in Daily Records */}
+      <AnimatePresence>
+        {mapPickerRow && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-[500] flex items-center justify-center p-4"
+            onClick={e => e.target === e.currentTarget && setMapPickerRow(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 12 }}
+              className="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-xs"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">View Map</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(mapPickerRow.date, 'long')}</p>
+                </div>
+                <button onClick={() => setMapPickerRow(null)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+                  <X size={14} className="text-gray-400" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <button
+                  onClick={() => { setGpsTrailModal({ date: mapPickerRow.date }); setMapPickerRow(null); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-green-200 bg-green-50 hover:bg-green-100 transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+                    <Activity size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-semibold text-green-800">GPS Trail</p>
+                    <p className="text-[10px] text-green-600">Full route with stops & timeline</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    if (mapPickerRow.checkInLoc?.lat) {
+                      setCheckInModalDate({ date: mapPickerRow.date, checkInLoc: mapPickerRow.checkInLoc, geofenceViolation: mapPickerRow.geofenceViolation });
+                    }
+                    setMapPickerRow(null);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                    <MapPin size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-semibold text-indigo-800">Check-in Location</p>
+                    <p className="text-[10px] text-indigo-600">Where the employee clocked in</p>
+                  </div>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Regularize Modal — HR sees approval panel, employee sees request form */}
       <AnimatePresence>
