@@ -2062,6 +2062,7 @@ function LeaveTypeModal({ leaveType, onClose, onLegacyConflict }: { leaveType: a
       gender: formData.genderRestriction || undefined,
       applicableTo: formData.applicableTo,
       defaultBalance: 0,
+      isPaid: formData.isPaid,
     };
     try {
       if (isEditing) {
@@ -2168,6 +2169,13 @@ function LeaveTypeModal({ leaveType, onClose, onLegacyConflict }: { leaveType: a
                 <option value="MALE">Male only</option>
                 <option value="FEMALE">Female only</option>
               </select>
+            </div>
+            <div className="mt-3 flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Paid Leave</p>
+                <p className="text-xs text-gray-400 mt-0.5">Disable for Leave Without Pay (LWP / Unpaid) types</p>
+              </div>
+              <Toggle checked={formData.isPaid} onChange={(v) => set('isPaid', v)} />
             </div>
           </section>
 
@@ -2579,7 +2587,7 @@ function LeavePersonalView() {
             </div>
           ) : (
             <>
-              <div className="space-y-3">
+              <div className="space-y-3 w-full overflow-hidden">
                 {leaves.map((leave: any) => (
                   <LeaveRequestCard key={leave.id} leave={leave} />
                 ))}
@@ -2790,9 +2798,9 @@ function LeaveRequestCard({ leave }: { leave: any }) {
 
   return (
     <>
-      <div className="py-3 px-3 bg-surface-2 rounded-lg">
+      <div className="py-3 px-3 bg-surface-2 rounded-lg w-full overflow-hidden">
         {/* Top row: icon + type name + days + badge */}
-        <div className="flex items-start gap-2 min-w-0">
+        <div className="flex items-start gap-2 w-full min-w-0">
           <div className="mt-0.5 shrink-0">{currentStatusIcon}</div>
           <div className="flex-1 min-w-0">
             {/* Line 1: leave type name (full width, truncates if needed) */}
