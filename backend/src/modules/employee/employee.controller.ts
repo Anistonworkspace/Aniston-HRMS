@@ -68,7 +68,7 @@ export class EmployeeController {
   async changeRole(req: Request, res: Response, next: NextFunction) {
     try {
       const { role } = z.object({ role: z.string() }).parse(req.body);
-      const result = await employeeService.changeRole(req.params.id, role, req.user!.organizationId, req.user!.userId);
+      const result = await employeeService.changeRole(req.params.id, role, req.user!.organizationId, req.user!.userId, req.user!.role);
       res.json({ success: true, data: result, message: `Role changed to ${role}` });
     } catch (err) { next(err); }
   }
@@ -567,7 +567,7 @@ export class EmployeeController {
 
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
-      await employeeService.softDelete(req.params.id, req.user!.organizationId, req.user!.userId);
+      await employeeService.softDelete(req.params.id, req.user!.organizationId, req.user!.userId, req.user!.role);
       res.json({ success: true, data: null, message: 'Employee deactivated' });
     } catch (err) {
       next(err);

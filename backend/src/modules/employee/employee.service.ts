@@ -1009,7 +1009,7 @@ export class EmployeeService {
     return { confirmed };
   }
 
-  async changeRole(employeeId: string, role: string, organizationId: string, changedBy: string) {
+  async changeRole(employeeId: string, role: string, organizationId: string, changedBy: string, changedByRole?: string) {
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
       include: { user: true },
@@ -1019,6 +1019,20 @@ export class EmployeeService {
 
     const validRoles = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN', 'GUEST_INTERVIEWER'];
     if (!validRoles.includes(role)) throw new BadRequestError(`Invalid role: ${role}`);
+
+    // HR can only assign non-privileged roles. Only SUPER_ADMIN/ADMIN can assign HR/ADMIN/SUPER_ADMIN.
+    if (changedByRole === 'HR' && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(role)) {
+      throw new BadRequestError(
+        'HR accounts cannot assign HR, Admin, or Super Admin roles. Only Super Admin or Admin can assign system-level roles.'
+      );
+    }
+
+    // HR cannot change the role of another HR/Admin/SuperAdmin account
+    if (changedByRole === 'HR' && employee.user?.role && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(employee.user.role)) {
+      throw new BadRequestError(
+        'HR accounts cannot change the role of other HR/Admin/Super Admin accounts. Only Super Admin or Admin can do this.'
+      );
+    }
 
     const oldRole = employee.user?.role;
     try {
@@ -1071,10 +1085,10 @@ export class EmployeeService {
     return { employeeId, joiningDate: updated.joiningDate, onboardingDate: updated.onboardingDate };
   }
 
-  async softDelete(id: string, organizationId: string, deletedBy: string) {
+  async softDelete(id: string, organizationId: string, deletedBy: string, deletedByRole?: string) {
     const existing = await prisma.employee.findFirst({
       where: { id, organizationId, deletedAt: null },
-      include: { documents: { select: { id: true } } },
+      include: { documents: { select: { id: true } }, user: { select: { role: true } } },
     });
     if (!existing) {
       throw new NotFoundError('Employee');
@@ -1083,6 +1097,13 @@ export class EmployeeService {
     // Prevent deleting system accounts
     if ((existing as any).isSystemAccount) {
       throw new BadRequestError('System accounts cannot be deleted');
+    }
+
+    // HR cannot delete HR/Admin/SuperAdmin accounts
+    if (deletedByRole === 'HR' && existing.user?.role && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(existing.user.role)) {
+      throw new BadRequestError(
+        'HR accounts cannot delete other HR/Admin/Super Admin accounts. Only Super Admin or Admin can perform this action.'
+      );
     }
 
     // Save info for audit log before deletion

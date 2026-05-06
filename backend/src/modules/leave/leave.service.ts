@@ -2410,8 +2410,19 @@ export class LeaveService {
     // Privileged roles can cancel any employee's leave; employees can only cancel their own
     const request = await prisma.leaveRequest.findFirst({
       where: isPrivileged ? { id: requestId } : { id: requestId, employeeId },
+      include: { employee: { include: { user: { select: { role: true } } } } },
     });
     if (!request) throw new NotFoundError('Leave request');
+
+    // HR cannot cancel leaves belonging to other HR/Admin/SuperAdmin accounts
+    if (role === 'HR' && request.employeeId !== employeeId) {
+      const targetRole = (request as any).employee?.user?.role;
+      if (targetRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(targetRole)) {
+        throw new BadRequestError(
+          'HR accounts cannot cancel leave requests for other HR/Admin/Super Admin accounts. Only Super Admin or Admin can perform this action.'
+        );
+      }
+    }
 
     // For balance reversal, use the actual owner of the leave (not the HR user cancelling it)
     const leaveOwnerId = request.employeeId;

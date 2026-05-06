@@ -196,6 +196,26 @@ export class DocumentController {
 
       // Fetch doc before deletion so we have employeeId, type, name for KYC reset + email
       const docToDelete = await documentService.getById(req.params.id as string, req.user!.organizationId);
+
+      // HR cannot delete documents belonging to other HR/Admin/SuperAdmin accounts
+      if (req.user!.role === 'HR' && docToDelete?.employeeId) {
+        const targetEmp = await prisma.employee.findUnique({
+          where: { id: docToDelete.employeeId },
+          select: { user: { select: { role: true } } },
+        });
+        const targetRole = targetEmp?.user?.role;
+        if (targetRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(targetRole)) {
+          res.status(403).json({
+            success: false,
+            error: {
+              code: 'FORBIDDEN',
+              message: 'HR accounts cannot delete documents for other HR/Admin/Super Admin accounts. Only Super Admin or Admin can perform this action.',
+            },
+          });
+          return;
+        }
+      }
+
       await documentService.remove(req.params.id, req.user!.userId, req.user!.organizationId);
 
       // Reset KYC gate if this doc was part of an employee's KYC submission
