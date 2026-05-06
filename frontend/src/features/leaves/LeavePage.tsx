@@ -2246,7 +2246,7 @@ function LeavePersonalView() {
   const { data: balancesRes, isLoading: balancesLoading } = useGetLeaveBalancesQuery();
   const { data: typesRes } = useGetLeaveTypesQuery();
   const { data: leavesRes, isLoading: leavesLoading } = useGetMyLeavesQuery({
-    page: leavePage, limit: 10, ...(leaveStatusFilter ? { status: leaveStatusFilter } : {}),
+    page: leavePage, limit: 4, ...(leaveStatusFilter ? { status: leaveStatusFilter } : {}),
   });
   const { data: holidaysRes } = useGetHolidaysQuery({});
   const { data: leavePoliciesRes } = useGetLeavePoliciesQuery();
@@ -2577,7 +2577,7 @@ function LeavePersonalView() {
         );
       })()}
 
-      <div className="grid lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="grid lg:grid-cols-3 gap-3 lg:gap-6">
         {/* My leave requests */}
         <div className="lg:col-span-2 layer-card p-3 md:p-6">
           <div className="flex items-center justify-between mb-4">
@@ -2617,27 +2617,29 @@ function LeavePersonalView() {
                   <LeaveRequestCard key={leave.id} leave={leave} />
                 ))}
               </div>
-              {/* Pagination */}
-              {(leavesRes?.meta?.totalPages ?? 0) > 1 && (
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs text-gray-500">
+              {/* Pagination — always show when total > 4 */}
+              {(leavesRes?.meta?.total ?? 0) > 4 && (
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-[11px] text-gray-400">
                     {leavesRes?.meta?.total || 0} total
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setLeavePage((p) => Math.max(1, p - 1))}
                       disabled={!leavesRes?.meta?.hasPrev}
-                      className="px-2.5 py-1 text-xs rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-2.5 py-1 text-[11px] rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {t('common.previousPage')}
+                      ← Prev
                     </button>
-                    <span className="text-xs text-gray-500 font-mono" data-mono>{leavePage}/{leavesRes?.meta?.totalPages || 1}</span>
+                    <span className="text-[11px] text-gray-500 font-mono px-1" data-mono>
+                      {leavePage}/{leavesRes?.meta?.totalPages || 1}
+                    </span>
                     <button
                       onClick={() => setLeavePage((p) => p + 1)}
                       disabled={!leavesRes?.meta?.hasNext}
-                      className="px-2.5 py-1 text-xs rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-2.5 py-1 text-[11px] rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {t('common.nextPage')}
+                      Next →
                     </button>
                   </div>
                 </div>

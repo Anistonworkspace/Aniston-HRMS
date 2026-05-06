@@ -639,36 +639,36 @@ export default function EmployeeListPage() {
                           <span className="text-[10px] text-gray-300">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-2 hidden xl:table-cell">
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-gray-100 text-gray-600">
+                      <td className="px-2 py-2 hidden xl:table-cell">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-gray-100 text-gray-600 whitespace-nowrap">
                           {emp.workMode?.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td className="px-4 py-2 hidden xl:table-cell">
+                      <td className="px-2 py-2 hidden xl:table-cell">
                         {emp.kycStatus === 'VERIFIED' ? (
-                          <span title="KYC Verified" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 text-emerald-700">
+                          <span title="KYC Verified" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 text-emerald-700 whitespace-nowrap">
                             <ShieldCheck size={10} /> Granted
                           </span>
                         ) : (
-                          <span title={`KYC: ${emp.kycStatus ?? 'PENDING'}`} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-red-50 text-red-600">
+                          <span title={`KYC: ${emp.kycStatus ?? 'PENDING'}`} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-red-50 text-red-600 whitespace-nowrap">
                             <ShieldOff size={10} /> Blocked
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2 hidden xl:table-cell">
+                      <td className="px-2 py-2 hidden xl:table-cell">
                         {emp.hasCheckedInToday ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700 whitespace-nowrap">
                             <LogIn size={10} /> Checked In
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-gray-100 text-gray-400">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-gray-100 text-gray-400 whitespace-nowrap">
                             <LogOut size={10} /> Not Yet
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2 hidden xl:table-cell">
+                      <td className="px-2 py-2 hidden xl:table-cell">
                         {emp.hasShift ? (
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium whitespace-nowrap ${
                             emp.currentShift?.shiftType === 'FIELD' ? 'bg-orange-100 text-orange-700' :
                             emp.currentShift?.shiftType === 'PROJECT_SITE' ? 'bg-green-100 text-green-700' :
                             'bg-blue-100 text-blue-700'
@@ -676,16 +676,16 @@ export default function EmployeeListPage() {
                             {emp.currentShift?.name || 'Assigned'}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-yellow-100 text-yellow-700">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-yellow-100 text-yellow-700 whitespace-nowrap">
                             No Shift
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2 hidden sm:table-cell">
-                        <span className="text-[10px] text-gray-500">{formatDate(emp.joiningDate)}</span>
+                      <td className="px-2 py-2 hidden sm:table-cell">
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">{formatDate(emp.joiningDate)}</span>
                       </td>
-                      <td className="px-4 py-2">
-                        <span className={`badge text-[10px] ${getStatusColor(emp.status)}`}>
+                      <td className="px-2 py-2">
+                        <span className={`badge text-[10px] whitespace-nowrap ${getStatusColor(emp.status)}`}>
                           {emp.status?.replace(/_/g, ' ')}
                         </span>
                       </td>
