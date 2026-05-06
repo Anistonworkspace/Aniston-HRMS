@@ -2286,6 +2286,13 @@ function LeavePersonalView() {
   const defaultLeavePolicy = defaultLeavePolicies.find((p: any) => p.isDefault) ?? defaultLeavePolicies[0];
   const maxPaidPerMonthDisplay: number = defaultLeavePolicy?.maxPaidLeavesPerMonth ?? 0;
 
+  // Determine if unpaid leave is enabled from policy rules
+  const lwpTypeFromPolicy = allLeaveTypes.find((lt: any) => !lt.isPaid);
+  const lwpPolicyRule = defaultLeavePolicy?.rules?.find(
+    (r: any) => lwpTypeFromPolicy && r.leaveTypeId === lwpTypeFromPolicy.id && r.employeeCategory === 'ALL'
+  );
+  const unpaidLeaveEnabled: boolean = lwpPolicyRule ? lwpPolicyRule.isAllowed !== false : true;
+
   // Employee-level permission gate
   if (!perms.canViewLeaveBalance) return <PermDenied action="view leave balance" />;
 
@@ -2470,13 +2477,12 @@ function LeavePersonalView() {
         </div>
       )}
 
-      {/* Unpaid Leave — always shown when an unpaid leave type exists */}
+      {/* Unpaid Leave — shown when an unpaid leave type exists (dimmed when HR disables it) */}
       {!balancesLoading && (() => {
         const lwpType = allLeaveTypes.find((lt: any) => !lt.isPaid);
         if (!lwpType) return null;
         // Check if monthly paid quota is full — show a more prominent banner in that case
-        const quotaFull = maxPaidPerMonthDisplay > 0 && (() => {
-          // Count paid leaves used this month from local data (approximate)
+        const quotaFull = unpaidLeaveEnabled && maxPaidPerMonthDisplay > 0 && (() => {
           const now = new Date();
           const paidLeaves = leaves.filter((l: any) => {
             if (!['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'].includes(l.status)) return false;
@@ -2488,15 +2494,24 @@ function LeavePersonalView() {
         })();
         return (
           <div className={`mb-6 rounded-xl px-4 py-3 flex items-center justify-between gap-3 ${
-            quotaFull
+            !unpaidLeaveEnabled
+              ? 'bg-gray-50 border border-gray-200 opacity-60'
+              : quotaFull
               ? 'bg-orange-50 border border-orange-200'
               : 'bg-gray-50 border border-gray-200'
           }`}>
             <div className="flex items-center gap-3 min-w-0">
               <span className="text-xl shrink-0">📋</span>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-700">{lwpType.name}</p>
-                {quotaFull ? (
+                <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                  {lwpType.name}
+                  {!unpaidLeaveEnabled && (
+                    <span className="text-[10px] font-semibold text-gray-400 bg-gray-200 rounded px-1.5 py-0.5">Disabled by HR</span>
+                  )}
+                </p>
+                {!unpaidLeaveEnabled ? (
+                  <p className="text-[11px] text-gray-400">Unpaid leave is currently disabled. Contact HR.</p>
+                ) : quotaFull ? (
                   <p className="text-[11px] text-orange-600 font-medium">
                     Monthly paid leave quota full — apply here for unpaid leave
                   </p>
@@ -2507,9 +2522,17 @@ function LeavePersonalView() {
             </div>
             {perms.canApplyLeaves && (
               <button
-                onClick={() => openApplyModal(lwpType.id)}
+                onClick={() => {
+                  if (!unpaidLeaveEnabled) {
+                    toast.error('Unpaid leave is currently disabled by HR. Please contact HR for assistance.');
+                    return;
+                  }
+                  openApplyModal(lwpType.id);
+                }}
                 className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  quotaFull
+                  !unpaidLeaveEnabled
+                    ? 'text-gray-400 border border-gray-200 cursor-not-allowed'
+                    : quotaFull
                     ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300'
                     : 'text-gray-600 border border-gray-300 hover:bg-white'
                 }`}

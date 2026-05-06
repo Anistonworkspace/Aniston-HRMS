@@ -256,14 +256,16 @@ router.get(
         const counts = leaveCountMap.get(emp.id) || { applied: 0, approved: 0, pending: 0, totalDays: 0 };
         // Only count balances for leave types that actually apply to this employee
         const applicableBalances = emp.leaveBalances.filter((b) => isLeaveApplicable(b.leaveType, emp));
-        const totalAllocated = applicableBalances.reduce((s, b) => s + Number(b.allocated) + Number(b.carriedForward), 0);
-        const totalUsed = applicableBalances.reduce((s, b) => s + Number(b.used), 0);
-        const totalPending = applicableBalances.reduce((s, b) => s + Number(b.pending), 0);
+        // Exclude unpaid (LWP) types from quota totals — they have no fixed allocation
+        const paidApplicableBalances = applicableBalances.filter((b) => b.leaveType.isPaid);
+        const totalAllocated = paidApplicableBalances.reduce((s, b) => s + Number(b.allocated) + Number(b.carriedForward), 0);
+        const totalUsed = paidApplicableBalances.reduce((s, b) => s + Number(b.used), 0);
+        const totalPending = paidApplicableBalances.reduce((s, b) => s + Number(b.pending), 0);
         const totalRemaining = totalAllocated - totalUsed - totalPending;
-        // Breakdown aggregates
-        const totalPolicyAllocated = applicableBalances.reduce((s, b) => s + Number((b as any).policyAllocated ?? b.allocated), 0);
-        const totalManualAdjustment = applicableBalances.reduce((s, b) => s + Number((b as any).manualAdjustment ?? 0), 0);
-        const totalPreviousUsed = applicableBalances.reduce((s, b) => s + Number((b as any).previousUsed ?? 0), 0);
+        // Breakdown aggregates — paid leave types only
+        const totalPolicyAllocated = paidApplicableBalances.reduce((s, b) => s + Number((b as any).policyAllocated ?? b.allocated), 0);
+        const totalManualAdjustment = paidApplicableBalances.reduce((s, b) => s + Number((b as any).manualAdjustment ?? 0), 0);
+        const totalPreviousUsed = paidApplicableBalances.reduce((s, b) => s + Number((b as any).previousUsed ?? 0), 0);
         const hasManualAdjustments = totalManualAdjustment !== 0;
         const hasPreviousUsed = totalPreviousUsed > 0;
         return {
@@ -401,9 +403,11 @@ router.get(
         remaining: Number(b.allocated) + Number(b.carriedForward) - Number(b.used) - Number(b.pending),
       }));
 
-      const totalAllocated = balances.reduce((s, b) => s + b.allocated + b.carriedForward, 0);
-      const totalUsed = balances.reduce((s, b) => s + b.used, 0);
-      const totalPending = balances.reduce((s, b) => s + b.pending, 0);
+      // Exclude unpaid (LWP) types from quota totals — they have no fixed allocation
+      const paidBalances = balances.filter((b) => b.isPaid);
+      const totalAllocated = paidBalances.reduce((s, b) => s + b.allocated + b.carriedForward, 0);
+      const totalUsed = paidBalances.reduce((s, b) => s + b.used, 0);
+      const totalPending = paidBalances.reduce((s, b) => s + b.pending, 0);
       const totalRemaining = totalAllocated - totalUsed - totalPending;
 
       const summary = {

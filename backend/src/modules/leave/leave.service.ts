@@ -113,9 +113,12 @@ export class LeaveService {
     const existing = await prisma.leaveType.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Leave type');
 
+    // Append a timestamp suffix to free the unique (code, organizationId) constraint
+    // so the same code can be re-used when creating a new leave type later.
+    const tombstoneCode = `${existing.code}_DEL_${Date.now()}`;
     return prisma.leaveType.update({
       where: { id },
-      data: { isActive: false },
+      data: { isActive: false, code: tombstoneCode },
     });
   }
 
