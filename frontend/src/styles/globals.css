@@ -151,7 +151,7 @@
 
   /* Layer cards — Monday.com style depth */
   .layer-card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-layer transition-shadow duration-200;
+    @apply bg-white rounded-xl border border-gray-100 shadow-layer transition-shadow duration-200 w-full overflow-hidden min-w-0;
   }
   .layer-card:hover {
     @apply shadow-layer-md;

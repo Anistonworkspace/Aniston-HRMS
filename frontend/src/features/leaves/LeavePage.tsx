@@ -2577,9 +2577,9 @@ function LeavePersonalView() {
         );
       })()}
 
-      <div className="grid lg:grid-cols-3 gap-3 lg:gap-6">
+      <div className="grid lg:grid-cols-3 gap-3 lg:gap-6 w-full min-w-0">
         {/* My leave requests */}
-        <div className="lg:col-span-2 layer-card p-3 md:p-6">
+        <div className="lg:col-span-2 layer-card p-3 md:p-6 min-w-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
               <CalendarDays size={16} className="text-brand-500" />
@@ -2649,7 +2649,7 @@ function LeavePersonalView() {
         </div>
 
         {/* Holidays */}
-        <div className="layer-card p-3 md:p-6">
+        <div className="layer-card p-3 md:p-6 min-w-0">
           <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 mb-3 md:mb-4 flex items-center justify-between">
             <span>🎉 Holidays {new Date().getFullYear()}</span>
             {holidays.length > 0 && (
