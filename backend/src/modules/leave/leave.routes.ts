@@ -201,11 +201,11 @@ router.get(
         const existing = leaveCountMap.get(lc.employeeId) || { applied: 0, approved: 0, pending: 0, totalDays: 0, totalUnpaidDays: 0 };
         existing.applied += lc._count.id;
         existing.totalDays += Number(lc._sum.days || 0);
-        if (lc.status === 'APPROVED' || lc.status === 'APPROVED_WITH_CONDITION') {
+        if (lc.status === 'APPROVED') {
           existing.approved += lc._count.id;
           existing.totalUnpaidDays += Number((lc._sum as any).unpaidDays || 0);
         }
-        if (lc.status === 'PENDING' || lc.status === 'MANAGER_APPROVED') existing.pending += lc._count.id;
+        if (lc.status === 'PENDING' || lc.status === 'MANAGER_APPROVED' || lc.status === 'APPROVED_WITH_CONDITION') existing.pending += lc._count.id;
         leaveCountMap.set(lc.employeeId, existing);
       });
 
@@ -414,9 +414,9 @@ router.get(
       const totalPending = paidBalances.reduce((s, b) => s + b.pending, 0);
       const totalRemaining = totalAllocated - totalUsed - totalPending;
 
-      // Count total unpaid days from approved requests (unpaidDays field + direct unpaid type requests)
+      // Count total unpaid days from fully-approved requests only
       const totalUnpaidDays = requests
-        .filter((r) => r.status === 'APPROVED' || r.status === 'APPROVED_WITH_CONDITION')
+        .filter((r) => r.status === 'APPROVED')
         .reduce((s, r) => s + Number((r as any).unpaidDays ?? 0), 0);
 
       const summary = {
@@ -426,12 +426,13 @@ router.get(
         totalRemaining,
         totalUnpaidDays,
         leavesApplied: requests.length,
-        leavesApproved: requests.filter((r) => r.status === 'APPROVED' || r.status === 'APPROVED_WITH_CONDITION').length,
-        leavesPending: requests.filter((r) => r.status === 'PENDING' || r.status === 'MANAGER_APPROVED').length,
+        leavesApproved: requests.filter((r) => r.status === 'APPROVED').length,
+        leavesPending: requests.filter((r) => ['PENDING', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'].includes(r.status)).length,
+        leavesConditional: requests.filter((r) => r.status === 'APPROVED_WITH_CONDITION').length,
         leavesRejected: requests.filter((r) => r.status === 'REJECTED').length,
         leavesCancelled: requests.filter((r) => r.status === 'CANCELLED').length,
         totalApprovedDays: requests
-          .filter((r) => r.status === 'APPROVED' || r.status === 'APPROVED_WITH_CONDITION')
+          .filter((r) => r.status === 'APPROVED')
           .reduce((s, r) => s + Number(r.days), 0),
       };
 
@@ -872,9 +873,7 @@ router.post(
       if (adjustmentType === 'PREVIOUS_USED' && days < 0) {
         return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'days must be positive for PREVIOUS_USED' } });
       }
-      if (adjustmentType === 'BALANCE_CORRECTION' && days > 0) {
-        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'Leave quota additions are not permitted. Only deductions (negative days) are allowed.' } });
-      }
+      // BALANCE_CORRECTION allows both positive (add days) and negative (deduct days)
       if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
         return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'reason is required (min 3 chars)' } });
       }

@@ -1314,6 +1314,7 @@ function EmployeeLeaveDetailModal({
     leaveTypeId: '',
     days: '' as string | number,
     reason: '',
+    mode: 'deduct' as 'add' | 'deduct',
   });
 
   const { data, isLoading, isFetching } = useGetEmployeeLeaveOverviewQuery(
@@ -1329,12 +1330,13 @@ function EmployeeLeaveDetailModal({
   const filteredRequests = statusFilter === 'ALL'
     ? requests
     : statusFilter === 'PENDING'
-    ? requests.filter((r: any) => r.status === 'PENDING' || r.status === 'MANAGER_APPROVED')
+    ? requests.filter((r: any) => ['PENDING', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'].includes(r.status))
     : requests.filter((r: any) => r.status === statusFilter);
 
+  const conditionalCount = overview?.summary?.leavesConditional ?? 0;
   const filterTabs = [
     { key: 'ALL', label: 'All', count: requests.length },
-    { key: 'PENDING', label: 'Pending', count: overview?.summary?.leavesPending ?? 0 },
+    { key: 'PENDING', label: conditionalCount > 0 ? `Pending / Conditional` : 'Pending', count: overview?.summary?.leavesPending ?? 0 },
     { key: 'APPROVED', label: 'Approved', count: overview?.summary?.leavesApproved ?? 0 },
     { key: 'REJECTED', label: 'Rejected', count: overview?.summary?.leavesRejected ?? 0 },
     { key: 'CANCELLED', label: 'Cancelled', count: overview?.summary?.leavesCancelled ?? 0 },
@@ -1343,22 +1345,24 @@ function EmployeeLeaveDetailModal({
   const handleSubmitAdj = async () => {
     const rawDays = Number(adjForm.days);
     if (!adjForm.leaveTypeId) return toast.error('Select a leave type');
-    if (!rawDays || rawDays <= 0) return toast.error('Enter a positive number of days to deduct');
+    if (!rawDays || rawDays <= 0) return toast.error('Enter a positive number of days');
     if (!adjForm.reason.trim() || adjForm.reason.trim().length < 3) return toast.error('Reason required (min 3 chars)');
 
-    const days = -rawDays; // Always deduct
+    const days = adjForm.mode === 'deduct' ? -rawDays : rawDays;
 
-    // Live preview guard
-    const selectedBal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
-    if (selectedBal) {
-      const effectiveAlloc = (selectedBal.policyAllocated ?? selectedBal.allocated) + (selectedBal.manualAdjustment ?? 0);
-      const cf = Number(selectedBal.carriedForward ?? 0);
-      const used = Number(selectedBal.used ?? 0);
-      const pending = Number(selectedBal.pending ?? 0);
-      const newEffective = Math.max(0, effectiveAlloc + days);
-      const remainingAfter = newEffective + cf - used - pending;
-      if (remainingAfter < 0) {
-        return toast.error(`Deducting ${rawDays}d would make remaining balance negative (${remainingAfter}d). Reduce the amount.`, { duration: 6000 });
+    // Guard: deduction cannot push remaining below zero
+    if (adjForm.mode === 'deduct') {
+      const selectedBal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
+      if (selectedBal) {
+        const effectiveAlloc = (selectedBal.policyAllocated ?? selectedBal.allocated) + (selectedBal.manualAdjustment ?? 0);
+        const cf = Number(selectedBal.carriedForward ?? 0);
+        const used = Number(selectedBal.used ?? 0);
+        const pending = Number(selectedBal.pending ?? 0);
+        const newEffective = Math.max(0, effectiveAlloc + days);
+        const remainingAfter = newEffective + cf - used - pending;
+        if (remainingAfter < 0) {
+          return toast.error(`Deducting ${rawDays}d would make remaining balance negative (${remainingAfter}d). Reduce the amount.`, { duration: 6000 });
+        }
       }
     }
 
@@ -1371,8 +1375,11 @@ function EmployeeLeaveDetailModal({
         days,
         reason: adjForm.reason.trim(),
       }).unwrap();
-      toast.success(`${rawDays} day${rawDays !== 1 ? 's' : ''} deducted from quota`);
-      setAdjForm({ leaveTypeId: '', days: '', reason: '' });
+      toast.success(adjForm.mode === 'deduct'
+        ? `${rawDays} day${rawDays !== 1 ? 's' : ''} deducted from quota`
+        : `${rawDays} day${rawDays !== 1 ? 's' : ''} added to quota`
+      );
+      setAdjForm({ leaveTypeId: '', days: '', reason: '', mode: 'deduct' });
       setShowAdjForm(false);
     } catch (e: any) {
       toast.error(e?.data?.error?.message || 'Failed to save adjustment');
@@ -1582,7 +1589,10 @@ function EmployeeLeaveDetailModal({
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
                       <TrendingUp size={12} /> Leave Requests — {modalYear}
                     </p>
-                    <span className="text-xs text-gray-400">{overview.summary.totalApprovedDays} approved days total</span>
+                    <span className="text-xs text-gray-400">
+                      {overview.summary.totalApprovedDays} approved days
+                      {conditionalCount > 0 && <span className="ml-1 text-amber-500">· {conditionalCount} conditional</span>}
+                    </span>
                   </div>
                   <div className="flex gap-1.5 flex-wrap mb-3">
                     {filterTabs.map((ft) => (
@@ -1603,7 +1613,7 @@ function EmployeeLeaveDetailModal({
                   </div>
                   {filteredRequests.length === 0 ? (
                     <div className="text-center py-8 text-sm text-gray-400 bg-gray-50 rounded-xl">
-                      No {statusFilter === 'ALL' ? '' : statusFilter.toLowerCase()} leave requests for {modalYear}
+                      No {statusFilter === 'ALL' ? '' : statusFilter === 'PENDING' ? 'pending or conditional' : statusFilter.toLowerCase()} leave requests for {modalYear}
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -1666,12 +1676,25 @@ function EmployeeLeaveDetailModal({
 
                   {/* Inline Add Adjustment form */}
                   {showAdjForm && (
-                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4 space-y-3">
-                      <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5">
-                        <SlidersHorizontal size={13} /> Adjust Leave Quota
-                      </p>
-                      <p className="text-[10px] text-indigo-500">
-                        Enter days to deduct from this employee's leave quota. Does not create a leave request.
+                    <div className={cn('border rounded-xl p-4 mb-4 space-y-3', adjForm.mode === 'add' ? 'bg-emerald-50 border-emerald-200' : 'bg-indigo-50 border-indigo-200')}>
+                      <div className="flex items-center justify-between">
+                        <p className={cn('text-xs font-semibold flex items-center gap-1.5', adjForm.mode === 'add' ? 'text-emerald-700' : 'text-indigo-700')}>
+                          <SlidersHorizontal size={13} /> Adjust Leave Quota
+                        </p>
+                        {/* Add / Deduct toggle */}
+                        <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
+                          <button
+                            onClick={() => setAdjForm((f) => ({ ...f, mode: 'add' }))}
+                            className={cn('px-3 py-1 font-medium transition-colors', adjForm.mode === 'add' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50')}
+                          >+ Add</button>
+                          <button
+                            onClick={() => setAdjForm((f) => ({ ...f, mode: 'deduct' }))}
+                            className={cn('px-3 py-1 font-medium transition-colors', adjForm.mode === 'deduct' ? 'bg-red-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50')}
+                          >− Deduct</button>
+                        </div>
+                      </div>
+                      <p className={cn('text-[10px]', adjForm.mode === 'add' ? 'text-emerald-600' : 'text-indigo-500')}>
+                        {adjForm.mode === 'add' ? 'Add bonus/correction days to this employee\'s quota.' : 'Deduct days from this employee\'s quota.'} Does not create a leave request.
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
@@ -1689,7 +1712,7 @@ function EmployeeLeaveDetailModal({
                         </div>
                         <div>
                           <label className="block text-xs text-gray-600 mb-1 font-medium">
-                            Days to Deduct <span className="text-red-400">*</span>
+                            Days to {adjForm.mode === 'add' ? 'Add' : 'Deduct'} <span className="text-red-400">*</span>
                           </label>
                           <input
                             type="number"
@@ -1707,7 +1730,7 @@ function EmployeeLeaveDetailModal({
                             type="text"
                             value={adjForm.reason}
                             onChange={(e) => setAdjForm((f) => ({ ...f, reason: e.target.value }))}
-                            placeholder="e.g. Opening balance correction, bonus leave"
+                            placeholder={adjForm.mode === 'add' ? 'e.g. Bonus leave, opening balance correction' : 'e.g. Absent without approval, correction'}
                             className="input-glass text-xs w-full"
                           />
                         </div>
@@ -1717,7 +1740,7 @@ function EmployeeLeaveDetailModal({
                         const rawDaysNum = Number(adjForm.days);
                         const bal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
                         if (!bal || !adjForm.leaveTypeId || !rawDaysNum || rawDaysNum <= 0) return null;
-                        const daysNum = -rawDaysNum; // always deduct
+                        const daysNum = adjForm.mode === 'deduct' ? -rawDaysNum : rawDaysNum;
                         const effectiveAlloc = (bal.policyAllocated ?? bal.allocated) + (bal.manualAdjustment ?? 0);
                         const cf = Number(bal.carriedForward ?? 0);
                         const used = Number(bal.used ?? 0);
@@ -1727,14 +1750,14 @@ function EmployeeLeaveDetailModal({
                         const isNeg = remainingAfter < 0;
                         return (
                           <p className={cn('text-[11px] font-medium px-3 py-2 rounded-lg', isNeg ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700')}>
-                            {isNeg ? '⚠ ' : '→ '}Remaining after deduction: <strong>{remainingAfter}d</strong>
+                            {isNeg ? '⚠ ' : '→ '}Remaining after {adjForm.mode === 'add' ? 'addition' : 'deduction'}: <strong>{remainingAfter}d</strong>
                             {isNeg ? ' — cannot deduct this much' : ''}
                           </p>
                         );
                       })()}
                       <div className="flex gap-2 justify-end">
                         <button
-                          onClick={() => { setShowAdjForm(false); setAdjForm({ leaveTypeId: '', days: '', reason: '' }); }}
+                          onClick={() => { setShowAdjForm(false); setAdjForm({ leaveTypeId: '', days: '', reason: '', mode: 'deduct' }); }}
                           className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                         >
                           Cancel
@@ -1742,10 +1765,12 @@ function EmployeeLeaveDetailModal({
                         <button
                           onClick={handleSubmitAdj}
                           disabled={isCreating}
-                          className="flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                          className={cn('flex items-center gap-1.5 px-4 py-1.5 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors',
+                            adjForm.mode === 'add' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-500 hover:bg-red-600'
+                          )}
                         >
                           {isCreating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-                          Save Adjustment
+                          {adjForm.mode === 'add' ? 'Add Days' : 'Deduct Days'}
                         </button>
                       </div>
                     </div>
@@ -3151,7 +3176,7 @@ function PolicySettingsTab() {
         <div>
           <h3 className="text-base font-semibold text-gray-800">{policy.name}</h3>
           <p className="text-xs text-gray-400 mt-0.5">
-            Set leave quotas per employee category. After saving, click <strong>Recalculate All</strong> to apply changes to existing employees.
+            Set leave quotas per employee category. Changes apply to new allocations going forward.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -3170,18 +3195,6 @@ function PolicySettingsTab() {
               </button>
             </>
           )}
-          <div className="flex flex-col items-end gap-1">
-            <button
-              onClick={handleRecalculate}
-              disabled={recalculating}
-              title="Recalculate all employee balances using current policy"
-              className="px-3 py-2 text-sm border border-brand-200 text-brand-600 rounded-lg hover:bg-brand-50 transition-colors flex items-center gap-1.5"
-            >
-              {recalculating ? <Loader2 size={14} className="animate-spin" /> : <TrendingUp size={14} />}
-              Recalculate All
-            </button>
-            <p className="text-[11px] text-gray-400 text-right">Manual adjustments are preserved.</p>
-          </div>
         </div>
       </div>
 
@@ -3309,8 +3322,7 @@ function PolicySettingsTab() {
         <Info size={14} className="text-blue-400 mt-0.5 shrink-0" />
         <p>
           Active employees and trainees receive their full leave allocation upfront at the start of the year/period.
-          The <strong>Max Paid / Month</strong> cap applies across all paid leave types for Active employees.{' '}
-          <span className="font-medium text-blue-600">Recalculate All</span> updates existing balances immediately — manual adjustments and used days are never overwritten.
+          The <strong>Max Paid / Month</strong> cap applies across all paid leave types for Active employees.
         </p>
       </div>
     </motion.div>
