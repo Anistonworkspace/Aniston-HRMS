@@ -3308,10 +3308,12 @@ export class AttendanceService {
       const isWfhRecord = (shift as any).isWfhShift === true || record.status === 'WORK_FROM_HOME';
 
       // --- LATE ARRIVAL --- (skip for WFH)
+      // IST = UTC+5:30. Shift times are IST wall-clock. queryDate is UTC-midnight on a UTC server.
+      // IST wall-clock in UTC = queryDate + (shift_minutes - 330) * 60000.
+      const IST_OFFSET_MS = 330 * 60000;
       if (!isWfhRecord && record.checkIn && shift) {
         const [shiftH, shiftM] = shift.startTime.split(':').map(Number);
-        // queryDate is UTC-midnight = IST 00:00. Adding shift minutes gives correct IST wall-clock in UTC.
-        const shiftStart = new Date(queryDate.getTime() + (shiftH * 60 + shiftM) * 60000);
+        const shiftStart = new Date(queryDate.getTime() + (shiftH * 60 + shiftM) * 60000 - IST_OFFSET_MS);
         const grace = new Date(shiftStart.getTime() + graceMinutes * 60000);
         if (record.checkIn > grace) {
           const lateMinutes = Math.round((record.checkIn.getTime() - shiftStart.getTime()) / 60000);
@@ -3330,7 +3332,7 @@ export class AttendanceService {
       if (record.checkIn && !record.checkOut && shift) {
         const now = getISTNow();
         const [endH, endM] = shift.endTime.split(':').map(Number);
-        const shiftEnd = new Date(queryDate.getTime() + (endH * 60 + endM) * 60000);
+        const shiftEnd = new Date(queryDate.getTime() + (endH * 60 + endM) * 60000 - IST_OFFSET_MS);
         if (now > new Date(shiftEnd.getTime() + missingPunchGraceMin * 60000)) {
           anomalies.push({
             attendanceId: record.id, employeeId: empId, date: queryDate,
@@ -3371,8 +3373,7 @@ export class AttendanceService {
       // --- EARLY EXIT --- (skip for WFH)
       if (!isWfhRecord && record.checkOut && shift) {
         const [endH, endM] = shift.endTime.split(':').map(Number);
-        // queryDate is UTC-midnight = IST 00:00. Adding shift end minutes gives correct IST wall-clock in UTC.
-        const shiftEnd = new Date(queryDate.getTime() + (endH * 60 + endM) * 60000);
+        const shiftEnd = new Date(queryDate.getTime() + (endH * 60 + endM) * 60000 - IST_OFFSET_MS);
         const earlyMinutes = Math.round((shiftEnd.getTime() - record.checkOut.getTime()) / 60000);
         if (earlyMinutes > earlyExitThreshold) {
           anomalies.push({

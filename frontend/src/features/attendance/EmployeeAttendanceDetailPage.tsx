@@ -343,8 +343,25 @@ export default function EmployeeAttendanceDetailPage() {
   const totalHours = Number(selectedRecord?.totalHours || 0);
   const activeHours = Math.max(0, totalHours - breakDuration / 60);
 
+  // Format decimal hours as "Xh Ym" (e.g. 8.9 → "8h 54m")
+  const fmtHours = (h: number) => {
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+  };
+  // Format minutes as "Xh Ym" for values >= 60, else "Xm"
+  const fmtMins = (mins: number) => {
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  };
+
   // Late/early calculations — build shift boundary in IST then compare with UTC timestamps.
-  // record.date is stored as UTC-midnight = IST 00:00. Adding shift minutes gives the IST wall-clock in UTC.
+  // record.date is stored as UTC-midnight (IST date stored as 00:00:00Z).
+  // IST = UTC+5:30, so IST wall-clock in UTC = date_UTC_midnight + (shift_minutes - 330) * 60000.
+  const IST_OFFSET_MS = 330 * 60000; // 5h30m in ms
   const recordDateUTCMidnight = selectedRecord
     ? (() => { const d = new Date(selectedRecord.date); d.setUTCHours(0, 0, 0, 0); return d.getTime(); })()
     : 0;
@@ -352,8 +369,7 @@ export default function EmployeeAttendanceDetailPage() {
   const lateBy = (() => {
     if (!selectedRecord?.checkIn || !shift) return 0;
     const [h, m] = shift.startTime.split(':').map(Number);
-    // recordDateUTCMidnight = IST 00:00 as UTC. Add shift start minutes to get IST wall-clock in UTC.
-    const shiftStartUTC = recordDateUTCMidnight + (h * 60 + m) * 60000;
+    const shiftStartUTC = recordDateUTCMidnight + (h * 60 + m) * 60000 - IST_OFFSET_MS;
     const diff = Math.round((new Date(selectedRecord.checkIn).getTime() - shiftStartUTC) / 60000);
     return Math.max(0, diff);
   })();
@@ -361,7 +377,7 @@ export default function EmployeeAttendanceDetailPage() {
   const earlyExitBy = (() => {
     if (!selectedRecord?.checkOut || !shift) return 0;
     const [h, m] = shift.endTime.split(':').map(Number);
-    const shiftEndUTC = recordDateUTCMidnight + (h * 60 + m) * 60000;
+    const shiftEndUTC = recordDateUTCMidnight + (h * 60 + m) * 60000 - IST_OFFSET_MS;
     const diff = Math.round((shiftEndUTC - new Date(selectedRecord.checkOut).getTime()) / 60000);
     return Math.max(0, diff);
   })();
@@ -445,7 +461,22 @@ export default function EmployeeAttendanceDetailPage() {
         <div className="lg:col-span-1 space-y-3">
           {/* Daily Summary (enriched) */}
           <div className="layer-card p-4">
-            <h3 className="text-xs font-semibold text-gray-700 mb-2.5">{formatDate(selectedDate, 'long')}</h3>
+            <div className="flex items-center justify-between mb-2.5">
+              <button
+                onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().split('T')[0]); }}
+                className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <h3 className="text-xs font-semibold text-gray-700">{formatDate(selectedDate, 'long')}</h3>
+              <button
+                onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d.toISOString().split('T')[0]); }}
+                disabled={selectedDate >= new Date().toISOString().split('T')[0]}
+                className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
             {selectedRecord ? (
               <div className="space-y-2">
                 {/* Status */}
@@ -468,11 +499,11 @@ export default function EmployeeAttendanceDetailPage() {
                 <div className="grid grid-cols-3 gap-1.5">
                   <div className="bg-surface-2 rounded-lg p-1.5 text-center">
                     <p className="text-[9px] text-gray-400">Total</p>
-                    <p className="text-xs font-mono font-bold text-gray-700" data-mono>{totalHours ? `${totalHours.toFixed(1)}h` : '--'}</p>
+                    <p className="text-xs font-mono font-bold text-gray-700" data-mono>{totalHours ? fmtHours(totalHours) : '--'}</p>
                   </div>
                   <div className="bg-surface-2 rounded-lg p-1.5 text-center">
                     <p className="text-[9px] text-gray-400">Active</p>
-                    <p className="text-xs font-mono font-bold text-blue-600" data-mono>{totalHours ? `${activeHours.toFixed(1)}h` : '--'}</p>
+                    <p className="text-xs font-mono font-bold text-blue-600" data-mono>{totalHours ? fmtHours(activeHours) : '--'}</p>
                   </div>
                   <div className="bg-surface-2 rounded-lg p-1.5 text-center">
                     <p className="text-[9px] text-gray-400">Break</p>
@@ -483,17 +514,17 @@ export default function EmployeeAttendanceDetailPage() {
                 <div className="flex gap-2">
                   {lateBy > 0 && (
                     <span className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full border border-amber-200 font-medium">
-                      Late by {lateBy}m
+                      Late by {fmtMins(lateBy)}
                     </span>
                   )}
                   {earlyExitBy > 0 && (
                     <span className="text-[9px] px-1.5 py-0.5 bg-orange-50 text-orange-700 rounded-full border border-orange-200 font-medium">
-                      Early exit {earlyExitBy}m
+                      Early exit {fmtMins(earlyExitBy)}
                     </span>
                   )}
                   {overtime > 0 && (
                     <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded-full border border-blue-200 font-medium">
-                      OT {overtime.toFixed(1)}h
+                      OT {fmtHours(overtime)}
                     </span>
                   )}
                 </div>
