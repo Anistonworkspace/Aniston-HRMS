@@ -186,6 +186,21 @@ export class AttendanceController {
           error: { code: 'FORBIDDEN', message: 'You cannot manually mark your own attendance. Use the calendar to mark attendance for other employees.' },
         });
       }
+      // HR cannot mark attendance for another HR/Admin/SuperAdmin — only Super Admin or Admin can do that
+      if (req.user!.role === 'HR') {
+        const { prisma } = await import('../../lib/prisma.js');
+        const targetEmp = await prisma.employee.findUnique({
+          where: { id: data.employeeId },
+          select: { user: { select: { role: true } } },
+        });
+        const targetRole = targetEmp?.user?.role;
+        if (targetRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(targetRole)) {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'HR accounts cannot manually mark attendance for other HR accounts. Only Super Admin or Admin can do this.' },
+          });
+        }
+      }
       const record = await attendanceService.markAttendance(data, req.user!.userId, req.user!.organizationId);
       res.status(201).json({ success: true, data: record, message: 'Attendance marked successfully' });
     } catch (err) { next(err); }

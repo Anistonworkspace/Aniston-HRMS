@@ -1875,6 +1875,16 @@ export class LeaveService {
       throw new BadRequestError('You cannot approve your own leave request');
     }
 
+    // HR cannot approve/reject leave for another HR/Admin/SuperAdmin — only Super Admin or Admin can do that
+    if (approverRole === 'HR' && action !== 'REJECTED') {
+      const applicantUser = request.employee.userId
+        ? await prisma.user.findUnique({ where: { id: request.employee.userId }, select: { role: true } })
+        : null;
+      if (applicantUser?.role && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(applicantUser.role)) {
+        throw new BadRequestError('HR accounts cannot approve leave requests from other HR accounts. Only Super Admin or Admin can do this.');
+      }
+    }
+
     const isHRAdmin = approverRole && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(approverRole);
     const isManager = approverRole === 'MANAGER';
 

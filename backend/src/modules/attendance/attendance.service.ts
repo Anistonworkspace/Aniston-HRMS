@@ -2183,9 +2183,21 @@ export class AttendanceService {
   ) {
     const reg = await prisma.attendanceRegularization.findUnique({
       where: { id: regularizationId },
-      include: { attendance: true },
+      include: {
+        attendance: {
+          include: { employee: { include: { user: { select: { role: true } } } } },
+        },
+      },
     });
     if (!reg) throw new NotFoundError('Regularization request');
+
+    // HR cannot approve/reject regularization for another HR/Admin/SuperAdmin
+    if (['HR'].includes(approverRole || '')) {
+      const targetRole = reg.attendance?.employee?.user?.role;
+      if (targetRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(targetRole)) {
+        throw new BadRequestError('HR accounts cannot approve regularizations for other HR accounts. Only Super Admin or Admin can do this.');
+      }
+    }
 
     // 2-tier regularization workflow:
     // PENDING → MANAGER_REVIEWED (by Manager) → APPROVED/REJECTED (by HR/Admin)
