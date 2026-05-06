@@ -2544,9 +2544,9 @@ function LeavePersonalView() {
         );
       })()}
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid lg:grid-cols-3 gap-4 md:gap-6">
         {/* My leave requests */}
-        <div className="lg:col-span-2 md:layer-card md:p-4 md:p-6">
+        <div className="lg:col-span-2 layer-card p-3 md:p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
               <CalendarDays size={16} className="text-brand-500" />
@@ -2614,7 +2614,7 @@ function LeavePersonalView() {
         </div>
 
         {/* Holidays */}
-        <div className="md:layer-card md:p-4 md:p-6">
+        <div className="layer-card p-3 md:p-6">
           <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 mb-3 md:mb-4 flex items-center justify-between">
             <span>🎉 Holidays {new Date().getFullYear()}</span>
             {holidays.length > 0 && (
@@ -2643,17 +2643,17 @@ function LeavePersonalView() {
                     )}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-700 truncate">{holiday.name}</p>
-                      <p className="text-xs text-gray-500 truncate">{formatDate(holiday.date, 'long')}</p>
+                      <p className="text-xs font-medium text-gray-700 truncate">{holiday.name}</p>
+                      <p className="text-[11px] text-gray-500 truncate">{formatDate(holiday.date, 'long')}</p>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex flex-col items-end gap-0.5 shrink-0 min-w-0 max-w-[52px]">
                       {holiday.isOptional && (
-                        <span className="badge badge-info text-[10px] whitespace-nowrap">Optional</span>
+                        <span className="badge badge-info text-[9px] leading-tight">Opt.</span>
                       )}
                       {isPast ? (
-                        <span className="text-xs text-gray-400 whitespace-nowrap">Past</span>
+                        <span className="text-[10px] text-gray-400">Past</span>
                       ) : (
-                        <span className="text-xs text-blue-500 font-medium whitespace-nowrap">
+                        <span className="text-[10px] text-blue-500 font-medium">
                           {Math.ceil((new Date(holiday.date).getTime() - new Date().getTime()) / 86400000)}d
                         </span>
                       )}
@@ -2790,62 +2790,68 @@ function LeaveRequestCard({ leave }: { leave: any }) {
 
   return (
     <>
-      <div className="py-3 px-4 bg-surface-2 rounded-lg">
-        {/* Main row */}
-        <div className="flex items-start gap-3 min-w-0">
+      <div className="py-3 px-3 bg-surface-2 rounded-lg">
+        {/* Top row: icon + type name + days + badge */}
+        <div className="flex items-start gap-2 min-w-0">
           <div className="mt-0.5 shrink-0">{currentStatusIcon}</div>
           <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-              <p className="text-sm font-medium text-gray-800 truncate">
-                {leave.leaveType?.name || 'Leave'}
-              </p>
-              <span className="text-xs text-gray-400 shrink-0">
+            {/* Line 1: leave type name (full width, truncates if needed) */}
+            <p className="text-xs font-semibold text-gray-800 truncate leading-snug">
+              {leave.leaveType?.name || 'Leave'}
+            </p>
+            {/* Line 2: days + status badge on same line, both small */}
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="text-[11px] text-gray-400 shrink-0">
                 {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
               </span>
-              <span className={`badge ${getStatusColor(leave.status)} text-xs shrink-0`}>
+              <span className={`badge ${getStatusColor(leave.status)} text-[10px] shrink-0`}>
                 {leave.status === 'MANAGER_APPROVED' ? 'Mgr Approved'
                   : leave.status === 'APPROVED_WITH_CONDITION' ? 'Conditional'
                   : leave.status}
               </span>
             </div>
-            <p className="text-xs text-gray-500 mt-0.5">
+            {/* Line 3: date range */}
+            <p className="text-[11px] text-gray-500 mt-0.5 truncate">
               {formatDate(leave.startDate)} — {formatDate(leave.endDate)}
             </p>
+            {/* Line 4: reason */}
             {leave.reason && (
-              <p className="text-xs text-gray-400 mt-0.5 truncate">{leave.reason}</p>
+              <p className="text-[11px] text-gray-400 mt-0.5 truncate">{leave.reason}</p>
             )}
-            {/* Condition response status hint */}
+            {/* Condition hint */}
             {isConditional && conditionNote && (
-              <p className={cn('text-[11px] mt-1 flex items-center gap-1', conditionMessages.length > 0 ? 'text-emerald-600' : 'text-amber-600')}>
+              <p className={cn('text-[10px] mt-1 flex items-center gap-1', conditionMessages.length > 0 ? 'text-emerald-600' : 'text-amber-600')}>
                 {conditionMessages.length > 0
-                  ? <><CheckCircle size={10} /> Thread active ({conditionMessages.length} message{conditionMessages.length !== 1 ? 's' : ''}) — awaiting HR decision</>
+                  ? <><CheckCircle size={10} /> Thread active — awaiting HR decision</>
                   : <><AlertTriangle size={10} /> HR set a condition — tap to respond</>}
               </p>
             )}
-          </div>
-          {/* Actions — shrink-0 so they never disappear */}
-          <div className="flex items-center gap-2 shrink-0">
-            {isConditional && conditionNote && (
-              <button
-                onClick={() => setShowConditionModal(true)}
-                className={cn(
-                  'text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors shrink-0',
-                  conditionMessages.length > 0
-                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                    : 'bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-300'
+            {/* Actions row — below all text, no right-column clash */}
+            {(isConditional && conditionNote) || (leave.status === 'PENDING' || leave.status === 'DRAFT') ? (
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                {isConditional && conditionNote && (
+                  <button
+                    onClick={() => setShowConditionModal(true)}
+                    className={cn(
+                      'text-[11px] px-2.5 py-1 rounded-lg font-medium transition-colors',
+                      conditionMessages.length > 0
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-300'
+                    )}
+                  >
+                    {conditionMessages.length > 0 ? 'View Thread' : 'Respond'}
+                  </button>
                 )}
-              >
-                {conditionMessages.length > 0 ? 'View Thread' : 'Respond'}
-              </button>
-            )}
-            {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
-              <button
-                onClick={handleCancel}
-                className="text-xs text-red-400 hover:text-red-600 transition-colors shrink-0"
-              >
-                {t('common.cancel')}
-              </button>
-            )}
+                {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
+                  <button
+                    onClick={handleCancel}
+                    className="text-[11px] text-red-400 hover:text-red-600 transition-colors"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
