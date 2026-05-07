@@ -49,7 +49,15 @@ export function useInactivityTimeout(onWarning: () => void) {
         resetTimer(); // session extended, restart the timer
         return;
       }
-      // Refresh failed — session truly expired, log out
+      // Refresh failed — session truly expired. Call backend logout to invalidate
+      // the refresh token and clear the httpOnly cookie before redirecting.
+      // Without this, AuthHydrator would restore the session on the next page load.
+      try {
+        await fetch(`${API_URL}/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch { /* non-blocking — best effort */ }
       dispatch(logout());
       window.location.href = '/login?reason=inactivity';
     }, INACTIVITY_TIMEOUT);

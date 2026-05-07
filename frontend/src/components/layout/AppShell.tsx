@@ -102,16 +102,16 @@ export default function AppShell() {
     return () => { disconnectSocket(); };
   }, [accessToken]);
 
-  // On socket reconnect, dispatch a lightweight session check — catches the case where
-  // the session:revoked event was missed during a disconnect (force-login race condition).
-  // api.ts will return { data: undefined } silently if SESSION_REVOKED and dispatch logout.
+  // On socket RECONNECT (not initial connect) — check if session was revoked while disconnected.
+  // Uses 'reconnect' event which only fires after a dropped-then-restored connection, not on
+  // the first connect. api.ts SESSION_REVOKED handler will dispatch logout if the token is revoked.
   useEffect(() => {
     if (!accessToken) return;
     const handleReconnect = () => {
       dispatch(api.util.invalidateTags(['Employee'] as any[]));
     };
-    onSocketEvent('connect', handleReconnect);
-    return () => { offSocketEvent('connect', handleReconnect); };
+    onSocketEvent('reconnect', handleReconnect);
+    return () => { offSocketEvent('reconnect', handleReconnect); };
   }, [dispatch, accessToken]);
 
   // GPS session restore — Android native only.

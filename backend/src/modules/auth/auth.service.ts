@@ -98,6 +98,10 @@ export class AuthService {
           }).catch(() => {});
         } catch { /* non-blocking */ }
       }
+      // Clear any lingering revocation key for this device — when the same device
+      // logs in again after being kicked, the old revoked:session key must be removed
+      // or every subsequent API call will return SESSION_REVOKED in a loop.
+      await redis.del(`revoked:session:${user.id}:${deviceId}`);
       await prisma.deviceSession.upsert({
         where: { userId_deviceType: { userId: user.id, deviceType } },
         create: { userId: user.id, deviceId, deviceType, userAgent: (deviceInfo.userAgent || '').slice(0, 200), isActive: true },

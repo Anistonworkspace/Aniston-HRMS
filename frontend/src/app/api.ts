@@ -29,6 +29,12 @@ const baseQuery = fetchBaseQuery({
 // Mutex to prevent concurrent token refresh requests
 let refreshPromise: Promise<boolean> | null = null;
 
+// One-shot guard: prevents multiple parallel SESSION_REVOKED responses from each
+// dispatching logout independently (refetchOnFocus/Reconnect fires 5-10 queries at once).
+// Reset via resetSessionRevokedGuard() on successful login.
+let sessionRevokedLogoutFired = false;
+export function resetSessionRevokedGuard() { sessionRevokedLogoutFired = false; }
+
 // Auto-refresh on 401
 const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
   // Snapshot the token before the request — used to detect stale SESSION_REVOKED responses
@@ -52,6 +58,12 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
       if (!isAuthenticated || !currentToken) {
         return { data: undefined };
       }
+      // One-shot: only the first SESSION_REVOKED response triggers logout.
+      // Parallel queries (refetchOnFocus fires 5-10 at once) must not each dispatch logout.
+      if (sessionRevokedLogoutFired) {
+        return { data: undefined };
+      }
+      sessionRevokedLogoutFired = true;
       // Mark reason in Redux so LoginPage can show the right toast after redirect
       api.dispatch({ type: 'auth/setSessionEndReason', payload: 'SESSION_REVOKED' });
       if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');

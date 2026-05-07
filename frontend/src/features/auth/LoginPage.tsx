@@ -5,6 +5,7 @@ import { Eye, EyeOff, Loader2, Users, BarChart3, Shield, Clock, X, Mail, Globe, 
 import { useLoginMutation, useForgotPasswordMutation, useVerifyMfaMutation } from './authApi';
 import { setCredentials, clearSessionEndReason } from './authSlice';
 import { useAppDispatch, useAppSelector } from '../../app/store';
+import { resetSessionRevokedGuard } from '../../app/api';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 
@@ -97,6 +98,7 @@ export default function LoginPage() {
           setLoginError('This account can only be accessed from a desktop or laptop. Please log in using a desktop browser.');
           return;
         }
+        resetSessionRevokedGuard(); // allow future SESSION_REVOKED events after this fresh login
         dispatch(setCredentials({ user: result.data.user, accessToken: result.data.accessToken }));
         setShowForceLogin(false);
         // Notify other same-origin tabs that this tab has re-authenticated via force-login
@@ -187,6 +189,7 @@ export default function LoginPage() {
     try {
       const result = await verifyMfa({ tempToken: mfaTempToken!, token }).unwrap();
       if (result.success && result.data) {
+        resetSessionRevokedGuard();
         dispatch(setCredentials({ user: result.data.user, accessToken: result.data.accessToken }));
         toast.success(t('login.welcomeBack'));
         navigate('/dashboard');
