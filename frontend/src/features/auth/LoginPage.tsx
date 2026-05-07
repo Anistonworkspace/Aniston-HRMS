@@ -32,6 +32,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const isAuthenticated = useAppSelector((state: any) => state.auth.isAuthenticated);
   const sessionEndReason = useAppSelector((state: any) => state.auth.sessionEndReason);
+  // Guard: only show the sessionEndReason toast once on mount — never after a login attempt
+  const sessionReasonHandled = useRef(false);
 
   const currentLang = i18n.language?.startsWith('hi') ? 'hi' : 'en';
   const toggleLanguage = () => i18n.changeLanguage(currentLang === 'en' ? 'hi' : 'en');
@@ -40,15 +42,18 @@ export default function LoginPage() {
     if (isAuthenticated) navigate('/dashboard', { replace: true });
   }, [isAuthenticated, navigate]);
 
-  // Show toast and inline error for the reason the session ended (set by api.ts or ProtectedRoute)
+  // Show toast and inline error for the reason the session ended — run once on mount only
   useEffect(() => {
+    if (sessionReasonHandled.current) return;
     if (sessionEndReason === 'SESSION_REVOKED') {
+      sessionReasonHandled.current = true;
       const msg = t('login.sessionRevoked');
       toast.error(msg, { duration: 8000 });
       setLoginError(msg);
       dispatch(clearSessionEndReason());
     }
-  }, [sessionEndReason, t, dispatch]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — read sessionEndReason once on mount, not on every change
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -68,6 +73,9 @@ export default function LoginPage() {
 
   const doLogin = async (forceLogin = false) => {
     setLoginError('');
+    // Ensure any leftover session-end reason is gone before a fresh login attempt
+    dispatch(clearSessionEndReason());
+    sessionReasonHandled.current = true;
     try {
       let deviceId = localStorage.getItem('aniston_device_id');
       if (!deviceId) {

@@ -28,6 +28,7 @@ const authSlice = createSlice({
       state.accessToken = action.payload.accessToken;
       state.isAuthenticated = true;
       state.hydrating = false;
+      state.sessionEndReason = null; // clear any stale kick reason on fresh login
     },
     setAccessToken(state, action: PayloadAction<string>) {
       state.accessToken = action.payload;
@@ -44,6 +45,8 @@ const authSlice = createSlice({
       state.accessToken = null;
       state.isAuthenticated = false;
       state.hydrating = false;
+      // sessionEndReason is intentionally NOT cleared here — LoginPage reads it on mount
+      // after the redirect. It is cleared by LoginPage itself via clearSessionEndReason.
       try {
         // Tag with this tab's ID so other tabs can ignore their own broadcasts
         let tabId = sessionStorage.getItem('aniston_tab_id');

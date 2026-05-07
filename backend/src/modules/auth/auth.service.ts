@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { env } from '../../config/env.js';
-import { UnauthorizedError, NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { AppError, UnauthorizedError, NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import type { JwtPayload } from '../../middleware/auth.middleware.js';
 import { employeePermissionService } from '../employee-permissions/employee-permissions.service.js';
 import { enqueueEmail } from '../../jobs/queues.js';
@@ -62,9 +62,11 @@ export class AuthService {
       });
       if (existingSession?.isActive && existingSession.deviceId !== deviceId) {
         if (!deviceInfo.forceLogin) {
-          throw new UnauthorizedError(
+          throw new AppError(
             `Your account is already active on another ${deviceType}. ` +
-            `Click "Login on this device" to log out the other device automatically.`
+            `Click "Login on this device" to log out the other device automatically.`,
+            401,
+            'DEVICE_CONFLICT'
           );
         }
         // forceLogin=true — deactivate old session and immediately revoke it

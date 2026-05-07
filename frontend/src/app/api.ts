@@ -31,24 +31,32 @@ let refreshPromise: Promise<boolean> | null = null;
 
 // Auto-refresh on 401
 const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
+  // Snapshot the token before the request — used to detect stale SESSION_REVOKED responses
+  const tokenAtRequestTime = (api.getState() as RootState).auth.accessToken;
+
   let result = await baseQuery(args, api, extraOptions);
 
   if (result.error && result.error.status === 401) {
     // Session revoked by force-login from another device — logout immediately, no refresh
     const errCode = (result.error.data as any)?.error?.code;
     if (errCode === 'SESSION_REVOKED') {
-      const isAuthenticated = (api.getState() as RootState).auth.isAuthenticated;
       const currentToken = (api.getState() as RootState).auth.accessToken;
+      const isAuthenticated = (api.getState() as RootState).auth.isAuthenticated;
+
+      // If the token changed between request start and now, this is a stale in-flight
+      // response from the OLD session — a fresh login already replaced it. Drop silently.
+      if (currentToken !== tokenAtRequestTime) {
+        return { data: undefined };
+      }
+      // Also drop silently if already logged out
       if (!isAuthenticated || !currentToken) {
-        // Already logged out — silently drop
         return { data: undefined };
       }
       // Mark reason in Redux so LoginPage can show the right toast after redirect
       api.dispatch({ type: 'auth/setSessionEndReason', payload: 'SESSION_REVOKED' });
       if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');
       api.dispatch({ type: 'auth/logout' });
-      // Suppress the error result entirely — component must not render an error message
-      // while the redirect to /login is in flight
+      // Suppress the error result — component must not render an error while redirect is in flight
       return { data: undefined };
     }
     // Use mutex to prevent parallel refresh requests

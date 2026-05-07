@@ -19,10 +19,13 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   // All hooks must be called unconditionally before any early return (Rules of Hooks)
   const shouldFetchUser = isAuthenticated && !user && !!accessToken;
+  // Re-fetch /auth/me when user came from login (missing department — login response is a subset)
+  // This ensures full profile data (department, designation, profileCompletion) is always loaded
+  const userNeedsHydration = isAuthenticated && !!user && !!accessToken && !('department' in user);
   // Also re-fetch /auth/me when Redux says onboarding incomplete — catches stale token after completion
   const shouldVerifyOnboarding = isAuthenticated && !!user && user.onboardingComplete === false && !GATE_EXEMPT_ROLES.includes(user?.role || '');
   const { data: meData, isLoading, isError, error: meError } = useGetMeQuery(undefined, {
-    skip: (!shouldFetchUser && !shouldVerifyOnboarding) || hydrating,
+    skip: (!shouldFetchUser && !userNeedsHydration && !shouldVerifyOnboarding) || hydrating,
   });
 
   const [timedOut, setTimedOut] = useState(false);
@@ -35,14 +38,14 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   }, [meData, dispatch]);
 
   useEffect(() => {
-    if (isError && shouldFetchUser) {
+    if (isError && (shouldFetchUser || userNeedsHydration)) {
       const errCode = (meError as any)?.data?.error?.code;
       if (errCode === 'SESSION_REVOKED') {
         dispatch(setSessionEndReason('SESSION_REVOKED'));
       }
       dispatch(logout());
     }
-  }, [isError, shouldFetchUser, dispatch, meError]);
+  }, [isError, shouldFetchUser, userNeedsHydration, dispatch, meError]);
 
   // Safety timeout: if token verification takes >10s, force logout (stale token)
   useEffect(() => {
