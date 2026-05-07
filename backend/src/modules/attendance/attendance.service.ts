@@ -3914,15 +3914,28 @@ export class AttendanceService {
       if (days.length === 0) continue;
 
       try {
-        // Step A: Delete all existing attendance records for this employee in this month
-        // that were previously imported (source = MANUAL_HR). This ensures full override.
-        await prisma.attendanceRecord.deleteMany({
+        // Step A: Delete all existing MANUAL_HR attendance records for this month.
+        // AttendanceRecord has child tables (AttendanceLog, Break, AttendanceRegularization,
+        // AttendanceAnomaly) with Restrict FK — must delete children first.
+        const recordsToDelete = await prisma.attendanceRecord.findMany({
           where: {
             employeeId,
             date: { gte: monthStart, lte: monthEnd },
             source: 'MANUAL_HR' as any,
           },
+          select: { id: true },
         });
+        const idsToDelete = recordsToDelete.map(r => r.id);
+
+        if (idsToDelete.length > 0) {
+          // Delete all child rows first (order matters — most-nested first)
+          await prisma.attendanceLog.deleteMany({ where: { attendanceId: { in: idsToDelete } } });
+          await prisma.break.deleteMany({ where: { attendanceId: { in: idsToDelete } } });
+          await prisma.attendanceAnomaly.deleteMany({ where: { attendanceId: { in: idsToDelete } } });
+          await prisma.attendanceRegularization.deleteMany({ where: { attendanceId: { in: idsToDelete } } });
+          // Now safe to delete parent records
+          await prisma.attendanceRecord.deleteMany({ where: { id: { in: idsToDelete } } });
+        }
 
         // Step B: Delete any existing imported LeaveRequests for this month
         // (reason contains our import marker) so we don't accumulate duplicates
