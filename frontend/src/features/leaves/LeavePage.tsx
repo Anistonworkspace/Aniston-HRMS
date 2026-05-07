@@ -54,9 +54,18 @@ export default function LeavePage() {
   const user = useAppSelector((state) => state.auth.user);
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user?.role || '');
   const isHRAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
-  const [view, setView] = useState<'management' | 'personal'>(isManagement ? 'management' : 'personal');
+  // HR role employee (real person with employeeId) on mobile sees their own leaves only.
+  // Desktop always shows the full HR management view.
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const isHRRoleEmployee = user?.role === 'HR' && !!user?.employeeId && isMobile;
+  const [view, setView] = useState<'management' | 'personal'>(
+    isHRRoleEmployee ? 'personal' : (isManagement ? 'management' : 'personal')
+  );
 
   if (!isManagement) return <LeavePersonalView />;
+
+  // HR role employee on mobile → personal leave view (apply, balance, history)
+  if (isHRRoleEmployee) return <LeavePersonalView />;
 
   return (
     <>

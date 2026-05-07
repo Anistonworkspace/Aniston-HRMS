@@ -54,16 +54,23 @@ export default function AttendancePage() {
   const user = useAppSelector((state) => state.auth.user);
   const role = user?.role || '';
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(role);
-  // System/admin roles (SUPER_ADMIN, ADMIN, HR) are administrative accounts — no personal attendance.
-  // Only MANAGER and regular employees can view their own attendance.
   const isSystemRole = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(role);
-  const canViewPersonal = !isSystemRole && ['MANAGER', 'EMPLOYEE', 'INTERN'].includes(role);
-  const [view, setView] = useState<'team' | 'personal'>(isManagement ? 'team' : 'personal');
+  // HR role employee (real person with employeeId) on mobile sees their own attendance.
+  // System HR account (no employeeId) and desktop always see the HR management view.
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const isHRRoleEmployee = role === 'HR' && !!user?.employeeId && isMobile;
+  const canViewPersonal = isHRRoleEmployee || (!isSystemRole && ['MANAGER', 'EMPLOYEE', 'INTERN'].includes(role));
+  const [view, setView] = useState<'team' | 'personal'>(
+    isHRRoleEmployee ? 'personal' : (isManagement ? 'team' : 'personal')
+  );
 
   // Non-management roles go straight to personal view
   if (!isManagement) return <AttendancePersonalView />;
 
-  // System roles (SuperAdmin, Admin, HR): team + regularizations tabs, no personal toggle
+  // HR role employee on mobile → personal attendance only
+  if (isHRRoleEmployee) return <AttendancePersonalView />;
+
+  // System roles (SuperAdmin, Admin, HR system account, HR on desktop): team + regularizations tabs
   if (isSystemRole) return <AttendanceHRView />;
 
   return (

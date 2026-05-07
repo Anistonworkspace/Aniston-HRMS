@@ -14,8 +14,13 @@ export default function MobileBottomNav() {
   const location = useLocation();
   const user = useAppSelector((state) => state.auth.user);
   const accessToken = useAppSelector((state) => state.auth.accessToken);
-  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
-  const { data: todayRes } = useGetTodayStatusQuery(undefined, { skip: isManagement });
+  // SUPER_ADMIN/ADMIN are pure management accounts — no personal clock-in.
+  // HR role employees are real people who CAN clock in on mobile (they just cannot
+  // use the manual calendar to mark other HR accounts — that is enforced by the backend).
+  // System HR account (isSystemAccount=true) has no employeeId so the backend rejects it anyway.
+  const isManagement = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
+  const canUseCenterButton = !isManagement && !!user?.employeeId;
+  const { data: todayRes } = useGetTodayStatusQuery(undefined, { skip: !canUseCenterButton });
   const todayStatus = todayRes?.data;
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
@@ -135,7 +140,7 @@ export default function MobileBottomNav() {
             <>
               <button
                 onClick={handleCheckInOut}
-                disabled={isLoading || isManagement}
+                disabled={isLoading || !canUseCenterButton}
                 aria-label={isCheckedIn ? t('mobileNav.checkOut') : t('mobileNav.checkIn')}
                 className={cn(
                   'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all',
@@ -145,8 +150,9 @@ export default function MobileBottomNav() {
                     ? 'bg-red-500 shadow-red-200 active:scale-90'
                     : isCompleted
                     ? 'bg-amber-500 shadow-amber-200 active:scale-90'
-                    : 'bg-emerald-500 shadow-emerald-200 active:scale-90',
-                  isManagement && 'bg-gray-300 opacity-60'
+                    : canUseCenterButton
+                    ? 'bg-emerald-500 shadow-emerald-200 active:scale-90'
+                    : 'bg-gray-300 opacity-60'
                 )}
               >
                 {isLoading ? (
@@ -159,7 +165,7 @@ export default function MobileBottomNav() {
               <span className="text-[10px] text-gray-500 mt-0.5 font-medium">
                 {isLoading
                   ? (gettingLocation ? t('mobileNav.gettingGps') : clockingIn ? t('mobileNav.marking') : t('mobileNav.processing'))
-                  : isManagement ? t('attendance.hr') : isCheckedIn ? t('mobileNav.checkOut') : isCompleted ? t('mobileNav.reCheckIn') : t('mobileNav.checkIn')}
+                  : !canUseCenterButton ? t('attendance.hr') : isCheckedIn ? t('mobileNav.checkOut') : isCompleted ? t('mobileNav.reCheckIn') : t('mobileNav.checkIn')}
               </span>
             </>
           )}
