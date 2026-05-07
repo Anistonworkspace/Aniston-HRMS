@@ -39,9 +39,9 @@ vi.mock('../lib/prisma.js', () => ({
   },
 }));
 
-// Build a reusable pipeline mock factory so each redis.pipeline() call returns
-// a fresh chainable object whose exec() resolves to [].
-const makePipelineMock = () => {
+// Build a reusable pipeline mock factory.
+// Declared as a `function` so it is hoisted above vi.mock() calls by Vitest.
+function makePipelineMock() {
   const p: Record<string, any> = {};
   p.setex = vi.fn().mockReturnValue(p);
   p.sadd  = vi.fn().mockReturnValue(p);
@@ -49,24 +49,38 @@ const makePipelineMock = () => {
   p.del   = vi.fn().mockReturnValue(p);
   p.exec  = vi.fn().mockResolvedValue([]);
   return p;
-};
+}
 
-vi.mock('../lib/redis.js', () => ({
-  redis: {
-    get: vi.fn(),
-    set: vi.fn().mockResolvedValue('OK'),
-    setex: vi.fn().mockResolvedValue('OK'),
-    del: vi.fn().mockResolvedValue(1),
-    srem: vi.fn().mockResolvedValue(1),
-    smembers: vi.fn().mockResolvedValue([]),
-    scan: vi.fn().mockResolvedValue(['0', []]),
-    ping: vi.fn().mockResolvedValue('PONG'),
-    incr: vi.fn().mockResolvedValue(1),
-    expire: vi.fn().mockResolvedValue(1),
-    on: vi.fn(),
-    pipeline: vi.fn().mockImplementation(makePipelineMock),
-  },
-}));
+vi.mock('../lib/redis.js', () => {
+  // Inline factory — must not reference module-level `const` (hoisting issue).
+  // Re-declare inline to be safe; the module-level `function makePipelineMock` above
+  // handles the test-body usage.
+  const _mkPipeline = () => {
+    const p: Record<string, any> = {};
+    p.setex = vi.fn().mockReturnValue(p);
+    p.sadd  = vi.fn().mockReturnValue(p);
+    p.expire = vi.fn().mockReturnValue(p);
+    p.del   = vi.fn().mockReturnValue(p);
+    p.exec  = vi.fn().mockResolvedValue([]);
+    return p;
+  };
+  return {
+    redis: {
+      get: vi.fn(),
+      set: vi.fn().mockResolvedValue('OK'),
+      setex: vi.fn().mockResolvedValue('OK'),
+      del: vi.fn().mockResolvedValue(1),
+      srem: vi.fn().mockResolvedValue(1),
+      smembers: vi.fn().mockResolvedValue([]),
+      scan: vi.fn().mockResolvedValue(['0', []]),
+      ping: vi.fn().mockResolvedValue('PONG'),
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
+      on: vi.fn(),
+      pipeline: vi.fn().mockImplementation(_mkPipeline),
+    },
+  };
+});
 
 vi.mock('../lib/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -158,6 +172,8 @@ describe('AuthService', () => {
     vi.mocked(redis.srem).mockResolvedValue(1 as any);
     vi.mocked(redis.smembers).mockResolvedValue([] as any);
     vi.mocked(redis.scan).mockResolvedValue(['0', []] as any);
+    vi.mocked(redis.incr).mockResolvedValue(1 as any);
+    vi.mocked(redis.expire).mockResolvedValue(1 as any);
     vi.mocked(redis.pipeline).mockImplementation(makePipelineMock as any);
     vi.mocked(prisma.userMFA.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.deviceSession.findUnique).mockResolvedValue(null);
@@ -250,6 +266,24 @@ describe('AuthService', () => {
       expect(result.refreshToken).toBe('');
     });
 
+    it('throws UnauthorizedError when force-login rate limit exceeded (>3 attempts)', async () => {
+      const mockUser = makeActiveUser();
+      const existingSession = { deviceId: 'old-device', deviceType: 'desktop', isActive: true };
+      vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockUser as any);
+      vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as any);
+      vi.mocked(prisma.deviceSession.findUnique).mockResolvedValueOnce(existingSession as any);
+      // incr returns 4 — exceeds the 3-attempt limit
+      vi.mocked(redis.incr).mockResolvedValueOnce(4 as any);
+
+      await expect(
+        service.login('employee@aniston.com', 'password123', {
+          deviceId: 'new-device',
+          deviceType: 'desktop',
+          forceLogin: true,
+        })
+      ).rejects.toThrow('Too many force-login attempts');
+    });
+
     it('sets lastLoginAt after a successful login', async () => {
       const mockUser = makeActiveUser();
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockUser as any);
@@ -281,10 +315,11 @@ describe('AuthService', () => {
       // generateRefreshToken uses redis.pipeline() — verify pipeline was created and setex called
       expect(redis.pipeline).toHaveBeenCalled();
       const pipelineMock = vi.mocked(redis.pipeline).mock.results[0].value;
+      // Value is now JSON { userId } (Gap 1: stores userId+deviceId as JSON)
       expect(pipelineMock.setex).toHaveBeenCalledWith(
         expect.stringMatching(/^refresh_token:/),
         7 * 24 * 60 * 60,
-        'user-001'
+        expect.stringMatching(/"userId":"user-001"/)
       );
     });
   });
@@ -295,21 +330,37 @@ describe('AuthService', () => {
     it('returns a new accessToken and rotated refreshToken when token is valid', async () => {
       const mockUser = makeActiveUser();
 
-      // Redis returns the userId for this refresh token
-      vi.mocked(redis.get).mockResolvedValueOnce('user-001');
+      // Gap 1: Redis now stores JSON { userId, deviceId }
+      vi.mocked(redis.get).mockResolvedValueOnce(JSON.stringify({ userId: 'user-001', deviceId: 'dev-abc' }));
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockUser as any);
 
       const result = await service.refreshAccessToken('valid-refresh-token-abc');
 
       expect(result.accessToken).toBeTruthy();
       expect(result.refreshToken).toBeTruthy();
-      // Old token must be deleted, new one stored
+      // Old token must be deleted
       expect(redis.del).toHaveBeenCalledWith('refresh_token:valid-refresh-token-abc');
-      expect(redis.setex).toHaveBeenCalledWith(
+      // New token stored via pipeline with JSON value containing userId
+      expect(redis.pipeline).toHaveBeenCalled();
+      const pipelineMock = vi.mocked(redis.pipeline).mock.results[0].value;
+      expect(pipelineMock.setex).toHaveBeenCalledWith(
         expect.stringMatching(/^refresh_token:/),
         7 * 24 * 60 * 60,
-        'user-001'
+        expect.stringMatching(/"userId":"user-001"/)
       );
+    });
+
+    it('falls back to plain userId string for legacy tokens (forward compat)', async () => {
+      const mockUser = makeActiveUser();
+
+      // Legacy token stores plain userId string (not JSON)
+      vi.mocked(redis.get).mockResolvedValueOnce('user-001');
+      vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockUser as any);
+
+      const result = await service.refreshAccessToken('legacy-refresh-token');
+
+      expect(result.accessToken).toBeTruthy();
+      expect(result.refreshToken).toBeTruthy();
     });
 
     it('throws UnauthorizedError when Redis returns null (expired/missing token)', async () => {
@@ -321,7 +372,7 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedError when user no longer exists in DB', async () => {
-      vi.mocked(redis.get).mockResolvedValueOnce('user-ghost-id');
+      vi.mocked(redis.get).mockResolvedValueOnce(JSON.stringify({ userId: 'user-ghost-id' }));
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null);
 
       await expect(service.refreshAccessToken('orphan-refresh-token')).rejects.toThrow(
@@ -332,7 +383,7 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedError for inactive users without valid exit access', async () => {
-      vi.mocked(redis.get).mockResolvedValueOnce('user-001');
+      vi.mocked(redis.get).mockResolvedValueOnce(JSON.stringify({ userId: 'user-001' }));
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(
         makeActiveUser({
           status: 'INACTIVE',
@@ -520,17 +571,17 @@ describe('AuthService', () => {
       expect(token.length).toBeGreaterThan(10);
     });
 
-    it('stores the token in Redis via pipeline with correct TTL and userId', async () => {
+    it('stores the token in Redis via pipeline with correct TTL and JSON value', async () => {
       const token = await service.generateRefreshToken('user-xyz');
       // New implementation uses redis.pipeline() — verify pipeline was created
       expect(redis.pipeline).toHaveBeenCalled();
       // The pipeline mock captures calls on the returned object — get it
       const pipelineMock = vi.mocked(redis.pipeline).mock.results[0].value;
-      // setex must have been called with the token key, 7-day TTL, and userId
+      // Gap 1: setex must be called with JSON value containing userId
       expect(pipelineMock.setex).toHaveBeenCalledWith(
         `refresh_token:${token}`,
         7 * 24 * 60 * 60,
-        'user-xyz'
+        expect.stringMatching(/"userId":"user-xyz"/)
       );
       // sadd must register the key in the user-scoped tracking set
       expect(pipelineMock.sadd).toHaveBeenCalledWith(
@@ -538,6 +589,17 @@ describe('AuthService', () => {
         `refresh_token:${token}`
       );
       expect(pipelineMock.exec).toHaveBeenCalled();
+    });
+
+    it('stores deviceId in JSON value when provided', async () => {
+      const token = await service.generateRefreshToken('user-xyz', 'device-abc');
+      expect(redis.pipeline).toHaveBeenCalled();
+      const pipelineMock = vi.mocked(redis.pipeline).mock.results[0].value;
+      expect(pipelineMock.setex).toHaveBeenCalledWith(
+        `refresh_token:${token}`,
+        7 * 24 * 60 * 60,
+        expect.stringMatching(/"deviceId":"device-abc"/)
+      );
     });
   });
 });

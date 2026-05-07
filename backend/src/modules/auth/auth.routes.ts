@@ -7,6 +7,8 @@ const router = Router();
 
 router.post('/login', (req, res, next) => authController.login(req, res, next));
 router.post('/refresh', (req, res, next) => authController.refresh(req, res, next));
+// Gap 3: No authenticate middleware — expired/missing token must not block logout.
+// userId + deviceId are read from JWT if present, but failure is non-fatal.
 router.post('/logout', (req, res, next) => authController.logout(req, res, next));
 router.post('/forgot-password', (req, res, next) => authController.forgotPassword(req, res, next));
 router.post('/reset-password', (req, res, next) => authController.resetPassword(req, res, next));

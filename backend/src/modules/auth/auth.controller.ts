@@ -95,14 +95,31 @@ export class AuthController {
 
   async logout(req: Request, res: Response, next: NextFunction) {
     try {
-      const refreshToken = req.cookies.refreshToken;
-      // Pass userId + deviceId from JWT so the service can free the DeviceSession slot
-      // preventing a false DEVICE_CONFLICT on the next login from any device
-      await authService.logout(
-        refreshToken,
-        req.user?.userId,
-        req.user?.deviceId,
-      );
+      // Gap 3: Accept token from cookie (web) or body (native Capacitor clients).
+      // If neither is present, still clear cookie and return 200 — idempotent logout.
+      const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken || '';
+
+      // Extract userId + deviceId from JWT if a valid token is present (best-effort)
+      let userId: string | undefined;
+      let deviceId: string | undefined;
+      if (req.user) {
+        userId = req.user.userId;
+        deviceId = req.user.deviceId;
+      } else if (refreshToken) {
+        // Try to read from the stored Redis value so we can free the DeviceSession slot
+        // even without a valid access token (e.g. expired JWT)
+        try {
+          const { redis } = await import('../../lib/redis.js');
+          const stored = await redis.get(`refresh_token:${refreshToken}`);
+          if (stored) {
+            const parsed = JSON.parse(stored) as { userId?: string; deviceId?: string };
+            userId = parsed.userId;
+            deviceId = parsed.deviceId;
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      await authService.logout(refreshToken, userId, deviceId);
 
       res.clearCookie('refreshToken', { path: '/api/auth' });
       res.json({ success: true, data: null, message: 'Logged out' });
@@ -326,8 +343,10 @@ export class AuthController {
       });
       if (!user) { res.status(404).json({ success: false, error: { message: 'User not found' } }); return; }
 
-      const accessToken = authService.generateAccessToken(user);
-      const refreshToken = await authService.generateRefreshToken(user.id);
+      // Gap 2: re-embed deviceId from tempToken payload so per-device revocation works after MFA
+      const mfaDeviceId: string | undefined = payload.deviceId;
+      const accessToken = authService.generateAccessToken(user, mfaDeviceId);
+      const refreshToken = await authService.generateRefreshToken(user.id, mfaDeviceId);
 
       // Update last login timestamp (same as normal login flow)
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });

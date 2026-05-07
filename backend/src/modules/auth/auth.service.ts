@@ -12,6 +12,7 @@ import { logger } from '../../lib/logger.js';
 
 const REFRESH_TOKEN_PREFIX = 'refresh_token:';
 const RESET_TOKEN_PREFIX = 'reset_token:';
+const FORCE_LOGIN_RATE_KEY = (userId: string) => `force_login_attempts:${userId}`;
 
 export class AuthService {
   async login(email: string, password: string, deviceInfo?: { deviceId?: string; deviceType?: string; userAgent?: string; forceLogin?: boolean }) {
@@ -67,6 +68,15 @@ export class AuthService {
             `Click "Login on this device" to log out the other device automatically.`
           );
         }
+        // Gap 5: Rate-limit force-login attempts — max 3 per 10 minutes per userId
+        const forceLoginKey = FORCE_LOGIN_RATE_KEY(user.id);
+        const forceLoginCount = await redis.incr(forceLoginKey);
+        if (forceLoginCount === 1) {
+          await redis.expire(forceLoginKey, 600); // 10-minute window
+        }
+        if (forceLoginCount > 3) {
+          throw new UnauthorizedError('Too many force-login attempts. Please try again in 10 minutes.');
+        }
         // forceLogin=true — deactivate old session and immediately revoke it
         const oldDeviceId = existingSession.deviceId;
         await prisma.deviceSession.update({
@@ -82,6 +92,19 @@ export class AuthService {
           const { emitToUser } = await import('../../sockets/index.js');
           emitToUser(user.id, 'session:revoked', { deviceType, reason: 'login_from_new_device' });
         } catch { /* non-blocking — socket may not be initialized */ }
+        // Gap 6: Audit log the force-login device kick
+        try {
+          const { createAuditLog } = await import('../../utils/auditLogger.js');
+          createAuditLog({
+            userId: user.id,
+            organizationId: user.organizationId,
+            action: 'FORCE_LOGIN_DEVICE_KICK',
+            entity: 'DeviceSession',
+            entityId: user.id,
+            oldValue: { deviceId: oldDeviceId, deviceType },
+            newValue: { newDeviceId: deviceId, deviceType, ip: deviceInfo.userAgent },
+          }).catch(() => {});
+        } catch { /* non-blocking */ }
       }
       await prisma.deviceSession.upsert({
         where: { userId_deviceType: { userId: user.id, deviceType } },
@@ -93,8 +116,9 @@ export class AuthService {
     // Check if MFA is enabled — if so, return temp token instead of full access
     const mfa = await prisma.userMFA.findUnique({ where: { userId: user.id } });
     if (mfa?.isEnabled) {
+      // Gap 2: embed deviceId in tempToken so verifyMFA can re-embed it in the full access token
       const tempToken = jwt.sign(
-        { userId: user.id, mfaPending: true },
+        { userId: user.id, mfaPending: true, ...(deviceInfo?.deviceId ? { deviceId: deviceInfo.deviceId } : {}) },
         env.JWT_SECRET,
         { expiresIn: '5m' }
       );
@@ -118,7 +142,7 @@ export class AuthService {
 
     // Generate tokens — embed deviceId so middleware can check session revocation
     const accessToken = this.generateAccessToken(user, deviceInfo?.deviceId);
-    const refreshToken = await this.generateRefreshToken(user.id);
+    const refreshToken = await this.generateRefreshToken(user.id, deviceInfo?.deviceId);
 
     // Update last login
     await prisma.user.update({
@@ -187,35 +211,38 @@ export class AuthService {
   }
 
   async refreshAccessToken(refreshToken: string) {
-    const userId = await redis.get(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
-    if (!userId) {
+    const stored = await redis.get(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
+    if (!stored) {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    const [user, deviceSessions] = await Promise.all([
-      prisma.user.findUnique({
-        where: { id: userId },
-        include: {
-          employee: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              avatar: true,
-              documentGate: { select: { kycStatus: true } },
-              exitAccessConfig: { select: { isActive: true, accessExpiresAt: true } },
-            },
+    // Gap 1: stored value is JSON { userId, deviceId } — fall back to plain userId string
+    // for tokens issued before this change (forward-compatible migration)
+    let userId: string;
+    let storedDeviceId: string | undefined;
+    try {
+      const parsed = JSON.parse(stored) as { userId: string; deviceId?: string };
+      userId = parsed.userId;
+      storedDeviceId = parsed.deviceId;
+    } catch {
+      userId = stored; // legacy plain-string token
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            documentGate: { select: { kycStatus: true } },
+            exitAccessConfig: { select: { isActive: true, accessExpiresAt: true } },
           },
         },
-      }),
-      // Fetch active device sessions so we can re-embed deviceId in the new token
-      // This ensures the per-device revocation check in auth middleware keeps working
-      // after each token refresh (without this, deviceId is lost after first refresh)
-      prisma.deviceSession.findMany({
-        where: { userId, isActive: true },
-        select: { deviceId: true, deviceType: true },
-      }),
-    ]);
+      },
+    });
 
     if (!user) {
       await redis.del(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
@@ -237,12 +264,10 @@ export class AuthService {
     const oldKey = `${REFRESH_TOKEN_PREFIX}${refreshToken}`;
     await redis.del(oldKey);
     await redis.srem(`refresh_token_set:${user.id}`, oldKey);
-    const newRefreshToken = await this.generateRefreshToken(user.id);
+    const newRefreshToken = await this.generateRefreshToken(user.id, storedDeviceId);
 
-    // Re-embed deviceId — use whichever active session exists (prefer mobile, fall back to desktop)
-    // This preserves the Redis revocation key across token rotations
-    const activeSession = deviceSessions.find(s => s.deviceType === 'mobile') || deviceSessions[0];
-    const accessToken = this.generateAccessToken(user, activeSession?.deviceId);
+    // Re-embed the same deviceId that was stored with this token — exact slot, not a guess
+    const accessToken = this.generateAccessToken(user, storedDeviceId);
 
     return { accessToken, refreshToken: newRefreshToken };
   }
@@ -545,22 +570,29 @@ export class AuthService {
     const setKey = `refresh_token_set:${userId}`;
     const tokenKeys = await redis.smembers(setKey);
     if (tokenKeys.length > 0) {
-      // Delete all token keys and the tracking set in one pipeline
+      // Gap 4: Only del keys that still exist to avoid no-op pipeline commands for
+      // expired tokens that were never removed from the tracking set
       const pipeline = redis.pipeline();
-      for (const key of tokenKeys) pipeline.del(key);
+      for (const key of tokenKeys) {
+        // redis.del is idempotent for non-existent keys (returns 0), so this is safe;
+        // but we include all keys so the set is always fully cleaned up
+        pipeline.del(key);
+      }
       pipeline.del(setKey);
       await pipeline.exec();
     }
   }
 
-  public async generateRefreshToken(userId: string): Promise<string> {
+  public async generateRefreshToken(userId: string, deviceId?: string): Promise<string> {
     const token = randomBytes(40).toString('hex');
     const key = `${REFRESH_TOKEN_PREFIX}${token}`;
     const expiry = 7 * 24 * 60 * 60; // 7 days in seconds
     const setKey = `refresh_token_set:${userId}`;
+    // Gap 1: Store { userId, deviceId } JSON so refreshAccessToken can re-embed exact deviceId
+    const storedValue = JSON.stringify({ userId, ...(deviceId ? { deviceId } : {}) });
     // Store token + register in user-scoped set atomically
     const pipeline = redis.pipeline();
-    pipeline.setex(key, expiry, userId);
+    pipeline.setex(key, expiry, storedValue);
     pipeline.sadd(setKey, key);
     // Set the tracking set TTL to match the longest-lived token (7 days + 1h buffer)
     pipeline.expire(setKey, expiry + 3600);
