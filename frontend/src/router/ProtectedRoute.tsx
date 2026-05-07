@@ -19,14 +19,17 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   // All hooks must be called unconditionally before any early return (Rules of Hooks)
   const shouldFetchUser = isAuthenticated && !user && !!accessToken;
+  // Also re-fetch /auth/me when Redux says onboarding incomplete — catches stale token after completion
+  const shouldVerifyOnboarding = isAuthenticated && !!user && user.onboardingComplete === false && !GATE_EXEMPT_ROLES.includes(user?.role || '');
   const { data: meData, isLoading, isError } = useGetMeQuery(undefined, {
-    skip: !shouldFetchUser || hydrating,
+    skip: (!shouldFetchUser && !shouldVerifyOnboarding) || hydrating,
   });
 
   const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
     if (meData?.data) {
+      // Always sync fresh /auth/me data into Redux — fixes stale onboardingComplete after completion
       dispatch(setUser(meData.data));
     }
   }, [meData, dispatch]);
@@ -74,13 +77,21 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     location.pathname === '/kyc-pending' ||
     location.pathname === '/profile';
 
+  // Use fresh /auth/me value when available to avoid acting on a stale token
+  const freshOnboardingComplete = meData?.data?.onboardingComplete;
+  const effectiveOnboardingComplete = freshOnboardingComplete !== undefined
+    ? freshOnboardingComplete
+    : user?.onboardingComplete;
+
   if (
     user &&
     !GATE_EXEMPT_ROLES.includes(user.role) &&
-    user.onboardingComplete === false &&
+    effectiveOnboardingComplete === false &&
     !user.exitAccess &&
     !isOnboardingExemptRoute
   ) {
+    // If we're still fetching fresh status, show skeleton rather than redirect prematurely
+    if (shouldVerifyOnboarding && isLoading) return <AppLoadingSkeleton />;
     return <Navigate to="/employee-onboarding" replace />;
   }
 

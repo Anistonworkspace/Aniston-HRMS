@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setUser } from '../auth/authSlice';
 import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnboardingMutation } from './onboardingApi';
-import { useGetMfaStatusQuery } from '../auth/authApi';
+import { useGetMfaStatusQuery, useGetMeQuery } from '../auth/authApi';
 import { MFASetupModal } from '../auth/MFASetupModal';
 import { useUploadDocumentMutation } from '../documents/documentApi';
 import PassportPhotoUploader from '../../components/ui/PassportPhotoUploader';
@@ -170,6 +170,7 @@ export default function NewOnboardingFlow() {
   const STEPS = getSteps(t);
 
   const { data: statusRes, isLoading, refetch } = useGetMyOnboardingStatusQuery();
+  const { refetch: refetchMe } = useGetMeQuery();
   const [saveStep, { isLoading: saving }] = useSaveMyStepMutation();
   const [completeOnboarding, { isLoading: completing }] = useCompleteMyOnboardingMutation();
 
@@ -201,9 +202,13 @@ export default function NewOnboardingFlow() {
   const handleComplete = async () => {
     try {
       await completeOnboarding().unwrap();
+      // Update Redux immediately so the route guard doesn't redirect back
       if (currentUser) {
         dispatch(setUser({ ...currentUser, onboardingComplete: true, profileComplete: true, kycCompleted: false }));
       }
+      // Refetch /auth/me so the stored user object has onboardingComplete:true
+      // — this ensures the next app open (even with a stale token) reads the correct value
+      try { await refetchMe(); } catch { /* non-blocking */ }
       setCompleted(true);
     } catch (err: any) {
       if (err?.status === 'FETCH_ERROR') {
@@ -211,6 +216,17 @@ export default function NewOnboardingFlow() {
       }
     }
   };
+
+  // If the live API says onboarding is already complete (stale token / re-open after submit),
+  // update Redux to match and redirect immediately — never show the wizard again.
+  if (!isLoading && status?.onboardingComplete === true && !completed) {
+    if (currentUser && !currentUser.onboardingComplete) {
+      dispatch(setUser({ ...currentUser, onboardingComplete: true, profileComplete: true }));
+    }
+    const nextRoute = currentUser?.kycCompleted === false ? '/kyc-pending' : '/dashboard';
+    navigate(nextRoute, { replace: true });
+    return null;
+  }
 
   if (isLoading) {
     return (

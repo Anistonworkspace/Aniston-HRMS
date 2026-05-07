@@ -558,6 +558,11 @@ export class OnboardingService {
     });
     if (!emp) throw new NotFoundError('Employee');
 
+    // Idempotency guard — already completed, return success without re-running side effects
+    if (emp.onboardingComplete === true) {
+      return { alreadyComplete: true, employeeId };
+    }
+
     // MFA is optional — employees can set it up after onboarding from their Profile page
 
     // Validate required employee-filled fields
