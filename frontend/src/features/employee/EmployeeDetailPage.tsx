@@ -1457,12 +1457,18 @@ function buildMonthGroups(fyYear: number, selectedMonth: number | null = null) {
     const current = new Date(weekStart);
 
     while (current <= lastDay) {
+      const weekMonday = new Date(current);
       const week: Date[] = [];
       for (let d = 0; d < 7; d++) {
         week.push(new Date(current));
         current.setDate(current.getDate() + 1);
       }
-      weeks.push(week);
+      // Only include this week if its Monday falls within the current month.
+      // This prevents the overlap where the same week (e.g. Mon Apr 27) gets
+      // added to both April's tail and May's head, causing label misalignment.
+      if (weekMonday.getMonth() === m) {
+        weeks.push(week);
+      }
     }
 
     groups.push({ month: m, label, calYear: actualYear, weeks });
