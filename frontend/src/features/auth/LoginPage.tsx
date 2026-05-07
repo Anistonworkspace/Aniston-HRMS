@@ -75,6 +75,13 @@ export default function LoginPage() {
         }
         dispatch(setCredentials({ user: result.data.user, accessToken: result.data.accessToken }));
         setShowForceLogin(false);
+        // Notify other same-origin tabs that this tab has re-authenticated via force-login
+        // so they don't mishandle the preceding logout broadcast as their own logout event
+        try {
+          const tabId = sessionStorage.getItem('aniston_tab_id') || Math.random().toString(36).slice(2);
+          sessionStorage.setItem('aniston_tab_id', tabId);
+          new BroadcastChannel('auth').postMessage({ type: 'force_login_complete', from: tabId, userId: result.data.user.id });
+        } catch {}
         toast.success(t('login.welcomeBack'));
         navigate('/dashboard');
       }

@@ -41,7 +41,15 @@ const authSlice = createSlice({
       state.accessToken = null;
       state.isAuthenticated = false;
       state.hydrating = false;
-      try { new BroadcastChannel('auth').postMessage('logout'); } catch {}
+      try {
+        // Tag with this tab's ID so other tabs can ignore their own broadcasts
+        let tabId = sessionStorage.getItem('aniston_tab_id');
+        if (!tabId) {
+          tabId = Math.random().toString(36).slice(2);
+          sessionStorage.setItem('aniston_tab_id', tabId);
+        }
+        new BroadcastChannel('auth').postMessage({ type: 'logout', from: tabId });
+      } catch {}
     },
   },
 });
