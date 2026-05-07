@@ -1,17 +1,19 @@
-import { Download, PenSquare, RefreshCw } from 'lucide-react';
+import { Download, Upload, PenSquare, RefreshCw } from 'lucide-react';
 
 interface ActionBarProps {
   selectedDate: string;
   onExport: () => void;
+  onImport?: () => void;
   onDetectAnomalies: () => void;
   onTabChange: (tab: string) => void;
   isDetecting?: boolean;
   onMarkManual?: () => void;
 }
 
-export default function ActionBar({ onExport, onDetectAnomalies, isDetecting, onMarkManual }: ActionBarProps) {
+export default function ActionBar({ onExport, onImport, onDetectAnomalies, isDetecting, onMarkManual }: ActionBarProps) {
   const actions = [
     { key: 'export',    label: 'Export',           icon: Download,  onClick: onExport,              loading: false },
+    { key: 'import',    label: 'Import',            icon: Upload,    onClick: () => onImport?.(),    loading: false },
     { key: 'manual',    label: 'Mark Manual',       icon: PenSquare, onClick: () => onMarkManual?.(), loading: false },
     { key: 'anomalies', label: isDetecting ? 'Detecting…' : 'Detect Anomalies', icon: RefreshCw, onClick: onDetectAnomalies, loading: !!isDetecting },
   ];

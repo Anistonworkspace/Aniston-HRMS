@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { attendanceController } from './attendance.controller.js';
 import { authenticate, requirePermission, authorize, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
@@ -7,6 +8,8 @@ import { storageService, StorageFolder } from '../../services/storage.service.js
 import { BadRequestError } from '../../middleware/errorHandler.js';
 import { compOffService } from './compoff.service.js';
 import { enqueueNotification, enqueueEmail } from '../../jobs/queues.js';
+
+const uploadExcelMemory = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -109,6 +112,14 @@ router.get(
   '/logs/:employeeId/:date',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   (req, res, next) => attendanceController.getAttendanceLogs(req, res, next)
+);
+
+// HR/Admin — Import attendance from Excel
+router.post(
+  '/import',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  uploadExcelMemory.single('file'),
+  (req, res, next) => attendanceController.importAttendance(req, res, next)
 );
 
 // HR/Admin — Export attendance as Excel

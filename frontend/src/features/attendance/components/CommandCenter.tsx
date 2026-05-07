@@ -20,6 +20,7 @@ import ShiftRotationCalendar from './ShiftRotationCalendar';
 import AnomalyDetectionPanel from './AnomalyDetectionPanel';
 import MarkManualModal from './MarkManualModal';
 import GeoLocationsTab from './GeoLocationsTab';
+import ImportAttendanceModal from './ImportAttendanceModal';
 import toast from 'react-hot-toast';
 import { useAuthDownload } from '../../../hooks/useAuthDownload';
 
@@ -42,6 +43,7 @@ export default function CommandCenter() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('today');
   const [showMarkManual, setShowMarkManual] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
@@ -157,6 +159,7 @@ export default function CommandCenter() {
         <ActionBar
           selectedDate={filters.date}
           onExport={handleExport}
+          onImport={() => setShowImport(true)}
           onDetectAnomalies={handleDetectAnomalies}
           onTabChange={(tab) => setActiveTab(tab as TabKey)}
           isDetecting={isDetecting}
@@ -245,6 +248,7 @@ export default function CommandCenter() {
       {activeTab === 'geo-locations' && <GeoLocationsTab />}
 
       <MarkManualModal isOpen={showMarkManual} onClose={() => setShowMarkManual(false)} defaultDate={filters.date} />
+      {showImport && <ImportAttendanceModal onClose={() => setShowImport(false)} />}
     </div>
   );
 }

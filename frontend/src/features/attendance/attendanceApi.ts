@@ -173,6 +173,14 @@ export const attendanceApi = api.injectEndpoints({
       invalidatesTags: ['Attendance', 'Payroll', 'Dashboard'],
     }),
 
+    importAttendance: builder.mutation<
+      { success: boolean; data: { processed: number; skipped: number; errors: string[] } },
+      FormData
+    >({
+      query: (formData) => ({ url: '/attendance/import', method: 'POST', body: formData }),
+      invalidatesTags: ['Attendance', 'Leave', 'LeaveBalance', 'Dashboard'],
+    }),
+
     getEmployeeGPSTrail: builder.query<any, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/attendance/gps-trail/${employeeId}/${date}`,
       // Specific tag per employee+date — avoids over-invalidating all Attendance cache
@@ -466,6 +474,7 @@ export const {
   useGetProjectSiteCheckInsQuery,
   useGetEmployeeAttendanceQuery,
   useMarkAttendanceMutation,
+  useImportAttendanceMutation,
   useGetEmployeeGPSTrailQuery,
   useGetAttendanceLogsQuery,
   useSendActivityPulseMutation,

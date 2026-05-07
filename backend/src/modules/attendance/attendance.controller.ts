@@ -429,6 +429,29 @@ export class AttendanceController {
       res.status(201).json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+
+  async importAttendance(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) {
+        res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No Excel file uploaded' } });
+        return;
+      }
+      const month = parseInt(req.body.month as string);
+      const year = parseInt(req.body.year as string);
+      if (!month || month < 1 || month > 12 || !year || year < 2000) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Valid month (1-12) and year are required' } });
+        return;
+      }
+      const result = await attendanceService.importFromExcel(
+        req.file.buffer,
+        month,
+        year,
+        req.user!.organizationId,
+        req.user!.userId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const attendanceController = new AttendanceController();
