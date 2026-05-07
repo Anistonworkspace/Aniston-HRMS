@@ -46,7 +46,12 @@ export default function DashboardPage() {
   const user = useAppSelector((state) => state.auth.user);
   const role = user?.role || '';
 
-  if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'HR') {
+  // HR role employee (real person with employeeId) on mobile sees the employee dashboard.
+  // Desktop HR, system HR account (no employeeId), SUPER_ADMIN, ADMIN see the admin dashboard.
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const isHRRoleEmployee = role === 'HR' && !!user?.employeeId && isMobile;
+
+  if ((role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'HR') && !isHRRoleEmployee) {
     return (
       <Suspense fallback={<SkeletonLoader variant="full-page" />}>
         <AdminDashboard />
