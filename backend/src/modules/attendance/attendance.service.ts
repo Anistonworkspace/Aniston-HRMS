@@ -3756,6 +3756,8 @@ export class AttendanceService {
 
   /**
    * Import attendance and leave data from the legacy monthly Excel sheet.
+   * This method is IDEMPOTENT — re-importing the same month fully replaces
+   * all previously imported data for that month.
    *
    * Excel format:
    *   Col A: Employee name (ignored)
@@ -3770,7 +3772,7 @@ export class AttendanceService {
    *   A(SL)    → ON_LEAVE + deduct 1 Sick Leave
    *   A(CL)    → ON_LEAVE + deduct 1 Casual Leave
    *   HD(CL)   → ON_LEAVE + deduct 0.5 Casual Leave
-   *   blank/~/- → skip
+   *   blank/~/- → skip (day not in sheet — no record created)
    */
   async importFromExcel(
     fileBuffer: Buffer,
@@ -3805,23 +3807,36 @@ export class AttendanceService {
 
     const daysInMonth = new Date(year, month, 0).getDate();
 
+    // Month date range for cleanup queries
+    const monthStart = new Date(Date.UTC(year, month - 1, 1));
+    const monthEnd   = new Date(Date.UTC(year, month - 1, daysInMonth));
+
     let processed = 0;
     let skipped = 0;
     const errors: string[] = [];
 
-    type LeaveEvent = { date: Date; days: number };
-    const leaveEvents = new Map<string, LeaveEvent[]>();
+    // ── PASS 1: Parse sheet, collect all valid rows ───────────────────────────
+    // key: employeeId, value: map of day→{status, leaveTypeId, leaveDays}
+    type DayEntry = { status: string; leaveTypeId: string | null; leaveDays: number; date: Date };
+    const empDays = new Map<string, DayEntry[]>();
+    // Track seen (empCode) to catch duplicate rows
+    const seenEmpCodes = new Set<string>();
 
     for (let rowNum = 2; rowNum <= sheet.rowCount; rowNum++) {
       const row = sheet.getRow(rowNum);
-      const rawEmpCode = row.getCell(2).text?.toString().trim();
 
-      if (!rawEmpCode || !rawEmpCode.toUpperCase().startsWith('EMP')) {
-        skipped++;
+      // Skip completely empty rows (trailing blank rows in Excel)
+      const empCell = row.getCell(2).text?.toString().trim();
+      if (!empCell) continue;
+
+      if (!empCell.toUpperCase().startsWith('EMP')) {
+        // Non-EMP code row (e.g. "3S2T03021") — skip silently, don't count
         continue;
       }
 
-      const empCode = rawEmpCode.toUpperCase();
+      const empCode = empCell.toUpperCase();
+
+      // Duplicate row — merge into existing (last value for same day wins)
       const employeeId = empMap.get(empCode);
       if (!employeeId) {
         skipped++;
@@ -3829,8 +3844,16 @@ export class AttendanceService {
         continue;
       }
 
+      if (!seenEmpCodes.has(empCode)) {
+        seenEmpCodes.add(empCode);
+        empDays.set(employeeId, []);
+        processed++;
+      }
+
+      const days = empDays.get(employeeId)!;
+
       for (let day = 1; day <= daysInMonth; day++) {
-        const colIndex = 4 + day; // col 5 = day 1
+        const colIndex = 4 + day; // col E = day 1 = index 5
         const raw = row.getCell(colIndex).text?.toString().trim().toUpperCase();
         if (!raw || raw === '' || raw === '~' || raw === '-' || raw === '--') continue;
 
@@ -3844,152 +3867,237 @@ export class AttendanceService {
           status = 'ABSENT';
         } else if (raw === 'A(SL)') {
           status = 'ON_LEAVE';
+          if (!slType) {
+            errors.push(`${empCode} day ${day}: Sick Leave type not configured — leave deduction skipped`);
+          }
           leaveTypeId = slType?.id ?? null;
-          leaveDays = 1;
+          leaveDays = slType ? 1 : 0;
         } else if (raw === 'A(CL)') {
           status = 'ON_LEAVE';
+          if (!clType) {
+            errors.push(`${empCode} day ${day}: Casual Leave type not configured — leave deduction skipped`);
+          }
           leaveTypeId = clType?.id ?? null;
-          leaveDays = 1;
+          leaveDays = clType ? 1 : 0;
         } else if (raw === 'HD(CL)') {
           status = 'ON_LEAVE';
+          if (!clType) {
+            errors.push(`${empCode} day ${day}: Casual Leave type not configured — leave deduction skipped`);
+          }
           leaveTypeId = clType?.id ?? null;
-          leaveDays = 0.5;
+          leaveDays = clType ? 0.5 : 0;
         } else {
+          // Unknown code — skip silently
           continue;
         }
 
         const date = new Date(Date.UTC(year, month - 1, day));
 
+        // Overwrite if same day appears from a duplicate row
+        const existingIdx = days.findIndex(d => d.date.getTime() === date.getTime());
+        const entry: DayEntry = { status, leaveTypeId, leaveDays, date };
+        if (existingIdx >= 0) {
+          days[existingIdx] = entry;
+        } else {
+          days.push(entry);
+        }
+      }
+    }
+
+    if (processed === 0) {
+      errors.push('No valid EMP-xxx rows found in the Excel file');
+      return { processed, skipped, errors };
+    }
+
+    // ── PASS 2: For each employee, reset then write ───────────────────────────
+    for (const [employeeId, days] of empDays.entries()) {
+      if (days.length === 0) continue;
+
+      try {
+        // Step A: Delete all existing attendance records for this employee in this month
+        // that were previously imported (source = MANUAL_HR). This ensures full override.
+        await prisma.attendanceRecord.deleteMany({
+          where: {
+            employeeId,
+            date: { gte: monthStart, lte: monthEnd },
+            source: 'MANUAL_HR' as any,
+          },
+        });
+
+        // Step B: Delete any existing imported LeaveRequests for this month
+        // (reason contains our import marker) so we don't accumulate duplicates
+        await (prisma.leaveRequest.deleteMany as any)({
+          where: {
+            employeeId,
+            startDate: { gte: monthStart },
+            endDate:   { lte: monthEnd },
+            reason: { contains: `Imported from legacy Excel attendance (${month}/${year})` },
+          },
+        });
+
+        // Step C: Reset leave balance previousUsed that was set by a prior import
+        // We do this by finding the LeaveAllocationLog entries we created last time
+        // and reversing them, then deleting the old logs.
+        const oldLogs = await prisma.leaveAllocationLog.findMany({
+          where: {
+            employeeId,
+            year,
+            allocationType: 'PREVIOUS_USED',
+            reason: { contains: `Excel import — ${month}/${year}` },
+          },
+          select: { id: true, leaveTypeId: true, days: true },
+        });
+
+        for (const log of oldLogs) {
+          const bal = await prisma.leaveBalance.findFirst({
+            where: { employeeId, leaveTypeId: log.leaveTypeId, year },
+          });
+          if (bal) {
+            const revertUsed = Math.max(0, Number(bal.used) - log.days);
+            const revertPrev = Math.max(0, Number((bal as any).previousUsed ?? 0) - log.days);
+            await prisma.leaveBalance.update({
+              where: { id: bal.id },
+              data: { used: revertUsed, previousUsed: revertPrev },
+            });
+          }
+          await prisma.leaveAllocationLog.delete({ where: { id: log.id } });
+        }
+      } catch (err: any) {
+        errors.push(`Reset failed for ${employeeId}: ${err.message}`);
+        continue;
+      }
+
+      // Step D: Write attendance records
+      for (const entry of days) {
         try {
           await prisma.attendanceRecord.upsert({
-            where: { employeeId_date: { employeeId, date } },
+            where: { employeeId_date: { employeeId, date: entry.date } },
             update: {
-              status: status as any,
+              status: entry.status as any,
               workMode: 'OFFICE' as any,
               source: 'MANUAL_HR' as any,
               notes: `Imported from Excel (${month}/${year})`,
             },
             create: {
               employeeId,
-              date,
-              status: status as any,
+              date: entry.date,
+              status: entry.status as any,
               workMode: 'OFFICE' as any,
               source: 'MANUAL_HR' as any,
               notes: `Imported from Excel (${month}/${year})`,
             },
           });
         } catch (err: any) {
-          errors.push(`${empCode} day ${day}: ${err.message}`);
-          continue;
-        }
-
-        if (leaveTypeId && leaveDays > 0) {
-          const key = `${employeeId}|${leaveTypeId}`;
-          if (!leaveEvents.has(key)) leaveEvents.set(key, []);
-          leaveEvents.get(key)!.push({ date, days: leaveDays });
+          errors.push(`${employeeId} day ${entry.date.getUTCDate()}: ${err.message}`);
         }
       }
 
-      processed++;
-    }
+      // Step E: Accumulate leave events per leave type, then update balances + create requests
+      type LeaveEvent = { date: Date; days: number };
+      const leaveByType = new Map<string, LeaveEvent[]>();
+      for (const entry of days) {
+        if (!entry.leaveTypeId || entry.leaveDays <= 0) continue;
+        if (!leaveByType.has(entry.leaveTypeId)) leaveByType.set(entry.leaveTypeId, []);
+        leaveByType.get(entry.leaveTypeId)!.push({ date: entry.date, days: entry.leaveDays });
+      }
 
-    // ── Update leave balances & create synthetic LeaveRequests ───────────────
-    for (const [key, events] of leaveEvents.entries()) {
-      const [employeeId, leaveTypeId] = key.split('|');
-      const totalDays = events.reduce((s, e) => s + e.days, 0);
-      const sortedDates = events.map(e => e.date).sort((a, b) => a.getTime() - b.getTime());
+      for (const [leaveTypeId, events] of leaveByType.entries()) {
+        const totalDays = events.reduce((s, e) => s + e.days, 0);
+        const sortedDates = events.map(e => e.date).sort((a, b) => a.getTime() - b.getTime());
 
-      try {
-        const emp = await prisma.employee.findUnique({
-          where: { id: employeeId },
-          select: { organizationId: true },
-        });
-        if (!emp) continue;
-
-        const existing = await prisma.leaveBalance.findFirst({
-          where: { employeeId, leaveTypeId, year },
-        });
-
-        if (existing) {
-          await prisma.leaveBalance.update({
-            where: { id: existing.id },
-            data: {
-              used: { increment: totalDays },
-              previousUsed: { increment: totalDays },
-            },
+        try {
+          const emp = await prisma.employee.findUnique({
+            where: { id: employeeId },
+            select: { organizationId: true },
           });
-        } else {
-          const lt = leaveTypes.find(l => l.id === leaveTypeId);
-          const defaultAlloc = Number(lt?.defaultBalance ?? 0);
-          await prisma.leaveBalance.create({
+          if (!emp) continue;
+
+          const existing = await prisma.leaveBalance.findFirst({
+            where: { employeeId, leaveTypeId, year },
+          });
+
+          if (existing) {
+            await prisma.leaveBalance.update({
+              where: { id: existing.id },
+              data: {
+                used: { increment: totalDays },
+                previousUsed: { increment: totalDays },
+              },
+            });
+          } else {
+            const lt = leaveTypes.find(l => l.id === leaveTypeId);
+            const defaultAlloc = Number(lt?.defaultBalance ?? 0);
+            await prisma.leaveBalance.create({
+              data: {
+                employeeId,
+                leaveTypeId,
+                year,
+                organizationId: emp.organizationId,
+                policyAllocated: defaultAlloc,
+                manualAdjustment: 0,
+                previousUsed: totalDays,
+                allocated: defaultAlloc,
+                used: totalDays,
+                pending: 0,
+                carriedForward: 0,
+              },
+            });
+          }
+
+          // Audit log for this import
+          await prisma.leaveAllocationLog.create({
             data: {
               employeeId,
               leaveTypeId,
               year,
+              allocationType: 'PREVIOUS_USED',
+              days: totalDays,
+              reason: `Excel import — ${month}/${year}`,
+              changedBy: importedBy,
               organizationId: emp.organizationId,
-              policyAllocated: defaultAlloc,
-              manualAdjustment: 0,
-              previousUsed: totalDays,
-              allocated: defaultAlloc,
-              used: totalDays,
-              pending: 0,
-              carriedForward: 0,
             },
           });
-        }
 
-        await prisma.leaveAllocationLog.create({
-          data: {
-            employeeId,
-            leaveTypeId,
-            year,
-            allocationType: 'PREVIOUS_USED',
-            days: totalDays,
-            reason: `Excel import — ${month}/${year}`,
-            changedBy: importedBy,
-            organizationId: emp.organizationId,
-          },
-        });
+          // Group consecutive dates into LeaveRequest runs
+          const runs: Array<{ start: Date; end: Date; days: number }> = [];
+          let runStart = sortedDates[0];
+          let runEnd = sortedDates[0];
+          let runDays = events.find(e => e.date.getTime() === sortedDates[0].getTime())?.days ?? 1;
 
-        // Group consecutive dates into LeaveRequest runs
-        const runs: Array<{ start: Date; end: Date; days: number }> = [];
-        let runStart = sortedDates[0];
-        let runEnd = sortedDates[0];
-        let runDays = events.find(e => e.date.getTime() === sortedDates[0].getTime())?.days ?? 1;
-
-        for (let i = 1; i < sortedDates.length; i++) {
-          const prev = sortedDates[i - 1];
-          const curr = sortedDates[i];
-          const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
-          const dayDays = events.find(e => e.date.getTime() === curr.getTime())?.days ?? 1;
-          if (diffDays <= 1) {
-            runEnd = curr;
-            runDays += dayDays;
-          } else {
-            runs.push({ start: runStart, end: runEnd, days: runDays });
-            runStart = curr; runEnd = curr; runDays = dayDays;
+          for (let i = 1; i < sortedDates.length; i++) {
+            const prev = sortedDates[i - 1];
+            const curr = sortedDates[i];
+            const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+            const dayDays = events.find(e => e.date.getTime() === curr.getTime())?.days ?? 1;
+            if (diffDays <= 1) {
+              runEnd = curr;
+              runDays += dayDays;
+            } else {
+              runs.push({ start: runStart, end: runEnd, days: runDays });
+              runStart = curr; runEnd = curr; runDays = dayDays;
+            }
           }
-        }
-        runs.push({ start: runStart, end: runEnd, days: runDays });
+          runs.push({ start: runStart, end: runEnd, days: runDays });
 
-        for (const run of runs) {
-          await (prisma.leaveRequest.create as any)({
-            data: {
-              employeeId,
-              leaveTypeId,
-              startDate: run.start,
-              endDate: run.end,
-              days: run.days,
-              isHalfDay: run.days < 1,
-              reason: `Imported from legacy Excel attendance (${month}/${year})`,
-              status: 'APPROVED',
-              paidDays: run.days,
-              unpaidDays: 0,
-            },
-          });
+          for (const run of runs) {
+            await (prisma.leaveRequest.create as any)({
+              data: {
+                employeeId,
+                leaveTypeId,
+                startDate: run.start,
+                endDate: run.end,
+                days: run.days,
+                isHalfDay: run.days < 1,
+                reason: `Imported from legacy Excel attendance (${month}/${year})`,
+                status: 'APPROVED',
+                paidDays: run.days,
+                unpaidDays: 0,
+              },
+            });
+          }
+        } catch (err: any) {
+          errors.push(`Leave update failed for ${employeeId}: ${err.message}`);
         }
-      } catch (err: any) {
-        errors.push(`Leave update failed for ${employeeId}: ${err.message}`);
       }
     }
 
