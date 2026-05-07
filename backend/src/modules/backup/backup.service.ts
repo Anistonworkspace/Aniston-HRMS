@@ -352,81 +352,50 @@ export class BackupService {
     conn: ReturnType<typeof parseDatabaseUrl>,
     outputGzPath: string
   ): Promise<void> {
-    // For docker exec: write PGPASSWORD to a temp file so it doesn't appear in `ps aux`
-    let envFilePath: string | null = null;
+    const tmpSqlPath = path.join(os.tmpdir(), `pgdump-${process.pid}-${Date.now()}.sql`);
 
     try {
-      const env = { ...process.env, PGPASSWORD: conn.password };
-
-      const pgDumpArgs = [
-        '--host', conn.host,
-        '--port', conn.port,
-        '--username', conn.user,
-        '--dbname', conn.database,
-        '--format', 'plain',
-        '--no-password',
-        '--verbose',
-      ];
-
-      // Build the actual spawn command: local binary OR docker exec
-      let cmd: string;
-      let args: string[];
       if (src.method === 'local') {
-        cmd = src.path;
-        args = pgDumpArgs;
+        // Local binary: dump to a temp SQL file first, then gzip it.
+        // Avoids stdout pipe hang that occurs when the local pg_dump build
+        // differs from the server's Alpine build (Ubuntu vs Alpine libc).
+        const env = { ...process.env, PGPASSWORD: conn.password };
+        execSync(
+          `"${src.path}" --host=${conn.host} --port=${conn.port} --username=${conn.user} --dbname=${conn.database} --format=plain --no-password -f "${tmpSqlPath}"`,
+          { env, timeout: 15 * 60 * 1000, stdio: ['pipe', 'pipe', 'pipe'] }
+        );
       } else {
-        // Write PGPASSWORD to a temp env file — avoids password appearing in `ps aux`
-        envFilePath = path.join(os.tmpdir(), `pgpass-dump-${process.pid}-${Date.now()}.env`);
-        fs.writeFileSync(envFilePath, `PGPASSWORD=${conn.password}\n`, { mode: 0o600 });
-        cmd = src.dockerPath;
-        args = ['exec', '--env-file', envFilePath, src.container, 'pg_dump', ...pgDumpArgs];
+        // Docker: dump to a file INSIDE the container, then docker cp it out.
+        // Streaming stdout via docker exec hangs reliably on this setup.
+        const containerTmpPath = `/tmp/pgdump-${process.pid}-${Date.now()}.sql`;
+        try {
+          execSync(
+            `"${src.dockerPath}" exec -e PGPASSWORD=${conn.password} ${src.container} pg_dump --host=localhost --port=${conn.port} --username=${conn.user} --dbname=${conn.database} --format=plain --no-password -f ${containerTmpPath}`,
+            { timeout: 15 * 60 * 1000, stdio: ['pipe', 'pipe', 'pipe'] }
+          );
+          execSync(
+            `"${src.dockerPath}" cp ${src.container}:${containerTmpPath} "${tmpSqlPath}"`,
+            { timeout: 60 * 1000, stdio: ['pipe', 'pipe', 'pipe'] }
+          );
+        } finally {
+          try {
+            execSync(`"${src.dockerPath}" exec ${src.container} rm -f ${containerTmpPath}`, { timeout: 10000, stdio: 'pipe' });
+          } catch { /* ignore cleanup error */ }
+        }
       }
 
+      // Gzip the SQL file into the final output path
       await new Promise<void>((resolve, reject) => {
-        let resolved = false;
-        const done = (err?: Error) => {
-          if (resolved) return;
-          resolved = true;
-          if (err) reject(err);
-          else resolve();
-        };
-
-        const pgDump = spawn(cmd, args, { env });
+        const input = fs.createReadStream(tmpSqlPath);
         const gzip = createGzip({ level: 6 });
         const output = fs.createWriteStream(outputGzPath);
-        pgDump.stdout.pipe(gzip).pipe(output);
-
-        const stderrChunks: Buffer[] = [];
-        pgDump.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-
-        // Resolve once the output file is fully written
-        output.on('finish', () => done());
-        output.on('error', (err) => done(err));
-
-        pgDump.on('close', (code) => {
-          if (code !== 0) {
-            const errMsg = Buffer.concat(stderrChunks).toString().slice(0, 500);
-            done(new Error(`pg_dump exited with code ${code}: ${errMsg || 'No error details available'}`));
-          }
-          // If code=0, the stream finish event will resolve — don't resolve here to avoid races
-        });
-
-        pgDump.on('error', (err) => {
-          done(new Error(`pg_dump spawn failed: ${err.message}. Ensure ${src.method === 'docker' ? 'Docker is running and container "' + src.container + '" is up' : 'pg_dump is installed and accessible'}.`));
-        });
-
-        // Safety timeout: 15 minutes max for a backup
-        const timeout = setTimeout(() => {
-          done(new Error('pg_dump timed out after 15 minutes. The database may be too large or unreachable.'));
-          try { pgDump.kill(); } catch { /* ignore */ }
-        }, 15 * 60 * 1000);
-        output.on('finish', () => clearTimeout(timeout));
-        output.on('error', () => clearTimeout(timeout));
+        input.pipe(gzip).pipe(output);
+        output.on('finish', resolve);
+        output.on('error', reject);
+        input.on('error', reject);
       });
     } finally {
-      if (envFilePath) {
-        try { fs.unlinkSync(envFilePath); } catch { /* ignore */ }
-      }
+      try { if (fs.existsSync(tmpSqlPath)) fs.unlinkSync(tmpSqlPath); } catch { /* ignore */ }
     }
   }
 
