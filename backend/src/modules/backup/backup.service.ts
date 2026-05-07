@@ -119,8 +119,15 @@ type PgToolSource =
   | { method: 'docker'; dockerPath: string; container: string };
 
 export function resolvePgDump(): PgToolSource | null {
-  const local = findPgDump();
-  if (local) return { method: 'local', path: local };
+  // BACKUP_USE_DOCKER=true forces Docker exec even when local pg_dump exists.
+  // Required when local pg_dump build (Ubuntu) mismatches the server build (Alpine),
+  // which causes "dumpBaseType" errors.
+  const forceDocker = process.env.BACKUP_USE_DOCKER === 'true';
+
+  if (!forceDocker) {
+    const local = findPgDump();
+    if (local) return { method: 'local', path: local };
+  }
 
   const docker = findDocker();
   if (docker) return { method: 'docker', dockerPath: docker, container: getDockerContainerName() };
@@ -129,8 +136,12 @@ export function resolvePgDump(): PgToolSource | null {
 }
 
 export function resolvePsql(): PgToolSource | null {
-  const local = findPsql();
-  if (local) return { method: 'local', path: local };
+  const forceDocker = process.env.BACKUP_USE_DOCKER === 'true';
+
+  if (!forceDocker) {
+    const local = findPsql();
+    if (local) return { method: 'local', path: local };
+  }
 
   const docker = findDocker();
   if (docker) return { method: 'docker', dockerPath: docker, container: getDockerContainerName() };
