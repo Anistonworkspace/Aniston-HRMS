@@ -25,8 +25,10 @@ vi.mock('../lib/prisma.js', () => ({
     },
     deviceSession: {
       findUnique: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
       upsert: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     userMFA: {
       findUnique: vi.fn(),
@@ -37,17 +39,32 @@ vi.mock('../lib/prisma.js', () => ({
   },
 }));
 
+// Build a reusable pipeline mock factory so each redis.pipeline() call returns
+// a fresh chainable object whose exec() resolves to [].
+const makePipelineMock = () => {
+  const p: Record<string, any> = {};
+  p.setex = vi.fn().mockReturnValue(p);
+  p.sadd  = vi.fn().mockReturnValue(p);
+  p.expire = vi.fn().mockReturnValue(p);
+  p.del   = vi.fn().mockReturnValue(p);
+  p.exec  = vi.fn().mockResolvedValue([]);
+  return p;
+};
+
 vi.mock('../lib/redis.js', () => ({
   redis: {
     get: vi.fn(),
     set: vi.fn().mockResolvedValue('OK'),
     setex: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
+    srem: vi.fn().mockResolvedValue(1),
+    smembers: vi.fn().mockResolvedValue([]),
     scan: vi.fn().mockResolvedValue(['0', []]),
     ping: vi.fn().mockResolvedValue('PONG'),
     incr: vi.fn().mockResolvedValue(1),
     expire: vi.fn().mockResolvedValue(1),
     on: vi.fn(),
+    pipeline: vi.fn().mockImplementation(makePipelineMock),
   },
 }));
 
@@ -138,9 +155,14 @@ describe('AuthService', () => {
     vi.mocked(prisma.auditLog.create).mockResolvedValue({ id: 'audit-id' } as any);
     vi.mocked(redis.setex).mockResolvedValue('OK' as any);
     vi.mocked(redis.del).mockResolvedValue(1 as any);
+    vi.mocked(redis.srem).mockResolvedValue(1 as any);
+    vi.mocked(redis.smembers).mockResolvedValue([] as any);
     vi.mocked(redis.scan).mockResolvedValue(['0', []] as any);
+    vi.mocked(redis.pipeline).mockImplementation(makePipelineMock as any);
     vi.mocked(prisma.userMFA.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.deviceSession.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.deviceSession.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.deviceSession.updateMany).mockResolvedValue({ count: 0 } as any);
     // bcrypt defaults — tests that need specific behavior override these
     vi.mocked(bcrypt.compare).mockResolvedValue(false as any);
     vi.mocked(bcrypt.hash).mockResolvedValue('$2a$12$mocked-hash' as any);
@@ -246,7 +268,7 @@ describe('AuthService', () => {
       );
     });
 
-    it('stores the refresh token in Redis with a 7-day TTL', async () => {
+    it('stores the refresh token in Redis via pipeline with a 7-day TTL', async () => {
       const mockUser = makeActiveUser();
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockUser as any);
       vi.mocked(prisma.userMFA.findUnique).mockResolvedValueOnce(null);
@@ -256,8 +278,10 @@ describe('AuthService', () => {
 
       await service.login('employee@aniston.com', 'password123');
 
-      // The refresh token should have been stored in Redis
-      expect(redis.setex).toHaveBeenCalledWith(
+      // generateRefreshToken uses redis.pipeline() — verify pipeline was created and setex called
+      expect(redis.pipeline).toHaveBeenCalled();
+      const pipelineMock = vi.mocked(redis.pipeline).mock.results[0].value;
+      expect(pipelineMock.setex).toHaveBeenCalledWith(
         expect.stringMatching(/^refresh_token:/),
         7 * 24 * 60 * 60,
         'user-001'
@@ -437,14 +461,17 @@ describe('AuthService', () => {
         employee: { id: 'emp-001' },
       } as any);
 
-      // Simulate one stale token found during SCAN
-      vi.mocked(redis.scan).mockResolvedValueOnce(['0', ['refresh_token:old-token-xyz']] as any);
-      vi.mocked(redis.get).mockResolvedValueOnce('user-001'); // matches current user
+      // Simulate one stale token found in the user-scoped tracking set
+      vi.mocked(redis.smembers).mockResolvedValueOnce(['refresh_token:old-token-xyz'] as any);
 
       await service.changePassword('user-001', 'currentPass', 'newPass@456');
 
-      // The old token in Redis must be deleted
-      expect(redis.del).toHaveBeenCalledWith('refresh_token:old-token-xyz');
+      // revokeAllUserTokens must read the user-scoped set
+      expect(redis.smembers).toHaveBeenCalledWith('refresh_token_set:user-001');
+      // The old token key and the set itself must be deleted via pipeline
+      const pipelineMock = vi.mocked(redis.pipeline).mock.results[0].value;
+      expect(pipelineMock.del).toHaveBeenCalledWith('refresh_token:old-token-xyz');
+      expect(pipelineMock.del).toHaveBeenCalledWith('refresh_token_set:user-001');
     });
   });
 
@@ -488,20 +515,29 @@ describe('AuthService', () => {
 
   describe('generateRefreshToken', () => {
     it('returns a non-empty string token', async () => {
-      vi.mocked(redis.setex).mockResolvedValueOnce('OK' as any);
       const token = await service.generateRefreshToken('user-001');
       expect(typeof token).toBe('string');
       expect(token.length).toBeGreaterThan(10);
     });
 
-    it('stores the token in Redis with correct TTL and userId', async () => {
-      vi.mocked(redis.setex).mockResolvedValueOnce('OK' as any);
+    it('stores the token in Redis via pipeline with correct TTL and userId', async () => {
       const token = await service.generateRefreshToken('user-xyz');
-      expect(redis.setex).toHaveBeenCalledWith(
+      // New implementation uses redis.pipeline() — verify pipeline was created
+      expect(redis.pipeline).toHaveBeenCalled();
+      // The pipeline mock captures calls on the returned object — get it
+      const pipelineMock = vi.mocked(redis.pipeline).mock.results[0].value;
+      // setex must have been called with the token key, 7-day TTL, and userId
+      expect(pipelineMock.setex).toHaveBeenCalledWith(
         `refresh_token:${token}`,
         7 * 24 * 60 * 60,
         'user-xyz'
       );
+      // sadd must register the key in the user-scoped tracking set
+      expect(pipelineMock.sadd).toHaveBeenCalledWith(
+        `refresh_token_set:user-xyz`,
+        `refresh_token:${token}`
+      );
+      expect(pipelineMock.exec).toHaveBeenCalled();
     });
   });
 });
