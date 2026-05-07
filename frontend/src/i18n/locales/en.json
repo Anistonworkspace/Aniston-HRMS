@@ -157,12 +157,16 @@
     "sendResetLink": "Send Reset Link",
     "done": "Done",
     "tooManyAttempts": "Too many login attempts. Please wait 15 minutes and try again.",
+    "forceLoginRateLimited": "Too many device-switch attempts. Please wait 10 minutes and try again.",
     "serverError": "Server error. Please try again in a few moments or contact your administrator.",
     "connectionError": "Unable to connect to the server. Please check your internet connection and try again.",
     "loginFailedGeneric": "Login failed. Please check your credentials and try again.",
     "sessionExpiredInactivity": "Your session expired due to inactivity. Please sign in again.",
     "sessionExpired": "Your session has expired. Please sign in again.",
-    "needToSignIn": "You need to sign in to access that page."
+    "sessionRevoked": "You were signed out because your account was logged in from another device.",
+    "needToSignIn": "You need to sign in to access that page.",
+    "accountInactive": "Your account is inactive. Please contact your administrator.",
+    "mfaExpired": "Your MFA session expired. Please log in again."
   },
 
   "dashboard": {

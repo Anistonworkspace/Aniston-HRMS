@@ -12,7 +12,6 @@ import { logger } from '../../lib/logger.js';
 
 const REFRESH_TOKEN_PREFIX = 'refresh_token:';
 const RESET_TOKEN_PREFIX = 'reset_token:';
-const FORCE_LOGIN_RATE_KEY = (userId: string) => `force_login_attempts:${userId}`;
 
 export class AuthService {
   async login(email: string, password: string, deviceInfo?: { deviceId?: string; deviceType?: string; userAgent?: string; forceLogin?: boolean }) {
@@ -67,15 +66,6 @@ export class AuthService {
             `Your account is already active on another ${deviceType}. ` +
             `Click "Login on this device" to log out the other device automatically.`
           );
-        }
-        // Gap 5: Rate-limit force-login attempts — max 3 per 10 minutes per userId
-        const forceLoginKey = FORCE_LOGIN_RATE_KEY(user.id);
-        const forceLoginCount = await redis.incr(forceLoginKey);
-        if (forceLoginCount === 1) {
-          await redis.expire(forceLoginKey, 600); // 10-minute window
-        }
-        if (forceLoginCount > 3) {
-          throw new UnauthorizedError('Too many force-login attempts. Please try again in 10 minutes.');
         }
         // forceLogin=true — deactivate old session and immediately revoke it
         const oldDeviceId = existingSession.deviceId;

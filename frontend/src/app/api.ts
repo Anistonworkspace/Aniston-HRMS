@@ -37,22 +37,19 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
     // Session revoked by force-login from another device — logout immediately, no refresh
     const errCode = (result.error.data as any)?.error?.code;
     if (errCode === 'SESSION_REVOKED') {
-      // Guard: only logout if the current access token in state is the same one that
-      // triggered this request. If a force-login already replaced it with a fresh token,
-      // this is a stale in-flight response from the old session — ignore it.
-      const currentToken = (api.getState() as RootState).auth.accessToken;
-      const requestToken = typeof args === 'object' && args !== null && !Array.isArray(args)
-        ? undefined // RTK Query injects the token via prepareHeaders, not in args
-        : undefined;
-      // If the user is still authenticated (fresh token set by force-login), don't logout
       const isAuthenticated = (api.getState() as RootState).auth.isAuthenticated;
+      const currentToken = (api.getState() as RootState).auth.accessToken;
       if (!isAuthenticated || !currentToken) {
-        // Already logged out or no token — safe to proceed with logout dispatch
-        if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');
-        api.dispatch({ type: 'auth/logout' });
+        // Already logged out — silently drop
+        return { data: undefined };
       }
-      // If authenticated with a fresh token, silently drop this stale SESSION_REVOKED error
-      return result;
+      // Mark reason in Redux so LoginPage can show the right toast after redirect
+      api.dispatch({ type: 'auth/setSessionEndReason', payload: 'SESSION_REVOKED' });
+      if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');
+      api.dispatch({ type: 'auth/logout' });
+      // Suppress the error result entirely — component must not render an error message
+      // while the redirect to /login is in flight
+      return { data: undefined };
     }
     // Use mutex to prevent parallel refresh requests
     if (!refreshPromise) {

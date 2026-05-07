@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, Loader2, Users, BarChart3, Shield, Clock, X, Mail, Globe, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { useLoginMutation, useForgotPasswordMutation, useVerifyMfaMutation } from './authApi';
-import { setCredentials } from './authSlice';
+import { setCredentials, clearSessionEndReason } from './authSlice';
 import { useAppDispatch, useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
@@ -31,6 +31,7 @@ export default function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const isAuthenticated = useAppSelector((state: any) => state.auth.isAuthenticated);
+  const sessionEndReason = useAppSelector((state: any) => state.auth.sessionEndReason);
 
   const currentLang = i18n.language?.startsWith('hi') ? 'hi' : 'en';
   const toggleLanguage = () => i18n.changeLanguage(currentLang === 'en' ? 'hi' : 'en');
@@ -39,11 +40,21 @@ export default function LoginPage() {
     if (isAuthenticated) navigate('/dashboard', { replace: true });
   }, [isAuthenticated, navigate]);
 
+  // Show toast and inline error for the reason the session ended (set by api.ts or ProtectedRoute)
+  useEffect(() => {
+    if (sessionEndReason === 'SESSION_REVOKED') {
+      const msg = t('login.sessionRevoked');
+      toast.error(msg, { duration: 8000 });
+      setLoginError(msg);
+      dispatch(clearSessionEndReason());
+    }
+  }, [sessionEndReason, t, dispatch]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const reason = params.get('reason');
     if (reason === 'inactivity') setLoginError(t('login.sessionExpiredInactivity'));
-    else if (reason === 'session_revoked') setLoginError('You were signed out because your account was logged in from another device.');
+    else if (reason === 'session_revoked') setLoginError(t('login.sessionRevoked'));
     else if (reason === 'session_expired') setLoginError(t('login.sessionExpired'));
     else if (reason === 'unauthorized') setLoginError(t('login.needToSignIn'));
   }, [t]);
@@ -102,8 +113,18 @@ export default function LoginPage() {
         return;
       }
 
+      // Force-login rate limit — close the panel, show prominent toast + inline message
+      if (serverMsg?.toLowerCase().includes('too many force-login') || serverMsg?.toLowerCase().includes('force-login attempts')) {
+        const msg = t('login.forceLoginRateLimited');
+        toast.error(msg, { duration: 7000 });
+        setLoginError(msg);
+        setShowForceLogin(false);
+        return;
+      }
+
       let displayMessage: string;
       if (status === 429 || code === 'RATE_LIMIT_EXCEEDED') displayMessage = t('login.tooManyAttempts');
+      else if (status === 401 && serverMsg?.toLowerCase().includes('inactive')) displayMessage = t('login.accountInactive');
       else if (status === 401 && serverMsg) displayMessage = serverMsg;
       else if (status === 500) displayMessage = t('login.serverError');
       else if (status === 0 || !status) displayMessage = t('login.connectionError');
@@ -163,8 +184,17 @@ export default function LoginPage() {
         navigate('/dashboard');
       }
     } catch (err: unknown) {
-      const apiErr = err as { data?: { error?: { message?: string } } };
-      setMfaError(apiErr?.data?.error?.message || 'Invalid code. Try again.');
+      const apiErr = err as { status?: number; data?: { error?: { message?: string } } };
+      const errMsg = apiErr?.data?.error?.message || '';
+      // Temp token expired (5-minute window) — send user back to password screen
+      if (apiErr?.status === 401 && (errMsg.includes('Session expired') || errMsg.includes('expired'))) {
+        setMfaTempToken(null);
+        setMfaCode(['', '', '', '', '', '']);
+        setMfaError('');
+        toast.error(t('login.mfaExpired'), { duration: 6000 });
+        return;
+      }
+      setMfaError(errMsg || 'Invalid code. Try again.');
       if (!useBackupCode) {
         setMfaCode(['', '', '', '', '', '']);
         setTimeout(() => mfaInputRefs.current[0]?.focus(), 50);
@@ -181,9 +211,6 @@ export default function LoginPage() {
     setIsForceLogging(true);
     try {
       await doLogin(true);
-    } catch {
-      toast.error(t('login.loginFailedGeneric'));
-      setShowForceLogin(true);
     } finally {
       setIsForceLogging(false);
     }

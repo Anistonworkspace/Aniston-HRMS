@@ -16,6 +16,21 @@ process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
 process.env.FRONTEND_URL = 'http://localhost:5173';
 process.env.NODE_ENV = 'test';
 
+// ── vi.hoisted — runs BEFORE vi.mock factories, safe to reference inside them ──
+// This is the correct Vitest pattern for shared helpers used inside vi.mock().
+const { makePipelineMock } = vi.hoisted(() => {
+  const makePipelineMock = () => {
+    const p: Record<string, any> = {};
+    p.setex = vi.fn().mockReturnValue(p);
+    p.sadd  = vi.fn().mockReturnValue(p);
+    p.expire = vi.fn().mockReturnValue(p);
+    p.del   = vi.fn().mockReturnValue(p);
+    p.exec  = vi.fn().mockResolvedValue([]);
+    return p;
+  };
+  return { makePipelineMock };
+});
+
 // ── Mocks ────────────────────────────────────────────────────────────────────
 vi.mock('../lib/prisma.js', () => ({
   prisma: {
@@ -39,48 +54,22 @@ vi.mock('../lib/prisma.js', () => ({
   },
 }));
 
-// Build a reusable pipeline mock factory.
-// Declared as a `function` so it is hoisted above vi.mock() calls by Vitest.
-function makePipelineMock() {
-  const p: Record<string, any> = {};
-  p.setex = vi.fn().mockReturnValue(p);
-  p.sadd  = vi.fn().mockReturnValue(p);
-  p.expire = vi.fn().mockReturnValue(p);
-  p.del   = vi.fn().mockReturnValue(p);
-  p.exec  = vi.fn().mockResolvedValue([]);
-  return p;
-}
-
-vi.mock('../lib/redis.js', () => {
-  // Inline factory — must not reference module-level `const` (hoisting issue).
-  // Re-declare inline to be safe; the module-level `function makePipelineMock` above
-  // handles the test-body usage.
-  const _mkPipeline = () => {
-    const p: Record<string, any> = {};
-    p.setex = vi.fn().mockReturnValue(p);
-    p.sadd  = vi.fn().mockReturnValue(p);
-    p.expire = vi.fn().mockReturnValue(p);
-    p.del   = vi.fn().mockReturnValue(p);
-    p.exec  = vi.fn().mockResolvedValue([]);
-    return p;
-  };
-  return {
-    redis: {
-      get: vi.fn(),
-      set: vi.fn().mockResolvedValue('OK'),
-      setex: vi.fn().mockResolvedValue('OK'),
-      del: vi.fn().mockResolvedValue(1),
-      srem: vi.fn().mockResolvedValue(1),
-      smembers: vi.fn().mockResolvedValue([]),
-      scan: vi.fn().mockResolvedValue(['0', []]),
-      ping: vi.fn().mockResolvedValue('PONG'),
-      incr: vi.fn().mockResolvedValue(1),
-      expire: vi.fn().mockResolvedValue(1),
-      on: vi.fn(),
-      pipeline: vi.fn().mockImplementation(_mkPipeline),
-    },
-  };
-});
+vi.mock('../lib/redis.js', () => ({
+  redis: {
+    get: vi.fn(),
+    set: vi.fn().mockResolvedValue('OK'),
+    setex: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+    srem: vi.fn().mockResolvedValue(1),
+    smembers: vi.fn().mockResolvedValue([]),
+    scan: vi.fn().mockResolvedValue(['0', []]),
+    ping: vi.fn().mockResolvedValue('PONG'),
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+    on: vi.fn(),
+    pipeline: vi.fn().mockImplementation(makePipelineMock),
+  },
+}));
 
 vi.mock('../lib/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -264,24 +253,6 @@ describe('AuthService', () => {
       // accessToken must be empty string (not a real token) when MFA is pending
       expect(result.accessToken).toBe('');
       expect(result.refreshToken).toBe('');
-    });
-
-    it('throws UnauthorizedError when force-login rate limit exceeded (>3 attempts)', async () => {
-      const mockUser = makeActiveUser();
-      const existingSession = { deviceId: 'old-device', deviceType: 'desktop', isActive: true };
-      vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(mockUser as any);
-      vi.mocked(bcrypt.compare).mockResolvedValueOnce(true as any);
-      vi.mocked(prisma.deviceSession.findUnique).mockResolvedValueOnce(existingSession as any);
-      // incr returns 4 — exceeds the 3-attempt limit
-      vi.mocked(redis.incr).mockResolvedValueOnce(4 as any);
-
-      await expect(
-        service.login('employee@aniston.com', 'password123', {
-          deviceId: 'new-device',
-          deviceType: 'desktop',
-          forceLogin: true,
-        })
-      ).rejects.toThrow('Too many force-login attempts');
     });
 
     it('sets lastLoginAt after a successful login', async () => {

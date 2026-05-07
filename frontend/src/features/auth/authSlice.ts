@@ -7,6 +7,8 @@ interface AuthState {
   isAuthenticated: boolean;
   /** True while the app silently attempts to restore session via refresh token cookie on startup */
   hydrating: boolean;
+  /** Reason the session ended — read by LoginPage on mount to show a toast, then cleared */
+  sessionEndReason: 'SESSION_REVOKED' | null;
 }
 
 const initialState: AuthState = {
@@ -14,6 +16,7 @@ const initialState: AuthState = {
   accessToken: null,
   isAuthenticated: false,
   hydrating: true,
+  sessionEndReason: null,
 };
 
 const authSlice = createSlice({
@@ -51,8 +54,14 @@ const authSlice = createSlice({
         new BroadcastChannel('auth').postMessage({ type: 'logout', from: tabId });
       } catch {}
     },
+    setSessionEndReason(state, action: PayloadAction<'SESSION_REVOKED' | null>) {
+      state.sessionEndReason = action.payload;
+    },
+    clearSessionEndReason(state) {
+      state.sessionEndReason = null;
+    },
   },
 });
 
-export const { setCredentials, setAccessToken, setUser, setHydrated, logout } = authSlice.actions;
+export const { setCredentials, setAccessToken, setUser, setHydrated, logout, setSessionEndReason, clearSessionEndReason } = authSlice.actions;
 export default authSlice.reducer;

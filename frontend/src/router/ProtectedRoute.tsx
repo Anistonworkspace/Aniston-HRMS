@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../app/store';
 import { useGetMeQuery } from '../features/auth/authApi';
-import { setUser, logout } from '../features/auth/authSlice';
+import { setUser, logout, setSessionEndReason } from '../features/auth/authSlice';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -21,7 +21,7 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   const shouldFetchUser = isAuthenticated && !user && !!accessToken;
   // Also re-fetch /auth/me when Redux says onboarding incomplete — catches stale token after completion
   const shouldVerifyOnboarding = isAuthenticated && !!user && user.onboardingComplete === false && !GATE_EXEMPT_ROLES.includes(user?.role || '');
-  const { data: meData, isLoading, isError } = useGetMeQuery(undefined, {
+  const { data: meData, isLoading, isError, error: meError } = useGetMeQuery(undefined, {
     skip: (!shouldFetchUser && !shouldVerifyOnboarding) || hydrating,
   });
 
@@ -36,9 +36,13 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   useEffect(() => {
     if (isError && shouldFetchUser) {
+      const errCode = (meError as any)?.data?.error?.code;
+      if (errCode === 'SESSION_REVOKED') {
+        dispatch(setSessionEndReason('SESSION_REVOKED'));
+      }
       dispatch(logout());
     }
-  }, [isError, shouldFetchUser, dispatch]);
+  }, [isError, shouldFetchUser, dispatch, meError]);
 
   // Safety timeout: if token verification takes >10s, force logout (stale token)
   useEffect(() => {

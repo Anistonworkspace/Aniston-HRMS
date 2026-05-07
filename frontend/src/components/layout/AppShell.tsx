@@ -12,7 +12,7 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { api } from '../../app/api';
-import { setUser, logout } from '../../features/auth/authSlice';
+import { setUser, logout, setSessionEndReason } from '../../features/auth/authSlice';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
@@ -101,6 +101,18 @@ export default function AppShell() {
     }
     return () => { disconnectSocket(); };
   }, [accessToken]);
+
+  // On socket reconnect, dispatch a lightweight session check — catches the case where
+  // the session:revoked event was missed during a disconnect (force-login race condition).
+  // api.ts will return { data: undefined } silently if SESSION_REVOKED and dispatch logout.
+  useEffect(() => {
+    if (!accessToken) return;
+    const handleReconnect = () => {
+      dispatch(api.util.invalidateTags(['Employee'] as any[]));
+    };
+    onSocketEvent('connect', handleReconnect);
+    return () => { offSocketEvent('connect', handleReconnect); };
+  }, [dispatch, accessToken]);
 
   // GPS session restore — Android native only.
   // Fetches today's attendance status on mount and on each app resume. If the
@@ -307,10 +319,11 @@ export default function AppShell() {
     const handleSessionRevoked = (data?: { deviceType?: string; reason?: string }) => {
       // If the event carries a deviceType and it doesn't match ours, ignore it
       if (data?.deviceType && data.deviceType !== myDeviceType) return;
+      // Set reason so LoginPage shows the correct toast after redirect
+      dispatch(setSessionEndReason('SESSION_REVOKED'));
       dispatch(logout());
       disconnectSocket();
-      toast.error('You were signed out because your account was logged in from another device.', { duration: 8000 });
-      navigate('/login?reason=session_revoked', { replace: true });
+      navigate('/login', { replace: true });
     };
     onSocketEvent('session:revoked', handleSessionRevoked);
     return () => { offSocketEvent('session:revoked', handleSessionRevoked); };

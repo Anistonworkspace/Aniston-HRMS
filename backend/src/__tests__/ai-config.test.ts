@@ -71,9 +71,21 @@ describe('AiConfigService', () => {
   const ORG_ID = 'org-test-001';
   const USER_ID = 'user-admin-001';
 
+  let savedOpenAiKey: string | undefined;
+
   beforeEach(() => {
     service = new AiConfigService();
     vi.clearAllMocks();
+    // Prevent local OPENAI_API_KEY from leaking into tests that expect "no env key"
+    savedOpenAiKey = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  afterEach(() => {
+    // Restore whatever was there before
+    if (savedOpenAiKey !== undefined) {
+      process.env.OPENAI_API_KEY = savedOpenAiKey;
+    }
   });
 
   // ── getConfig ──────────────────────────────────────────────────────────
@@ -381,14 +393,24 @@ describe('POST /api/settings/ai-config (integration)', () => {
   let request: any;
   let jwt: any;
   let app: any;
+  let savedOpenAiKeyIntg: string | undefined;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // Prevent local OPENAI_API_KEY from leaking into tests that expect "no env key"
+    savedOpenAiKeyIntg = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
     const supertest = await import('supertest');
     jwt = await import('jsonwebtoken');
     const appModule = await import('../app.js');
     app = appModule.app;
     request = supertest.default(app);
+  });
+
+  afterEach(() => {
+    if (savedOpenAiKeyIntg !== undefined) {
+      process.env.OPENAI_API_KEY = savedOpenAiKeyIntg;
+    }
   });
 
   function makeToken(role: string, orgId = ORG_ID) {
