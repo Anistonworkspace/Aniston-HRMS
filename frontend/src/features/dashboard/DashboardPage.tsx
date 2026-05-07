@@ -193,14 +193,16 @@ function EmployeeDashboard() {
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
-  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  // HR role employees (real person with employeeId) can check in on mobile — same as any employee.
+  // Only SUPER_ADMIN/ADMIN are pure management with no personal attendance.
+  const isManagement = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  const canCheckIn = !isManagement && isMobile;
+  const canCheckIn = !isManagement && !!user?.employeeId && isMobile;
   const { data: statsResponse, isLoading, isError } = useGetDashboardStatsQuery(undefined, { skip: !perms.canViewDashboardStats });
   const stats = statsResponse?.data;
   const { data: todayRes } = useGetTodayStatusQuery(undefined, {
     pollingInterval: 60000,
-    skip: isManagement,
+    skip: !user?.employeeId,
   });
   const todayStatus = todayRes?.data;
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
