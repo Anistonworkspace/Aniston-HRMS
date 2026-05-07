@@ -91,6 +91,7 @@ export interface AuthUser {
   onboardingComplete?: boolean;
   profileComplete?: boolean;
   workMode?: string;
+  isSystemAccount?: boolean;
   exitAccess?: ExitAccessInfo | null;
 }
 

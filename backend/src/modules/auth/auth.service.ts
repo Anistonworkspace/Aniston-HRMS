@@ -22,6 +22,7 @@ export class AuthService {
           select: {
             id: true, firstName: true, lastName: true, avatar: true,
             status: true, exitStatus: true, workMode: true, onboardingComplete: true,
+            isSystemAccount: true,
             phone: true, dateOfBirth: true, gender: true,
             address: true, emergencyContact: true,
             bankAccountNumber: true, bankName: true, ifscCode: true, accountHolderName: true,
@@ -159,6 +160,7 @@ export class AuthService {
         avatar: user.employee?.avatar,
         organizationId: user.organizationId,
         workMode: user.employee?.workMode,
+        isSystemAccount: user.employee?.isSystemAccount ?? false,
         kycCompleted,
         kycStatus,
         onboardingComplete,

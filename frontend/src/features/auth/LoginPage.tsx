@@ -73,6 +73,11 @@ export default function LoginPage() {
           setShowForceLogin(false);
           return;
         }
+        // System accounts (HR/Admin/SuperAdmin management accounts) cannot log in on mobile devices
+        if (result.data.user?.isSystemAccount && deviceType === 'mobile') {
+          setLoginError('This account can only be accessed from a desktop or laptop. Please log in using a desktop browser.');
+          return;
+        }
         dispatch(setCredentials({ user: result.data.user, accessToken: result.data.accessToken }));
         setShowForceLogin(false);
         // Notify other same-origin tabs that this tab has re-authenticated via force-login
