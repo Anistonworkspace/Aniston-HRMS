@@ -190,21 +190,30 @@ export class AuthService {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        employee: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true,
-            documentGate: { select: { kycStatus: true } },
-            exitAccessConfig: { select: { isActive: true, accessExpiresAt: true } },
+    const [user, deviceSessions] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              documentGate: { select: { kycStatus: true } },
+              exitAccessConfig: { select: { isActive: true, accessExpiresAt: true } },
+            },
           },
         },
-      },
-    });
+      }),
+      // Fetch active device sessions so we can re-embed deviceId in the new token
+      // This ensures the per-device revocation check in auth middleware keeps working
+      // after each token refresh (without this, deviceId is lost after first refresh)
+      prisma.deviceSession.findMany({
+        where: { userId, isActive: true },
+        select: { deviceId: true, deviceType: true },
+      }),
+    ]);
 
     if (!user) {
       await redis.del(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
@@ -222,17 +231,42 @@ export class AuthService {
       }
     }
 
-    // Rotate refresh token
-    await redis.del(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
+    // Rotate refresh token — remove old key from tracking set, add new one
+    const oldKey = `${REFRESH_TOKEN_PREFIX}${refreshToken}`;
+    await redis.del(oldKey);
+    await redis.srem(`refresh_token_set:${user.id}`, oldKey);
     const newRefreshToken = await this.generateRefreshToken(user.id);
-    const accessToken = this.generateAccessToken(user);
+
+    // Re-embed deviceId — use whichever active session exists (prefer mobile, fall back to desktop)
+    // This preserves the Redis revocation key across token rotations
+    const activeSession = deviceSessions.find(s => s.deviceType === 'mobile') || deviceSessions[0];
+    const accessToken = this.generateAccessToken(user, activeSession?.deviceId);
 
     return { accessToken, refreshToken: newRefreshToken };
   }
 
-  async logout(refreshToken: string) {
+  async logout(refreshToken: string, userId?: string, deviceId?: string) {
     if (refreshToken) {
-      await redis.del(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
+      const key = `${REFRESH_TOKEN_PREFIX}${refreshToken}`;
+      // Look up userId from token if not passed (needed to clean the tracking set)
+      const storedUserId = userId || await redis.get(key);
+      await redis.del(key);
+      if (storedUserId) {
+        await redis.srem(`refresh_token_set:${storedUserId}`, key);
+      }
+    }
+    // Clear the device session slot so the next login from any device doesn't see a false conflict
+    if (userId && deviceId) {
+      await prisma.deviceSession.updateMany({
+        where: { userId, deviceId, isActive: true },
+        data: { isActive: false },
+      }).catch(() => { /* non-blocking */ });
+    } else if (userId) {
+      // No deviceId available — clear all active sessions for this user (full logout)
+      await prisma.deviceSession.updateMany({
+        where: { userId, isActive: true },
+        data: { isActive: false },
+      }).catch(() => { /* non-blocking */ });
     }
   }
 
@@ -504,25 +538,31 @@ export class AuthService {
     });
   }
 
-  /** Revoke all refresh tokens for a user using SCAN (non-blocking, unlike KEYS) */
+  /** Revoke all refresh tokens for a user via a user-scoped Redis set — O(tokens per user), not O(all tokens) */
   private async revokeAllUserTokens(userId: string): Promise<void> {
-    let cursor = '0';
-    do {
-      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `${REFRESH_TOKEN_PREFIX}*`, 'COUNT', '100');
-      cursor = nextCursor;
-      for (const key of keys) {
-        const storedUserId = await redis.get(key);
-        if (storedUserId === userId) {
-          await redis.del(key);
-        }
-      }
-    } while (cursor !== '0');
+    const setKey = `refresh_token_set:${userId}`;
+    const tokenKeys = await redis.smembers(setKey);
+    if (tokenKeys.length > 0) {
+      // Delete all token keys and the tracking set in one pipeline
+      const pipeline = redis.pipeline();
+      for (const key of tokenKeys) pipeline.del(key);
+      pipeline.del(setKey);
+      await pipeline.exec();
+    }
   }
 
   public async generateRefreshToken(userId: string): Promise<string> {
     const token = randomBytes(40).toString('hex');
+    const key = `${REFRESH_TOKEN_PREFIX}${token}`;
     const expiry = 7 * 24 * 60 * 60; // 7 days in seconds
-    await redis.setex(`${REFRESH_TOKEN_PREFIX}${token}`, expiry, userId);
+    const setKey = `refresh_token_set:${userId}`;
+    // Store token + register in user-scoped set atomically
+    const pipeline = redis.pipeline();
+    pipeline.setex(key, expiry, userId);
+    pipeline.sadd(setKey, key);
+    // Set the tracking set TTL to match the longest-lived token (7 days + 1h buffer)
+    pipeline.expire(setKey, expiry + 3600);
+    await pipeline.exec();
     return token;
   }
 }

@@ -96,7 +96,13 @@ export class AuthController {
   async logout(req: Request, res: Response, next: NextFunction) {
     try {
       const refreshToken = req.cookies.refreshToken;
-      await authService.logout(refreshToken);
+      // Pass userId + deviceId from JWT so the service can free the DeviceSession slot
+      // preventing a false DEVICE_CONFLICT on the next login from any device
+      await authService.logout(
+        refreshToken,
+        req.user?.userId,
+        req.user?.deviceId,
+      );
 
       res.clearCookie('refreshToken', { path: '/api/auth' });
       res.json({ success: true, data: null, message: 'Logged out' });

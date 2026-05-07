@@ -80,6 +80,17 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       if (revoked) {
         return next(new AppError('Your session was ended because you signed in from another device.', 401, 'SESSION_REVOKED'));
       }
+      // Update lastActiveAt at most once per 5 minutes per device (rate-limited via Redis)
+      // Avoids a DB write on every API call while keeping the field reasonably fresh
+      const touchKey = `session_touch:${decoded.userId}:${decoded.deviceId}`;
+      const alreadyTouched = await redis.get(touchKey);
+      if (!alreadyTouched) {
+        await redis.setex(touchKey, 300, '1');
+        prisma.deviceSession.updateMany({
+          where: { userId: decoded.userId, deviceId: decoded.deviceId, isActive: true },
+          data: { lastActiveAt: new Date() },
+        }).catch(() => { /* non-blocking */ });
+      }
     }
     req.user = decoded;
     next();

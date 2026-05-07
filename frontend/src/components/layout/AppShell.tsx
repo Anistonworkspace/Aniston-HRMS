@@ -299,9 +299,14 @@ export default function AppShell() {
 
   const navigate = useNavigate();
 
-  // Single-session enforcement — kicked off because another device logged in with force-login
+  // Single-session enforcement — kicked off because another device logged in with force-login.
+  // The backend sends { deviceType } so we only logout if the revoked slot matches this device.
+  // Mobile slot revocation must not kick an open desktop browser, and vice versa.
   useEffect(() => {
-    const handleSessionRevoked = () => {
+    const myDeviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+    const handleSessionRevoked = (data?: { deviceType?: string; reason?: string }) => {
+      // If the event carries a deviceType and it doesn't match ours, ignore it
+      if (data?.deviceType && data.deviceType !== myDeviceType) return;
       dispatch(logout());
       disconnectSocket();
       toast.error('You were signed out because your account was logged in from another device.', { duration: 8000 });
