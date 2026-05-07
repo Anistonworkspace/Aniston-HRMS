@@ -109,21 +109,21 @@ export default function SettingsPage() {
       <div className="page-container">
         <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">{t('settings.title')}</h1>
 
-        {/* Top tab bar (system/admin tabs) — desktop only */}
+        {/* Top tab bar — desktop only, always visible */}
         {topTabs.length > 0 && (
-          <div className="hidden md:flex gap-1 mb-6 border-b border-gray-200 pb-0">
+          <div className="hidden md:flex gap-0.5 mb-4 border-b border-gray-200 pb-0 flex-wrap">
             {topTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap',
+                  'flex items-center gap-1 px-3 py-2 text-xs font-medium transition-all border-b-2 -mb-px whitespace-nowrap',
                   activeTab === tab.key
                     ? 'border-brand-600 text-brand-700 font-semibold'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 )}
               >
-                <tab.icon size={15} />
+                <tab.icon size={13} />
                 {tab.label}
               </button>
             ))}
@@ -131,27 +131,83 @@ export default function SettingsPage() {
         )}
 
         {/* Mobile: all tabs in horizontal scroll strip */}
-        <div className="md:hidden mb-5 -mx-4 px-4 overflow-x-auto">
+        <div className="md:hidden mb-4 -mx-4 px-4 overflow-x-auto">
           <div className="flex gap-1 pb-1 w-max">
             {mobileTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
+                  'flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-colors flex-shrink-0',
                   activeTab === tab.key ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                 )}
               >
-                <tab.icon size={14} />
+                <tab.icon size={12} />
                 {tab.label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* If a top tab is active, show content full-width (no sidebar) */}
-        {isTopTab ? (
-          <div>
+        {/* Always-visible layout: left sidebar + content */}
+        <div className="flex gap-4 md:gap-6">
+          {/* Desktop: Left sidebar — always rendered regardless of active tab */}
+          <div className="w-48 flex-shrink-0 hidden md:block">
+            <div className="space-y-0.5">
+              {/* Configuration tabs */}
+              {sidebarTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-all text-left',
+                    activeTab === tab.key
+                      ? 'bg-brand-50 text-brand-700 font-semibold shadow-sm ring-1 ring-brand-100'
+                      : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                  )}
+                >
+                  <tab.icon size={14} className={activeTab === tab.key ? 'text-brand-600 shrink-0' : 'text-gray-400 shrink-0'} />
+                  <span className="truncate">{tab.label}</span>
+                </button>
+              ))}
+              {/* System tabs — shown in sidebar too when top bar is present, with divider */}
+              {topTabs.length > 0 && (
+                <>
+                  <div className="pt-2 pb-1 px-2.5">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">System</p>
+                  </div>
+                  {topTabs.map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveTab(tab.key)}
+                      className={cn(
+                        'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-all text-left',
+                        activeTab === tab.key
+                          ? 'bg-brand-50 text-brand-700 font-semibold shadow-sm ring-1 ring-brand-100'
+                          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                      )}
+                    >
+                      <tab.icon size={14} className={activeTab === tab.key ? 'text-brand-600 shrink-0' : 'text-gray-400 shrink-0'} />
+                      <span className="truncate">{tab.label}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Content — all tabs render here */}
+          <div className="flex-1 min-w-0">
+            {activeTab === 'organization' && <OrgSettings />}
+            {activeTab === 'email' && <EmailConfig />}
+            {activeTab === 'whatsapp' && <WhatsAppConfig />}
+            {activeTab === 'password-reset' && <PasswordResetTab />}
+            {activeTab === 'roles' && <UserRolesTab />}
+            {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
+            {activeTab === 'api-integration' && <ExternalApiIntegrationTab />}
+            {activeTab === 'document-templates' && <DocumentTemplatesTab />}
+            {activeTab === 'ai-config' && <ApiIntegrationsTab />}
+            {activeTab === 'agent-setup' && <AgentSetupTab />}
             {activeTab === 'system' && <SystemInfo />}
             {activeTab === 'database-backup' && <DatabaseBackupTab />}
             {activeTab === 'deletion-requests' && isSuperAdmin && <DeletionRequestsTab />}
@@ -159,44 +215,7 @@ export default function SettingsPage() {
             {activeTab === 'crash-reports' && (isSuperAdmin || isAdmin) && <CrashReportsTab />}
             {activeTab === 'account-activity' && (isSuperAdmin || isAdmin) && <AccountActivityTab />}
           </div>
-        ) : (
-          <div className="flex gap-6">
-            {/* Desktop: Left sidebar tabs */}
-            <div className="w-56 flex-shrink-0 hidden md:block">
-              <div className="space-y-0.5">
-                {sidebarTabs.map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => setActiveTab(tab.key)}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-left',
-                      activeTab === tab.key
-                        ? 'bg-brand-50 text-brand-700 font-semibold shadow-sm ring-1 ring-brand-100'
-                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-                    )}
-                  >
-                    <tab.icon size={17} className={activeTab === tab.key ? 'text-brand-600' : 'text-gray-400'} />
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 min-w-0">
-              {activeTab === 'organization' && <OrgSettings />}
-              {activeTab === 'email' && <EmailConfig />}
-              {activeTab === 'whatsapp' && <WhatsAppConfig />}
-              {activeTab === 'password-reset' && <PasswordResetTab />}
-              {activeTab === 'roles' && <UserRolesTab />}
-              {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
-              {activeTab === 'api-integration' && <ExternalApiIntegrationTab />}
-              {activeTab === 'document-templates' && <DocumentTemplatesTab />}
-              {activeTab === 'ai-config' && <ApiIntegrationsTab />}
-              {activeTab === 'agent-setup' && <AgentSetupTab />}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
       <AiAssistantFab context="admin" label="Admin Assistant" />
     </>
