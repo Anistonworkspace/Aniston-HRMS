@@ -3591,7 +3591,7 @@ export class AttendanceService {
             (a: any) => a.type === 'GPS_HEARTBEAT_MISSED' && !a.resolvedAt
           );
           gpsLiveStatus = {
-            gpsStatus: hbAlive ? 'ACTIVE' : (activeData.alertSent ? 'HEARTBEAT_MISSED' : 'HEARTBEAT_MISSED'),
+            gpsStatus: hbAlive ? 'ACTIVE' : (activeData.alertSent ? 'HEARTBEAT_MISSED' : 'RECENTLY_MISSED'),
             lastHeartbeatAt: activeData.lastHeartbeatAt ?? null,
             lastGpsPointAt: activeData.lastGpsPointAt ?? null,
             lastLatitude: activeData.lastLatitude ?? null,
@@ -3917,21 +3917,29 @@ export class AttendanceService {
     }
 
     // ── STEP 2: Detect day-1 column robustly ──────────────────────────────────
-    // Strategy: scan the header row (row 1) for cells "1","2","3" appearing
-    // consecutively — the column of "1" is definitively dayStartColIndex.
-    // This works regardless of how many non-day columns precede the days.
+    // Scan rows 1-5 for cells "1","2","3" consecutively — handles headers on row 2.
+    // Use both .text and .value to handle numeric vs text-formatted day cells.
     let dayStartColIndex = empColIndex + 3; // fallback
-    const headerRow = sheet.getRow(1);
-    for (let c = empColIndex + 1; c <= sheet.columnCount; c++) {
-      const v1 = headerRow.getCell(c).text?.toString().trim();
-      const v2 = headerRow.getCell(c + 1).text?.toString().trim();
-      const v3 = headerRow.getCell(c + 2).text?.toString().trim();
-      // Confirm three consecutive cells contain "1","2","3"
-      if (v1 === '1' && v2 === '2' && v3 === '3') {
-        dayStartColIndex = c;
-        break;
+    const getCellStr = (row: any, col: number) => {
+      const cell = row.getCell(col);
+      return (cell.text?.toString().trim() || cell.value?.toString().trim() || '');
+    };
+    outer123:
+    for (let hr = 1; hr <= Math.min(5, sheet.rowCount); hr++) {
+      const hrow = sheet.getRow(hr);
+      for (let c = empColIndex + 1; c <= sheet.columnCount; c++) {
+        const v1 = getCellStr(hrow, c);
+        const v2 = getCellStr(hrow, c + 1);
+        const v3 = getCellStr(hrow, c + 2);
+        // Confirm three consecutive cells contain "1","2","3"
+        if (v1 === '1' && v2 === '2' && v3 === '3') {
+          dayStartColIndex = c;
+          break outer123;
+        }
       }
     }
+
+    logger.info(`[Import] empColIndex=${empColIndex} dayStartColIndex=${dayStartColIndex} daysInMonth=${daysInMonth}`);
 
     // ── PASS 1: Parse sheet, collect all valid rows ───────────────────────────
     type DayEntry = { status: string; leaveTypeId: string | null; leaveDays: number; date: Date };
@@ -4014,9 +4022,15 @@ export class AttendanceService {
           if (!elType) errors.push(`${empCode} day ${day}: Earned/Emergency Leave type not configured — deduction skipped`);
           leaveTypeId = elType?.id ?? null;
           leaveDays = elType ? 0.5 : 0;
-        } else {
-          // Unknown code — skip silently
+        } else if (raw.startsWith('A(') || raw === 'WO' || raw === 'H' || raw === 'NH') {
+          // Week off / Holiday / not-working — skip (no attendance record needed)
           continue;
+        } else if (raw.startsWith('A')) {
+          // Unknown absent-type code
+          status = 'ABSENT';
+        } else {
+          // Unknown code — treat as present (safe default)
+          status = 'PRESENT';
         }
 
         const date = new Date(Date.UTC(year, month - 1, day));
@@ -4096,9 +4110,11 @@ export class AttendanceService {
             where: { employeeId, leaveTypeId: log.leaveTypeId, year },
           });
           if (bal) {
-            // log.days is negative (e.g. -1), so subtracting it adds back
-            const revertUsed = Math.max(0, Number(bal.used) + log.days); // +(-1) = -1
-            const revertPrev = Math.max(0, Number((bal as any).previousUsed ?? 0) + log.days);
+            // Always subtract the absolute deduction regardless of how old logs stored it
+            // (old logs may have days=+N positive; new logs store days=-N negative)
+            const deduction = Math.abs(Number(log.days));
+            const revertUsed = Math.max(0, Number(bal.used) - deduction);
+            const revertPrev = Math.max(0, Number((bal as any).previousUsed ?? 0) - deduction);
             await prisma.leaveBalance.update({
               where: { id: bal.id },
               data: { used: revertUsed, previousUsed: revertPrev },
@@ -4111,13 +4127,20 @@ export class AttendanceService {
         continue;
       }
 
-      // Step D: Write attendance records (create, no upsert needed — we deleted all above)
+      // Step D: Write attendance records (upsert handles any race-condition duplicates)
       for (const entry of days) {
         try {
-          await prisma.attendanceRecord.create({
-            data: {
+          await (prisma.attendanceRecord.upsert as any)({
+            where: { employeeId_date: { employeeId, date: entry.date } },
+            create: {
               employeeId,
               date: entry.date,
+              status: entry.status as any,
+              workMode: 'OFFICE' as any,
+              source: 'MANUAL_HR' as any,
+              notes: `Imported from Excel (${month}/${year})`,
+            },
+            update: {
               status: entry.status as any,
               workMode: 'OFFICE' as any,
               source: 'MANUAL_HR' as any,
