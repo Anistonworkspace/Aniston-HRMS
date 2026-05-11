@@ -93,6 +93,7 @@ audit-screenshots
 store-releases/android/signing.keystore
 store-releases/android/.keystore-env
 store-releases/android/*.aab
+store-releases/android/*.apk
 store-releases/ios/Distribution.p12
 store-releases/ios/Distribution.mobileprovision
 store-releases/ios/*.ipa

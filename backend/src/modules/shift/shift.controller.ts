@@ -143,12 +143,12 @@ export class ShiftController {
 
   async reviewShiftChangeRequest(req: Request, res: Response, next: NextFunction) {
     try {
-      const { action, reviewRemarks } = req.body;
+      const { action, reviewRemarks, effectiveDate } = req.body;
       if (!['APPROVED', 'REJECTED'].includes(action)) {
         return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'action must be APPROVED or REJECTED' } });
       }
       const result = await shiftService.reviewShiftChangeRequest(
-        req.params.id, action, req.user!.userId, req.user!.organizationId, reviewRemarks,
+        req.params.id, action, req.user!.userId, req.user!.organizationId, reviewRemarks, effectiveDate,
       );
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
@@ -168,6 +168,43 @@ export class ShiftController {
         req.params.employeeId, req.user!.organizationId, req.body, req.user!.userId,
       );
       res.json({ success: true, data: result, message: 'HR action restrictions updated' });
+    } catch (err) { next(err); }
+  }
+
+  async submitHomeLocationRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { latitude, longitude, accuracy, address } = req.body;
+      const result = await shiftService.createHomeLocationRequest(
+        req.user!.employeeId!, req.user!.organizationId, { latitude, longitude, accuracy, address },
+      );
+      res.status(201).json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getHomeLocationRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await shiftService.getHomeLocationRequests(
+        req.user!.organizationId, req.query.status as string | undefined,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getMyHomeLocationRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await shiftService.getMyHomeLocationRequest(req.user!.employeeId!);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async reviewHomeLocationRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { action, reviewNotes, radiusMeters } = req.body;
+      const result = await shiftService.reviewHomeLocationRequest(
+        req.params.id, req.user!.organizationId, action, req.user!.userId, reviewNotes,
+        radiusMeters ? Number(radiusMeters) : undefined,
+      );
+      res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
 }

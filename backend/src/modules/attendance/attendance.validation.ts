@@ -38,6 +38,10 @@ export const gpsTrailBatchSchema = z.object({
     batteryLevel: z.number().int().min(0).max(100).optional(),
     timestamp: z.string().datetime(),
   })).min(1).max(500),
+  // 'realtime' = live from GPS service; 'offline_sync' = buffered while offline.
+  // Anomaly frequency checks must skip offline_sync batches to avoid false positives
+  // from large time-compressed uploads.
+  source: z.enum(['realtime', 'offline_sync']).default('realtime'),
 });
 
 export const regularizationSchema = z.object({
@@ -99,7 +103,7 @@ export const anomalyQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(25),
 });
 
-export type GPSTrailBatchInput = z.infer<typeof gpsTrailBatchSchema>;
+export type GPSTrailBatchInput = z.input<typeof gpsTrailBatchSchema>;
 export type RegularizationInput = z.infer<typeof regularizationSchema>;
 export type AttendanceQuery = z.infer<typeof attendanceQuerySchema>;
 export type AnomalyQuery = z.infer<typeof anomalyQuerySchema>;

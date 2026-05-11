@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send } from 'lucide-react';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send, Repeat, Navigation } from 'lucide-react';
+import HomeLocationRequestsTab from './HomeLocationRequestsTab';
+import ShiftChangeRequestsTab from './ShiftChangeRequestsTab';
 import {
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
   useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
@@ -34,10 +36,12 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
-type Tab = 'shifts' | 'locations' | 'assignments';
+type Tab = 'shifts' | 'locations' | 'assignments' | 'shift-requests';
 
 export default function RosterPage() {
   const [tab, setTab] = useState<Tab>('shifts');
+  const { user } = useAppSelector((s) => s.auth);
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
 
   return (
     <div className="page-container">
@@ -48,11 +52,14 @@ export default function RosterPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 flex-wrap">
         {[
           { key: 'shifts' as Tab, label: 'Shifts', icon: Clock },
           { key: 'locations' as Tab, label: 'Office Locations', icon: MapPin },
           { key: 'assignments' as Tab, label: 'Assign Employees', icon: Users },
+          ...(isAdmin ? [
+            { key: 'shift-requests' as Tab, label: 'Shift Requests', icon: Repeat },
+          ] : []),
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -64,8 +71,9 @@ export default function RosterPage() {
       </div>
 
       {tab === 'shifts' && <ShiftsPanel />}
-      {tab === 'locations' && <LocationsPanel />}
+      {tab === 'locations' && <LocationsPanel isAdmin={isAdmin} />}
       {tab === 'assignments' && <AssignmentsPanel />}
+      {tab === 'shift-requests' && isAdmin && <ShiftChangeRequestsTab />}
     </div>
   );
 }
@@ -559,7 +567,8 @@ function ShiftsPanel() {
 }
 
 /* ===== LOCATIONS PANEL ===== */
-function LocationsPanel() {
+function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
+  const [locTab, setLocTab] = useState<'offices' | 'home-requests'>('offices');
   const { data: res } = useGetLocationsQuery();
   const locations = res?.data || [];
   const [createLocation, { isLoading: creating }] = useCreateLocationMutation();
@@ -629,12 +638,39 @@ function LocationsPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        {!showForm && (
+      {/* Sub-tab bar */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => setLocTab('offices')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              locTab === 'offices' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            <MapPin size={14} /> Office Locations
+          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setLocTab('home-requests')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                locTab === 'home-requests' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              <Home size={14} /> Home Location Requests
+            </button>
+          )}
+        </div>
+        {locTab === 'offices' && !showForm && (
           <button onClick={() => { setShow(true); setEditLoc(null); setForm(emptyForm); }}
             className="btn-primary text-sm flex items-center gap-1.5"><Plus size={14} /> Add Location</button>
         )}
       </div>
+
+      {/* Home location requests sub-tab */}
+      {locTab === 'home-requests' && isAdmin && <HomeLocationRequestsTab />}
+
+      {/* Office locations content */}
+      {locTab === 'offices' && <div className="space-y-4">
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 z-50 overflow-y-auto">
@@ -790,6 +826,7 @@ function LocationsPanel() {
           </div>
         ))}
       </div>
+      </div>{/* end offices sub-tab */}
     </div>
   );
 }

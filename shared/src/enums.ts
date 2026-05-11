@@ -325,6 +325,12 @@ export enum ShiftChangeRequestStatus {
   REJECTED = 'REJECTED',
 }
 
+export enum HomeLocationStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
 // ============================================
 // Enterprise Attendance Enums
 // ============================================

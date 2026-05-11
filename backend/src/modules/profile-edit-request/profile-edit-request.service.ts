@@ -327,7 +327,7 @@ export class ProfileEditRequestService {
         select: {
           firstName: true, lastName: true, dateOfBirth: true, gender: true, phone: true,
           address: true, emergencyContact: true,
-          bankAccountNumber: true, bankName: true, ifscCode: true, accountHolderName: true,
+          bankAccountNumber: true, bankName: true, bankBranchName: true, ifscCode: true, accountHolderName: true,
           onboardingComplete: true,
           documents: { where: { deletedAt: null }, select: { type: true } },
         },

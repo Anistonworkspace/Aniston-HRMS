@@ -17,7 +17,7 @@ import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
-import { isNativeGpsRunning, updateNativeGpsInterval, startNativeGpsService, isNativeAndroid } from '../../lib/capacitorGPS';
+import { isNativeGpsRunning, updateNativeGpsInterval, startNativeGpsService, updateNativeGpsToken, isNativeAndroid } from '../../lib/capacitorGPS';
 import { isGpsEnabled, openGpsSettings } from '../../lib/capacitorPermissions';
 import { Capacitor } from '@capacitor/core';
 import { useGetTodayStatusQuery } from '../../features/attendance/attendanceApi';
@@ -121,7 +121,12 @@ export default function AppShell() {
   const { data: todayStatusResponse } = useGetTodayStatusQuery(undefined, {
     skip: !isNativeAndroid || !user,
   });
-  const gpsRestoreRef = useRef(false);
+  // lastRestoreAttemptAt: debounce guard — skip if a restore ran within the last 5 s.
+  // restoreInFlightRef: prevent concurrent overlapping restore calls.
+  // Neither is reset-never: both allow re-entry on token rotation or foreground resume.
+  const lastRestoreAttemptAt = useRef(0);
+  const restoreInFlightRef = useRef(false);
+
   useEffect(() => {
     if (!isNativeAndroid || !user || !accessToken) return;
     const todayStatus = todayStatusResponse?.data;
@@ -132,35 +137,51 @@ export default function AppShell() {
     if (!isCheckedIn || !isFieldShift) return;
 
     async function maybeRestoreGps() {
-      const running = await isNativeGpsRunning();
-      if (running) return;
-
-      const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
-      const backendBase = rawApiUrl
-        ? rawApiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '')
-        : 'https://hr.anistonav.com';
-      const intervalMins = (todayStatus!.shift as any)?.trackingIntervalMinutes as number | undefined;
-      const attendanceId = todayStatus!.record?.id ?? '';
+      const now = Date.now();
+      if (restoreInFlightRef.current) return;
+      if (now - lastRestoreAttemptAt.current < 5_000) return;
+      restoreInFlightRef.current = true;
+      lastRestoreAttemptAt.current = now;
 
       try {
-        await startNativeGpsService({
-          backendUrl: backendBase,
-          authToken: accessToken!,
-          employeeId: user!.employeeId || '',
-          orgId: user!.organizationId || '',
-          ...(attendanceId ? { attendanceId } : {}),
-          ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
-        });
-        dispatch(api.util.invalidateTags(['Attendance'] as any[]));
-      } catch {
-        // silent — user can open Attendance page to retry
+        const running = await isNativeGpsRunning();
+        // Always push the latest token to the running service — it may have been
+        // restored from SharedPreferences with a token that has since been rotated.
+        const latestToken = accessToken!;
+        if (running) {
+          try { await updateNativeGpsToken(latestToken); } catch { /* silent */ }
+          return;
+        }
+
+        const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+        const backendBase = rawApiUrl
+          ? rawApiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '')
+          : 'https://hr.anistonav.com';
+        const intervalMins = (todayStatus!.shift as any)?.trackingIntervalMinutes as number | undefined;
+        const attendanceId = todayStatus!.record?.id ?? '';
+
+        try {
+          await startNativeGpsService({
+            backendUrl: backendBase,
+            authToken: latestToken,
+            employeeId: user!.employeeId || '',
+            orgId: user!.organizationId || '',
+            ...(attendanceId ? { attendanceId } : {}),
+            ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
+          });
+          // After start, push the latest token again — the service may have been
+          // restored from stale SharedPreferences by GpsRestartReceiver before we got here.
+          try { await updateNativeGpsToken(latestToken); } catch { /* silent */ }
+          dispatch(api.util.invalidateTags(['Attendance'] as any[]));
+        } catch {
+          // silent — user can open Attendance page to retry
+        }
+      } finally {
+        restoreInFlightRef.current = false;
       }
     }
 
-    if (!gpsRestoreRef.current) {
-      gpsRestoreRef.current = true;
-      maybeRestoreGps();
-    }
+    maybeRestoreGps();
 
     // Also attempt restore whenever the app comes back to foreground
     const handleVisibility = () => {
@@ -170,6 +191,17 @@ export default function AppShell() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [todayStatusResponse, user, accessToken]);
+
+  // Propagate refreshed access tokens to the native GPS service.
+  // The RTK Query 401-interceptor rotates the access token silently; the native service
+  // reads its token from SharedPreferences which only gets updated via updateToken().
+  // This effect ensures the service never uses a stale/expired token after rotation.
+  useEffect(() => {
+    if (!isNativeAndroid || !accessToken) return;
+    isNativeGpsRunning().then(running => {
+      if (running) updateNativeGpsToken(accessToken).catch(() => {});
+    });
+  }, [accessToken]);
 
   // Real-time dashboard refresh — invalidate RTK Query cache on server events
   useEffect(() => {

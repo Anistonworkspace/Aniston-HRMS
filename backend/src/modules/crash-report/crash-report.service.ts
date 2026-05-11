@@ -11,7 +11,7 @@ export const crashReportService = {
     osVersion?: string;
     device?: string;
     employeeId?: string;
-    organizationId?: string;
+    organizationId: string;
     ipAddress?: string;
   }) {
     return prisma.crashReport.create({ data });
@@ -27,7 +27,7 @@ export const crashReportService = {
         skip,
         take: limit,
         include: {
-          employee: { select: { employeeCode: true, user: { select: { name: true } } } },
+          employee: { select: { employeeCode: true, firstName: true, lastName: true } },
         },
       }),
       prisma.crashReport.count({ where }),

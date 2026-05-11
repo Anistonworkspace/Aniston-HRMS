@@ -23,10 +23,12 @@
 
     <!-- Allow GpsRestartReceiver to restart the service after device reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Allow AlarmManager exact alarm (Android 12+) for service restart after task removal -->
+    <!-- Allow AlarmManager exact alarm (Android 12+) for service restart after task removal.
+         SCHEDULE_EXACT_ALARM requires the user to grant permission in Settings on Android 12+.
+         USE_EXACT_ALARM is intentionally NOT declared: it is restricted to calendar/alarm apps
+         and causes Play Store rejection for HRMS apps. We gracefully fall back to
+         setAndAllowWhileIdle() when canScheduleExactAlarms() returns false. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <!-- Android 13+ alternative exact-alarm permission (no user prompt needed unlike SCHEDULE_EXACT_ALARM) -->
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- Battery optimization exemption — required to keep GPS service alive on Samsung/Xiaomi/Oppo/OnePlus -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />

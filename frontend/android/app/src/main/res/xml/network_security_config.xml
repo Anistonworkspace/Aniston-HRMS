@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Production backend: HTTPS only, no cleartext permitted -->
+    <!-- Global default: block all cleartext (HTTP) traffic for all domains.
+         This makes the production security posture explicit and applies on API < 28
+         (where the OS default still allows cleartext). -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Only trust system CAs (no user-installed CAs in production) -->
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Production backend: HTTPS only, pinned to system CAs -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">hr.anistonav.com</domain>
     </domain-config>
 
-    <!-- Capacitor WebView internal origin: HTTPS scheme -->
+    <!-- Capacitor WebView internal origin -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>

@@ -10,6 +10,7 @@ import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 import { leavePolicyService } from '../leave/leave-policy.service.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery, SubmitResignationInput, ApproveExitInput, InitiateTerminationInput, ExitQuery } from './employee.validation.js';
 
 export class EmployeeService {
@@ -467,6 +468,11 @@ export class EmployeeService {
     });
     if (!existing) {
       throw new NotFoundError('Employee');
+    }
+
+    // HR restriction gate
+    if (callerRole === 'HR') {
+      await assertHRActionAllowed('HR', id, 'canHREditProfile');
     }
 
     // Field-level permission control
@@ -1010,6 +1016,11 @@ export class EmployeeService {
   }
 
   async changeRole(employeeId: string, role: string, organizationId: string, changedBy: string, changedByRole?: string) {
+    // HR restriction gate
+    if (changedByRole === 'HR') {
+      await assertHRActionAllowed('HR', employeeId, 'canHRChangeRole');
+    }
+
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
       include: { user: true },

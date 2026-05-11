@@ -364,6 +364,24 @@ async function gpsHeartbeatMonitor() {
   logger.info('[GPS Monitor] Running heartbeat check…');
   let alerted = 0;
 
+  type GpsActivePayload = {
+    orgId: string;
+    employeeId: string;
+    attendanceId?: string;
+    name: string;
+    employeeCode: string;
+    alertSent: boolean;
+    lastHeartbeatAt?: string;
+    lastLatitude?: number;
+    lastLongitude?: number;
+    lastGpsPointAt?: string;
+    checkInAt?: string;
+    deviceManufacturer?: string;
+    deviceBrand?: string;
+    deviceModel?: string;
+    sdkInt?: number;
+  };
+
   // Scan all active tracking keys
   let cursor = '0';
   do {
@@ -374,35 +392,126 @@ async function gpsHeartbeatMonitor() {
       const raw = await redis.get(key);
       if (!raw) continue;
 
-      let data: { orgId: string; employeeId: string; name: string; employeeCode: string; alertSent: boolean };
+      let data: GpsActivePayload;
       try { data = JSON.parse(raw); } catch { continue; }
-
-      if (data.alertSent) continue; // already alerted for this session
 
       const hbKey = `gps:hb:${data.employeeId}`;
       const heartbeatAlive = await redis.exists(hbKey);
-      if (heartbeatAlive) continue; // heartbeat still valid — all good
 
-      // Heartbeat expired → app was likely force-stopped
+      // Resolve open GPS_HEARTBEAT_MISSED anomaly when heartbeat recovers
+      if (heartbeatAlive && data.alertSent) {
+        const today = new Date(new Date().toISOString().slice(0, 10));
+        try {
+          const existing = await prisma.attendanceAnomaly.findFirst({
+            where: {
+              employeeId: data.employeeId,
+              type: 'GPS_HEARTBEAT_MISSED',
+              date: today,
+              resolution: 'PENDING',
+            },
+          });
+          if (existing) {
+            await prisma.attendanceAnomaly.update({
+              where: { id: existing.id },
+              data: {
+                resolution: 'AUTO_RESOLVED',
+                resolverRemarks: 'GPS tracking resumed — service restarted after force-stop',
+                resolvedAt: new Date(),
+                resolvedBy: 'system',
+              },
+            });
+            logger.info(`[GPS Monitor] Resolved GPS_HEARTBEAT_MISSED anomaly for ${data.employeeCode}`);
+          }
+        } catch (resolveErr) {
+          logger.warn('[GPS Monitor] Failed to resolve anomaly:', resolveErr);
+        }
+      }
+
+      if (heartbeatAlive) continue; // heartbeat still valid — all good
+      if (data.alertSent) continue; // already alerted for this session
+
+      // Heartbeat expired → check if employee already checked out (Phase 5 — avoid false alerts)
+      const today = new Date(new Date().toISOString().slice(0, 10));
+      let attendanceId = data.attendanceId;
+      try {
+        const openRecord = await prisma.attendanceRecord.findFirst({
+          where: {
+            employeeId: data.employeeId,
+            date: today,
+            checkIn: { not: null },
+            checkOut: null,
+          },
+          select: { id: true },
+          orderBy: { checkIn: 'desc' },
+        });
+        if (!openRecord) {
+          // Employee already checked out — stale Redis key, clean up
+          logger.info(`[GPS Monitor] Employee ${data.employeeCode} already checked out — cleaning up stale Redis keys`);
+          await redis.del(key, hbKey);
+          continue;
+        }
+        attendanceId = openRecord.id;
+      } catch { /* fall through to alert even if lookup fails */ }
+
       logger.info(`[GPS Monitor] Heartbeat expired for ${data.name} (${data.employeeCode}) — sending force-stop alert`);
 
       try {
-        const [org, hrUsers] = await Promise.all([
+        // Create GPS_HEARTBEAT_MISSED anomaly immediately so HR desktop shows it in real time (Phase 4)
+        if (attendanceId) {
+          await prisma.attendanceAnomaly.upsert({
+            where: { attendanceId_type: { attendanceId, type: 'GPS_HEARTBEAT_MISSED' } },
+            create: {
+              attendanceId,
+              employeeId: data.employeeId,
+              organizationId: data.orgId,
+              date: today,
+              type: 'GPS_HEARTBEAT_MISSED',
+              severity: 'HIGH',
+              description: `GPS heartbeat missed — ${data.name} (${data.employeeCode}) app may have been force-stopped (no heartbeat for >15 min)`,
+              metadata: {
+                lastHeartbeatAt: data.lastHeartbeatAt ?? null,
+                lastGpsPointAt:  data.lastGpsPointAt  ?? null,
+                lastLatitude:    data.lastLatitude  ?? null,
+                lastLongitude:   data.lastLongitude ?? null,
+              },
+            },
+            update: {}, // don't overwrite if already exists from a previous run
+          });
+        }
+
+        const [org, hrUsers, emp] = await Promise.all([
           prisma.organization.findUnique({ where: { id: data.orgId }, select: { name: true, adminNotificationEmail: true } }),
           prisma.user.findMany({
             where: { organizationId: data.orgId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
             select: { email: true },
           }),
+          prisma.employee.findUnique({
+            where: { id: data.employeeId },
+            select: { department: { select: { name: true } } },
+          }),
         ]);
-
-        const emp = await prisma.employee.findUnique({
-          where: { id: data.employeeId },
-          select: { department: { select: { name: true } } },
-        });
 
         const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
         const recipientSet = new Set<string>(hrUsers.map(u => u.email).filter(Boolean));
         if (org?.adminNotificationEmail) recipientSet.add(org.adminNotificationEmail);
+
+        // Build last-known-location string for email body (Phase 6)
+        const hasCoords = data.lastLatitude != null && data.lastLongitude != null;
+        const coordsStr = hasCoords
+          ? `${data.lastLatitude!.toFixed(6)}, ${data.lastLongitude!.toFixed(6)}`
+          : 'Unknown';
+        const lastPointStr = data.lastGpsPointAt
+          ? new Date(data.lastGpsPointAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', timeStyle: 'short', dateStyle: 'short' })
+          : 'Unknown';
+        const lastHbStr = data.lastHeartbeatAt
+          ? new Date(data.lastHeartbeatAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', timeStyle: 'short', dateStyle: 'short' })
+          : 'Unknown';
+
+        const checkInStr = data.checkInAt
+          ? new Date(data.checkInAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', timeStyle: 'short', dateStyle: 'short' })
+          : 'Unknown';
+        const deviceStr = [data.deviceManufacturer, data.deviceModel].filter(Boolean).join(' ') || '—';
+        const sdkStr = data.sdkInt ? `Android API ${data.sdkInt}` : '—';
 
         for (const to of recipientSet) {
           await enqueueEmail({
@@ -416,6 +525,15 @@ async function gpsHeartbeatMonitor() {
               orgName: org?.name || 'Aniston Technologies',
               alertType: 'App Force-Stopped',
               alertDesc: `${data.name} force-stopped the Aniston HRMS app while GPS tracking was active (no heartbeat received for >15 minutes).`,
+              lastHeartbeatAt: lastHbStr,
+              lastGpsPointAt:  lastPointStr,
+              lastCoordinates: coordsStr,
+              checkInAt: checkInStr,
+              device: deviceStr,
+              sdkVersion: sdkStr,
+              mapsUrl: hasCoords
+                ? `https://www.google.com/maps?q=${data.lastLatitude},${data.lastLongitude}`
+                : null,
               isRevoked: false,
               timestamp: now,
               dashboardUrl: 'https://hr.anistonav.com/attendance',

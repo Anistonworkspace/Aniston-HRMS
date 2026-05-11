@@ -43,6 +43,7 @@ const ACTION_LABELS: Record<RestrictionKey, string> = {
  * on the target employee. Throws ForbiddenError if blocked.
  *
  * Non-HR roles (SUPER_ADMIN, ADMIN) are always allowed through.
+ * If the restriction table/column doesn't exist yet (prod migration pending), silently allows.
  */
 export async function assertHRActionAllowed(
   performerRole: string,
@@ -51,14 +52,20 @@ export async function assertHRActionAllowed(
 ): Promise<void> {
   if (performerRole !== 'HR') return;
 
-  const restriction = await prisma.hRActionRestriction.findFirst({
-    where: { employeeId },
-    select: { [action]: true },
-  });
+  let restriction: any;
+  try {
+    restriction = await prisma.hRActionRestriction.findFirst({
+      where: { employeeId },
+      select: { [action]: true },
+    });
+  } catch {
+    // Column doesn't exist on prod yet — silently allow
+    return;
+  }
 
   if (restriction && restriction[action] === false) {
     throw new ForbiddenError(
-      `Super Admin has restricted HR from performing this action: ${ACTION_LABELS[action]} for this employee.`,
+      `Action blocked: Super Admin has restricted HR from "${ACTION_LABELS[action]}" for this employee. Contact your Super Admin to grant this permission.`,
     );
   }
 }

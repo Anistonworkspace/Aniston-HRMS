@@ -346,7 +346,7 @@ export class AuthService {
     const [target, callerUser] = await Promise.all([
       prisma.user.findUnique({
         where: { id: targetUserId },
-        include: { employee: { select: { firstName: true, lastName: true } } },
+        include: { employee: { select: { id: true, firstName: true, lastName: true } } },
       }),
       prisma.user.findUnique({
         where: { id: caller.id },

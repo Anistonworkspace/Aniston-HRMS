@@ -70,6 +70,12 @@ public class GpsTrackingPlugin extends Plugin {
         GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_CREDENTIALS_PRESENT, "true");
         GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_TRACKING_ENABLED,    "true");
         GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_NATIVE_SESSION_STORED_AT, GpsDiagnostics.nowIso());
+        // Attendance ID snapshot — helps diagnose missing-attendanceId heartbeat/trail failures
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_ATTENDANCE_ID_PRESENT,
+            (attendanceId != null && !attendanceId.isEmpty()) ? "true" : "false");
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_ATTENDANCE_ID_FIRST8,
+            (attendanceId != null && attendanceId.length() >= 8) ? attendanceId.substring(0, 8) : attendanceId);
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_PLUGIN_CRED_SNAPSHOT_AT, GpsDiagnostics.nowIso());
         GpsDiagnostics.markCheckedIn(ctx);
 
         // Build service intent with all extras (service will also call saveToPrefs()

@@ -260,6 +260,9 @@ model Employee {
   permissionOverride     PermissionOverride?
   hrActionRestriction    HRActionRestriction?
   shiftChangeRequests    ShiftChangeRequest[]
+  homeLocationRequests   HomeLocationRequest[]
+  approvedHomeGeofenceId String?
+  approvedHomeGeofence   Geofence?             @relation("EmployeeHomeGeofence", fields: [approvedHomeGeofenceId], references: [id])
   headOfDepartments      Department[]          @relation("DepartmentHead")
   hybridSchedule         HybridSchedule?
   // Sunday / special-day work override
@@ -799,6 +802,8 @@ enum AnomalyType {
   GPS_SPOOF
   GPS_SIGNAL_LOST
   GPS_GAP
+  GPS_HEARTBEAT_MISSED
+  GPS_NO_DATA
 }
 
 enum AnomalySeverity {
@@ -877,8 +882,10 @@ model Geofence {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  organization   Organization    @relation(fields: [organizationId], references: [id])
-  officeLocation OfficeLocation?
+  organization       Organization         @relation(fields: [organizationId], references: [id])
+  officeLocation     OfficeLocation?
+  homeLocationRequest HomeLocationRequest? @relation("HomeGeofence")
+  employeesWithHome  Employee[]           @relation("EmployeeHomeGeofence")
 
   @@index([organizationId])
 }
@@ -887,6 +894,7 @@ enum GeofenceType {
   OFFICE
   CLIENT_SITE
   RESTRICTED
+  HOME
 }
 
 // =====================
@@ -2435,7 +2443,8 @@ model Shift {
 
   organization   Organization        @relation(fields: [organizationId], references: [id])
   assignments    ShiftAssignment[]
-  changeRequests ShiftChangeRequest[] @relation("ToShift")
+  changeRequests     ShiftChangeRequest[] @relation("ToShift")
+  fromChangeRequests ShiftChangeRequest[] @relation("FromShift")
 
   @@unique([code, organizationId])
   @@index([organizationId])
@@ -2483,10 +2492,42 @@ model ShiftChangeRequest {
 
   employee   Employee @relation(fields: [employeeId], references: [id])
   toShift    Shift    @relation("ToShift", fields: [toShiftId], references: [id])
+  fromShift  Shift?   @relation("FromShift", fields: [fromShiftId], references: [id])
 
   @@index([employeeId])
   @@index([organizationId])
   @@index([status])
+}
+
+model HomeLocationRequest {
+  id                 String             @id @default(uuid())
+  employeeId         String
+  latitude           Float
+  longitude          Float
+  accuracy           Float?
+  address            String?
+  status             HomeLocationStatus @default(PENDING)
+  approvedGeofenceId String?            @unique
+  reviewedBy         String?
+  reviewedAt         DateTime?
+  reviewNotes        String?
+  organizationId     String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  deletedAt          DateTime?
+
+  employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  approvedGeofence Geofence? @relation("HomeGeofence", fields: [approvedGeofenceId], references: [id])
+
+  @@index([employeeId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+enum HomeLocationStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model HRActionRestriction {

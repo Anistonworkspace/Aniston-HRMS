@@ -4,6 +4,12 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
+
+import java.io.IOException;
+import java.security.GeneralSecurityException;
+
 /**
  * GpsSessionStore — single source of truth for native GPS session credentials.
  *
@@ -12,22 +18,28 @@ import android.util.Log;
  * credentials exclusively through this class. Direct SharedPreferences access
  * for credential fields is forbidden after this change.
  *
+ * Security: credentials (auth token, employee ID, etc.) are stored in
+ * EncryptedSharedPreferences (AES256-SIV key encryption, AES256-GCM value
+ * encryption backed by Android Keystore). A one-time migration from the old
+ * plain SharedPreferences file is performed on first access.
+ *
  * Root bug this fixes:
  *   Each component was calling getSharedPreferences(PREFS_NAME) independently.
  *   Tiny timing/key differences caused the watchdog to report "no_credentials"
  *   while the service simultaneously showed "credentialsPresent=true".
- *
- * Design principles:
- *   - Uses the SAME prefs file name as GpsTrackingService (GpsTrackingPrefs)
- *   - Uses the SAME key constants as GpsTrackingService (EXTRA_* fields)
- *   - Normalises backendUrl at save time, ensuring every reader gets a valid URL
- *   - getMissingFields() returns a human-readable comma-joined string for
- *     the diagnostics panel (e.g. "auth_token,employee_id")
- *   - All methods are static — no instances, no lifecycle
  */
 public class GpsSessionStore {
 
     private static final String TAG = "GpsSessionStore";
+
+    // Name of the encrypted prefs file (different from the old plain file)
+    private static final String ENCRYPTED_PREFS_NAME = "GpsTrackingPrefs_enc";
+    // Legacy plain prefs file — still used by diagnostics prefs, not credentials
+    static final String PLAIN_PREFS_NAME = "GpsTrackingPrefs";
+
+    // Singleton to avoid repeated KeyStore unlock overhead
+    private static volatile SharedPreferences sEncryptedPrefs = null;
+    private static final Object sLock = new Object();
 
     // ── Session data holder ───────────────────────────────────────────────────
 
@@ -67,16 +79,17 @@ public class GpsSessionStore {
                                    String attendanceId,
                                    long   gpsIntervalMs) {
         String backendUrl = normaliseBackendUrl(rawBackendUrl);
-        prefs(ctx).edit()
-            .putString (GpsTrackingService.EXTRA_BACKEND_URL,           backendUrl)
-            .putString (GpsTrackingService.EXTRA_TOKEN,                 authToken != null ? authToken : "")
-            .putString (GpsTrackingService.EXTRA_EMPLOYEE_ID,           employeeId != null ? employeeId : "")
-            .putString (GpsTrackingService.EXTRA_ORG_ID,                orgId != null ? orgId : "")
-            .putString (GpsTrackingService.EXTRA_ATTENDANCE_ID,         attendanceId != null ? attendanceId : "")
-            .putLong   (GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS,   gpsIntervalMs > 0 ? gpsIntervalMs : 60_000L)
-            .putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED,  true)
-            .apply();
-        Log.d(TAG, "Session saved — employee=" + employeeId
+        SharedPreferences p = prefs(ctx);
+        SharedPreferences.Editor ed = p.edit();
+        ed.putString (GpsTrackingService.EXTRA_BACKEND_URL,          backendUrl);
+        ed.putString (GpsTrackingService.EXTRA_TOKEN,                authToken != null ? authToken : "");
+        ed.putString (GpsTrackingService.EXTRA_EMPLOYEE_ID,          employeeId != null ? employeeId : "");
+        ed.putString (GpsTrackingService.EXTRA_ORG_ID,               orgId != null ? orgId : "");
+        ed.putString (GpsTrackingService.EXTRA_ATTENDANCE_ID,        attendanceId != null ? attendanceId : "");
+        ed.putLong   (GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS,  gpsIntervalMs > 0 ? gpsIntervalMs : 60_000L);
+        ed.putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, true);
+        ed.apply();
+        Log.d(TAG, "Session saved (encrypted) — employee=" + employeeId
             + " url=" + backendUrl + " intervalMs=" + gpsIntervalMs);
     }
 
@@ -85,11 +98,18 @@ public class GpsSessionStore {
      * Clears all credential fields and sets tracking_enabled=false.
      */
     public static void clearSession(Context ctx) {
-        prefs(ctx).edit()
-            .clear()
+        SharedPreferences p = prefs(ctx);
+        p.edit().clear()
             .putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false)
             .apply();
-        Log.d(TAG, "Session cleared");
+        // Also clear the legacy plain prefs to avoid stale plaintext lying around
+        try {
+            ctx.getSharedPreferences(PLAIN_PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().clear()
+                .putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false)
+                .apply();
+        } catch (Exception ignored) {}
+        Log.d(TAG, "Session cleared (encrypted + legacy plain)");
     }
 
     /**
@@ -100,7 +120,7 @@ public class GpsSessionStore {
         prefs(ctx).edit()
             .putString(GpsTrackingService.EXTRA_TOKEN, newToken)
             .apply();
-        Log.d(TAG, "Auth token updated in session store");
+        Log.d(TAG, "Auth token updated in encrypted session store");
     }
 
     /**
@@ -163,8 +183,7 @@ public class GpsSessionStore {
     }
 
     /**
-     * Returns true only if tracking_enabled=false (employee explicitly checked out
-     * or admin stopped). This is the "stay idle, don't restart" signal.
+     * Returns true only if tracking_enabled=true (employee is on shift).
      */
     public static boolean shouldTrack(Context ctx) {
         return prefs(ctx).getBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false);
@@ -173,13 +192,6 @@ public class GpsSessionStore {
     /**
      * Returns a comma-joined string of the specific missing/invalid fields.
      * Empty string means all required fields are present and valid.
-     * Used by watchdog, receiver, and diagnostics for precise error reporting.
-     *
-     * Examples:
-     *   ""                                    — all OK
-     *   "tracking_disabled"                   — employee checked out
-     *   "auth_token,employee_id"              — both missing
-     *   "tracking_disabled,auth_token"        — out + no token
      */
     public static String getMissingFields(Context ctx) {
         Session s = getSession(ctx);
@@ -196,7 +208,6 @@ public class GpsSessionStore {
 
     /**
      * Returns the normalised backendUrl from prefs, or the production default.
-     * Safe to call even if prefs are empty.
      */
     public static String getBackendUrl(Context ctx) {
         return normaliseBackendUrl(
@@ -213,10 +224,6 @@ public class GpsSessionStore {
 
     // ── URL normalisation ─────────────────────────────────────────────────────
 
-    /**
-     * Normalise any raw backend URL to a full https:// origin with no trailing slash.
-     * Mirrors GpsTrackingService.normaliseBackendUrl() — one canonical implementation.
-     */
     public static String normaliseBackendUrl(String raw) {
         if (raw == null || raw.trim().isEmpty()) {
             return "https://hr.anistonav.com";
@@ -237,7 +244,83 @@ public class GpsSessionStore {
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
+    /**
+     * Returns the EncryptedSharedPreferences instance, lazily initialised.
+     * Falls back to plain SharedPreferences if EncryptedSharedPreferences fails
+     * (e.g. KeyStore unavailable in DirectBoot — device locked after reboot).
+     * On first call, migrates any existing credentials from the legacy plain file.
+     */
     private static SharedPreferences prefs(Context ctx) {
-        return ctx.getSharedPreferences(GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
+        if (sEncryptedPrefs != null) return sEncryptedPrefs;
+        synchronized (sLock) {
+            if (sEncryptedPrefs != null) return sEncryptedPrefs;
+            try {
+                MasterKey masterKey = new MasterKey.Builder(ctx)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build();
+                SharedPreferences enc = EncryptedSharedPreferences.create(
+                    ctx,
+                    ENCRYPTED_PREFS_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                );
+                // One-time migration: copy credentials from old plain prefs to encrypted prefs
+                migrateFromPlain(ctx, enc);
+                sEncryptedPrefs = enc;
+                return enc;
+            } catch (GeneralSecurityException | IOException e) {
+                // KeyStore unavailable (locked device / DirectBoot) — fall back to plain prefs
+                Log.w(TAG, "EncryptedSharedPreferences unavailable, using plain prefs: " + e.getMessage());
+                return ctx.getSharedPreferences(PLAIN_PREFS_NAME, Context.MODE_PRIVATE);
+            }
+        }
+    }
+
+    /**
+     * Migrates credentials from the old plain-text GpsTrackingPrefs to the new
+     * encrypted file. Only runs if the legacy file has data and the new file is empty.
+     * After migration, credential keys are removed from the plain file.
+     */
+    private static void migrateFromPlain(Context ctx, SharedPreferences enc) {
+        SharedPreferences plain = ctx.getSharedPreferences(PLAIN_PREFS_NAME, Context.MODE_PRIVATE);
+        // Only migrate if encrypted prefs are empty and plain prefs have credentials
+        if (enc.contains(GpsTrackingService.EXTRA_TOKEN)) return; // already migrated
+        if (!plain.contains(GpsTrackingService.EXTRA_TOKEN)) return; // nothing to migrate
+
+        Log.i(TAG, "Migrating GPS credentials from plain to encrypted prefs");
+        try {
+            SharedPreferences.Editor encEd   = enc.edit();
+            SharedPreferences.Editor plainEd = plain.edit();
+
+            String[] credKeys = {
+                GpsTrackingService.EXTRA_BACKEND_URL,
+                GpsTrackingService.EXTRA_TOKEN,
+                GpsTrackingService.EXTRA_EMPLOYEE_ID,
+                GpsTrackingService.EXTRA_ORG_ID,
+                GpsTrackingService.EXTRA_ATTENDANCE_ID,
+            };
+            for (String key : credKeys) {
+                String val = plain.getString(key, null);
+                if (val != null) {
+                    encEd.putString(key, val);
+                    plainEd.remove(key); // remove from plain after migration
+                }
+            }
+            long intervalMs = plain.getLong(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS, 60_000L);
+            encEd.putLong(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS, intervalMs);
+            plainEd.remove(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS);
+
+            boolean trackingEnabled = plain.getBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false);
+            encEd.putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, trackingEnabled);
+            // Leave PREFS_KEY_TRACKING_ENABLED in plain prefs — it's needed for
+            // DirectBoot fallback reads when KeyStore is locked after reboot.
+
+            encEd.apply();
+            plainEd.apply();
+            Log.i(TAG, "Migration complete");
+        } catch (Exception e) {
+            Log.e(TAG, "Migration failed: " + e.getMessage());
+        }
     }
 }

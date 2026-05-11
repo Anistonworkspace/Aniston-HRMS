@@ -7,6 +7,7 @@ import { taskIntegrationService } from '../task-integration/task-integration.ser
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
 import { env } from '../../config/env.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 import type { ApplyLeaveInput, LeaveQuery, CreateLeaveTypeInput, UpdateLeaveTypeInput, SaveDraftInput, SubmitDraftInput, UpdateHandoverInput } from './leave.validation.js';
 
 export class LeaveService {
@@ -2189,6 +2190,11 @@ export class LeaveService {
     // ── Role-based permission enforcement ──
     const approverUser = await prisma.user.findUnique({ where: { id: approvedBy }, select: { role: true } });
     const approverRole = approverUser?.role;
+
+    // HR restriction gate — check if SuperAdmin has blocked this HR from managing this employee's leave
+    if (approverRole === 'HR') {
+      await assertHRActionAllowed('HR', request.employeeId, 'canHRManageLeave');
+    }
 
     // Block self-approval: HR/Admin/Manager cannot approve their own leave
     // (self-rejection/cancellation is allowed so they can withdraw their own requests)

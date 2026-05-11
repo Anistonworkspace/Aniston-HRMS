@@ -193,7 +193,7 @@ export const workforceApi = api.injectEndpoints({
       query: () => '/workforce/shifts/my-change-requests',
       providesTags: ['Attendance'],
     }),
-    reviewShiftChangeRequest: builder.mutation<ApiResponse<any>, { id: string; action: 'APPROVED' | 'REJECTED'; reviewRemarks?: string }>({
+    reviewShiftChangeRequest: builder.mutation<ApiResponse<any>, { id: string; action: 'APPROVED' | 'REJECTED'; reviewRemarks?: string; effectiveDate?: string }>({
       query: ({ id, ...body }) => ({ url: `/workforce/shifts/change-request/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Attendance'],
     }),
@@ -206,6 +206,27 @@ export const workforceApi = api.injectEndpoints({
     setHRRestrictions: builder.mutation<ApiResponse<any>, { employeeId: string; restrictions: Record<string, boolean> }>({
       query: ({ employeeId, restrictions }) => ({ url: `/workforce/shifts/hr-restrictions/${employeeId}`, method: 'POST', body: restrictions }),
       invalidatesTags: ['Employee'],
+    }),
+
+    // Home Location Requests
+    submitHomeLocationRequest: builder.mutation<ApiResponse<any>, { latitude: number; longitude: number; accuracy?: number; address?: string }>({
+      query: (body) => ({ url: '/workforce/shifts/home-location-request', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+    getHomeLocationRequests: builder.query<ApiResponse<any[]>, { status?: string } | void>({
+      query: (params) => {
+        const q = (params as any)?.status ? `?status=${(params as any).status}` : '';
+        return `/workforce/shifts/home-location-requests${q}`;
+      },
+      providesTags: ['Attendance'],
+    }),
+    getMyHomeLocationRequest: builder.query<ApiResponse<any>, void>({
+      query: () => '/workforce/shifts/my-home-location-request',
+      providesTags: ['Attendance'],
+    }),
+    reviewHomeLocationRequest: builder.mutation<ApiResponse<any>, { id: string; action: 'APPROVED' | 'REJECTED'; reviewNotes?: string; radiusMeters?: number }>({
+      query: ({ id, ...body }) => ({ url: `/workforce/shifts/home-location-request/${id}/review`, method: 'PATCH', body }),
+      invalidatesTags: ['Attendance'],
     }),
   }),
 });
@@ -229,4 +250,8 @@ export const {
   useReviewShiftChangeRequestMutation,
   useGetHRRestrictionsQuery,
   useSetHRRestrictionsMutation,
+  useSubmitHomeLocationRequestMutation,
+  useGetHomeLocationRequestsQuery,
+  useGetMyHomeLocationRequestQuery,
+  useReviewHomeLocationRequestMutation,
 } = workforceApi;

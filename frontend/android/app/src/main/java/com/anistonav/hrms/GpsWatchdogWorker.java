@@ -51,6 +51,7 @@ public class GpsWatchdogWorker extends Worker {
         // Always record the exact missing fields for diagnostics panel
         GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_MISSING_FIELDS,
             missingFields.isEmpty() ? "" : missingFields);
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_CRED_SNAPSHOT_AT, GpsDiagnostics.nowIso());
 
         if (!hasSession) {
             // Distinguish "employee checked out" from "credentials missing"

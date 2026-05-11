@@ -5,6 +5,7 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.util.Log;
 
@@ -35,8 +36,26 @@ public class GpsRestartReceiver extends BroadcastReceiver {
 
         switch (action) {
             case Intent.ACTION_BOOT_COMPLETED:
-            case "android.intent.action.LOCKED_BOOT_COMPLETED":
             case ACTION_RESTART_GPS:
+                restartIfNeeded(context);
+                break;
+
+            case "android.intent.action.LOCKED_BOOT_COMPLETED":
+                // Device just powered on but user has NOT unlocked yet.
+                // KeyStore (and therefore EncryptedSharedPreferences) is unavailable
+                // until the first unlock — GpsSessionStore.getSession() will return
+                // empty credentials. Defer the restart to ACTION_USER_UNLOCKED.
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT,
+                    "deferred_to_user_unlocked");
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_DIRECT_BOOT_LOCKED, "true");
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RESTART_DEFERRED_UNTIL_UNLOCK, GpsDiagnostics.nowIso());
+                registerUserUnlockedReceiver(context);
+                break;
+
+            case Intent.ACTION_USER_UNLOCKED:
+                // First unlock after boot — KeyStore is now available; retry the start.
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RECEIVER_ACTION,
+                    "USER_UNLOCKED_retry");
                 restartIfNeeded(context);
                 break;
         }
@@ -55,6 +74,7 @@ public class GpsRestartReceiver extends BroadcastReceiver {
         GpsSessionStore.Session session = GpsSessionStore.getSession(context);
         GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RESTART_CREDENTIALS_PRESENT,
             hasSession ? "true" : "false");
+        GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RECEIVER_CRED_SNAPSHOT_AT, GpsDiagnostics.nowIso());
 
         // ── Step 3: Guard — employee checked out or no active session ─────────────
         if (!shouldTrack) {
@@ -107,6 +127,31 @@ public class GpsRestartReceiver extends BroadcastReceiver {
     }
 
     /**
+     * Registers a one-shot runtime receiver for ACTION_USER_UNLOCKED so the GPS
+     * service can start once the KeyStore (and encrypted prefs) becomes available
+     * after the first post-boot unlock. The receiver unregisters itself after firing.
+     */
+    private static void registerUserUnlockedReceiver(Context context) {
+        BroadcastReceiver unlockReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                try { ctx.getApplicationContext().unregisterReceiver(this); } catch (Exception ignored) {}
+                Log.d(TAG, "USER_UNLOCKED received — retrying GPS start");
+                GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_RECEIVER_ACTION,
+                    "USER_UNLOCKED_inline");
+                new GpsRestartReceiver().restartIfNeeded(ctx);
+            }
+        };
+        IntentFilter filter = new IntentFilter(Intent.ACTION_USER_UNLOCKED);
+        try {
+            context.getApplicationContext().registerReceiver(unlockReceiver, filter);
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_USER_UNLOCKED_RECEIVER_REGISTERED, GpsDiagnostics.nowIso());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to register USER_UNLOCKED receiver: " + e.getMessage());
+        }
+    }
+
+    /**
      * Schedules TWO AlarmManager alarms to restart the service after task removal.
      *   Alarm 1 — 500 ms:  catches normal swipe (process still alive or recently killed)
      *   Alarm 2 — 8 s:     safety net for OEMs that delay killing the process
@@ -128,25 +173,40 @@ public class GpsRestartReceiver extends BroadcastReceiver {
         if (am == null) return;
 
         long triggerAt = System.currentTimeMillis() + delayMs;
+        boolean canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+            || am.canScheduleExactAlarms();
+
+        GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_EXACT_ALARM_GRANTED,
+            String.valueOf(canExact));
+
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (am.canScheduleExactAlarms()) {
+            if (canExact) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
                 } else {
-                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                    am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi);
                 }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_ALARM_TYPE, "exact");
             } else {
-                am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_ALARM_TYPE, "inexact");
             }
-            Log.d(TAG, "Scheduled restart in " + delayMs + "ms (requestCode=" + requestCode + ")");
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_ALARM_SCHEDULE_RESULT, "ok");
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_ALARM_AT, GpsDiagnostics.nowIso());
+            Log.d(TAG, "Scheduled " + (canExact ? "exact" : "inexact") + " restart in " + delayMs + "ms (requestCode=" + requestCode + ")");
         } catch (SecurityException e) {
-            Log.w(TAG, "Exact alarm denied, falling back to inexact: " + e.getMessage());
+            // SCHEDULE_EXACT_ALARM revoked at runtime — fall back to inexact
+            Log.w(TAG, "Exact alarm SecurityException, falling back to inexact: " + e.getMessage());
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_ALARM_TYPE,   "inexact_fallback");
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_ALARM_SCHEDULE_ERROR,
+                "SecurityException:" + e.getMessage());
             try {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_ALARM_SCHEDULE_RESULT, "ok_inexact_fallback");
             } catch (Exception ex) {
                 Log.e(TAG, "Inexact alarm also failed: " + ex.getMessage());
+                GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_ALARM_SCHEDULE_RESULT,
+                    "failed:" + ex.getMessage());
             }
         }
     }

@@ -263,7 +263,7 @@ router.get(
       };
 
       const data = employees.map((emp) => {
-        const counts = leaveCountMap.get(emp.id) || { applied: 0, approved: 0, pending: 0, totalDays: 0 };
+        const counts = leaveCountMap.get(emp.id) || { applied: 0, approved: 0, pending: 0, totalDays: 0, totalUnpaidDays: 0 };
         // Only count balances for leave types that actually apply to this employee
         const applicableBalances = emp.leaveBalances.filter((b) => isLeaveApplicable(b.leaveType, emp));
         // Exclude unpaid (LWP) types from quota totals — they have no fixed allocation

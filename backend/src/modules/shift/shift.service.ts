@@ -236,10 +236,33 @@ export class ShiftService {
       });
       // Reassign all affected employees to default shift
       if (defaultShift) {
+        const affectedAssignments = await prisma.shiftAssignment.findMany({
+          where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gt: today } }] },
+          select: { employeeId: true },
+        });
         await prisma.shiftAssignment.updateMany({
           where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gt: today } }] },
           data: { shiftId: defaultShift.id },
         });
+        // Notify each affected employee via socket
+        const { getIO } = await import('../../sockets/index.js');
+        const io = getIO();
+        if (io && affectedAssignments.length > 0) {
+          const empIds = affectedAssignments.map((a: any) => a.employeeId);
+          const users = await prisma.employee.findMany({
+            where: { id: { in: empIds } },
+            select: { userId: true },
+          });
+          for (const u of users) {
+            if (u.userId) {
+              io.to(`user:${u.userId}`).emit('shift:force-reassigned', {
+                oldShiftName: shift.name,
+                newShiftName: defaultShift.name,
+                reason: 'Your previous shift was removed. You have been automatically moved to the default shift.',
+              });
+            }
+          }
+        }
       }
       return { message: 'Shift deactivated and employees reassigned to default shift' };
     }
@@ -690,6 +713,7 @@ export class ShiftService {
       include: {
         employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, avatar: true } },
         toShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },
+        fromShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -700,6 +724,7 @@ export class ShiftService {
       where: { employeeId },
       include: {
         toShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },
+        fromShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -711,8 +736,16 @@ export class ShiftService {
     reviewedBy: string,
     organizationId: string,
     reviewRemarks?: string,
+    effectiveDate?: string,
   ) {
-    const request = await prisma.shiftChangeRequest.findFirst({ where: { id, organizationId } });
+    const request = await prisma.shiftChangeRequest.findFirst({
+      where: { id, organizationId },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true, userId: true } },
+        toShift: { select: { id: true, name: true } },
+        fromShift: { select: { id: true, name: true } },
+      },
+    });
     if (!request) throw new NotFoundError('Shift change request');
     if (request.status !== 'PENDING') throw new BadRequestError('This request has already been reviewed.');
 
@@ -722,12 +755,29 @@ export class ShiftService {
     });
 
     if (action === 'APPROVED') {
-      // Execute the actual shift assignment
+      const startDate = effectiveDate || new Date().toISOString().split('T')[0];
       await this.assignShift(
-        { employeeId: request.employeeId, shiftId: request.toShiftId, startDate: new Date().toISOString().split('T')[0] },
+        { employeeId: request.employeeId, shiftId: request.toShiftId, startDate },
         organizationId,
         reviewedBy,
       );
+    }
+
+    // Notify employee via socket
+    if (request.employee?.userId) {
+      const { getIO } = await import('../../sockets/index.js');
+      const io = getIO();
+      if (io) {
+        const toShiftName = request.toShift?.name || 'requested shift';
+        const fromShiftName = request.fromShift?.name;
+        io.to(`user:${request.employee.userId}`).emit('shift:request-reviewed', {
+          action,
+          toShiftName,
+          fromShiftName,
+          reviewRemarks,
+          effectiveDate: action === 'APPROVED' ? (effectiveDate || new Date().toISOString().split('T')[0]) : undefined,
+        });
+      }
     }
 
     return { message: action === 'APPROVED' ? 'Shift change approved and applied.' : 'Shift change request rejected.' };
@@ -786,6 +836,132 @@ export class ShiftService {
       create: { employeeId, organizationId, createdBy, ...restrictions },
       update: { ...restrictions },
     });
+  }
+  // ── Home Location Requests ──────────────────────────────────────────────────
+
+  async createHomeLocationRequest(
+    employeeId: string,
+    organizationId: string,
+    data: { latitude: number; longitude: number; accuracy?: number; address?: string },
+  ) {
+    // Cancel any existing PENDING request first
+    await prisma.homeLocationRequest.updateMany({
+      where: { employeeId, organizationId, status: 'PENDING', deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+
+    return prisma.homeLocationRequest.create({
+      data: {
+        employeeId,
+        organizationId,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        accuracy: data.accuracy,
+        address: data.address,
+        status: 'PENDING',
+      },
+    });
+  }
+
+  async getHomeLocationRequests(organizationId: string, status?: string) {
+    return prisma.homeLocationRequest.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        ...(status ? { status: status as any } : {}),
+      },
+      include: {
+        employee: {
+          select: {
+            id: true, firstName: true, lastName: true, employeeCode: true,
+            department: { select: { name: true } },
+          },
+        },
+        approvedGeofence: { select: { id: true, radiusMeters: true, coordinates: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getMyHomeLocationRequest(employeeId: string) {
+    return prisma.homeLocationRequest.findFirst({
+      where: { employeeId, deletedAt: null },
+      include: { approvedGeofence: { select: { id: true, radiusMeters: true, coordinates: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async reviewHomeLocationRequest(
+    id: string,
+    organizationId: string,
+    action: 'APPROVED' | 'REJECTED',
+    reviewedBy: string,
+    reviewNotes?: string,
+    radiusMeters?: number,
+  ) {
+    const request = await prisma.homeLocationRequest.findFirst({
+      where: { id, organizationId, deletedAt: null },
+      include: { employee: { select: { id: true, firstName: true, lastName: true, userId: true, approvedHomeGeofenceId: true } } },
+    });
+    if (!request) throw new NotFoundError('Home location request not found');
+
+    let result: any;
+
+    if (action === 'APPROVED') {
+      result = await prisma.$transaction(async (tx) => {
+        const geofence = await tx.geofence.create({
+          data: {
+            name: `Home - ${request.employee.firstName} ${request.employee.lastName}`,
+            type: 'HOME',
+            coordinates: { lat: request.latitude, lng: request.longitude },
+            radiusMeters: radiusMeters ?? 100,
+            organizationId,
+          },
+        });
+
+        await tx.homeLocationRequest.update({
+          where: { id },
+          data: { status: 'APPROVED', approvedGeofenceId: geofence.id, reviewedBy, reviewedAt: new Date(), reviewNotes },
+        });
+
+        await tx.employee.update({
+          where: { id: request.employeeId },
+          data: { approvedHomeGeofenceId: geofence.id },
+        });
+
+        return { message: 'Home location approved and geofence created', geofenceId: geofence.id };
+      });
+    } else {
+      // Clear old geofence from employee so they can't clock in from old location
+      await prisma.$transaction(async (tx) => {
+        await tx.homeLocationRequest.update({
+          where: { id },
+          data: { status: 'REJECTED', reviewedBy, reviewedAt: new Date(), reviewNotes },
+        });
+        if (request.employee.approvedHomeGeofenceId) {
+          await tx.employee.update({
+            where: { id: request.employeeId },
+            data: { approvedHomeGeofenceId: null },
+          });
+        }
+      });
+      result = { message: 'Home location request rejected' };
+    }
+
+    // Notify employee via socket
+    if (request.employee?.userId) {
+      const { getIO } = await import('../../sockets/index.js');
+      const io = getIO();
+      if (io) {
+        io.to(`user:${request.employee.userId}`).emit('home-location:reviewed', {
+          action,
+          reviewNotes,
+          radiusMeters: action === 'APPROVED' ? (radiusMeters ?? 100) : undefined,
+        });
+      }
+    }
+
+    return result;
   }
 }
 

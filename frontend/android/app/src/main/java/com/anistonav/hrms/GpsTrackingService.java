@@ -105,6 +105,7 @@ public class GpsTrackingService extends Service {
     private String attendanceId;
     private long   gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
     private boolean stoppedByEmployee = false;
+    private int consecutive403Count = 0; // reset on 2xx; stop GPS after 3 unexplained 403s
 
     // Batching
     private static final int BATCH_THRESHOLD_HIGH_SPEED = 1;
@@ -114,9 +115,10 @@ public class GpsTrackingService extends Service {
     // RDP compression epsilon
     private static final double RDP_EPSILON_METERS = 5.0;
 
-    // Last known location for notification updates
+    // Last known location for notification updates and heartbeat payload
     private double lastLat;
     private double lastLng;
+    private volatile String lastGpsPointAt = "";
 
     /** True only while this process's service instance is running. */
     public static volatile boolean sIsRunning = false;
@@ -229,6 +231,11 @@ public class GpsTrackingService extends Service {
         GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CREDENTIALS_PRESENT,        "true");
         GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_MISSING_CREDENTIAL_FIELDS,  "");
         GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_TRACKING_ENABLED,           "true");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_ATTENDANCE_ID_PRESENT,
+            (attendanceId != null && !attendanceId.isEmpty()) ? "true" : "false");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_ATTENDANCE_ID_FIRST8,
+            (attendanceId != null && attendanceId.length() >= 8) ? attendanceId.substring(0, 8) : (attendanceId != null ? attendanceId : ""));
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_SERVICE_CRED_SNAPSHOT_AT, GpsDiagnostics.nowIso());
 
         updateNotification("Aniston HRMS — GPS Active", "Initialising location…");
         sIsRunning = true;
@@ -313,6 +320,14 @@ public class GpsTrackingService extends Service {
                 String acc    = String.format(Locale.US, "±%.0f m", accuracy);
                 String coords = String.format(Locale.US, "%.5f, %.5f", lastLat, lastLng);
                 updateNotification("GPS Active — " + kmh, coords + "  " + acc);
+
+                // Detect mock/spoofed GPS — record for diagnostics; still post the point
+                // so HR can see it on the trail with isMocked=true flagged for review.
+                boolean isMocked = loc.isFromMockProvider();
+                if (isMocked) {
+                    Log.w(TAG, "Mock location detected");
+                    GpsDiagnostics.recordEvent(GpsTrackingService.this, "lastMockLocationAt", nowIso);
+                }
 
                 if (accuracy > MAX_ACCURACY_METERS) {
                     String skipReason = "low_accuracy:" + String.format(Locale.US, "%.0f", accuracy) + "m";
@@ -404,8 +419,9 @@ public class GpsTrackingService extends Service {
 
                 postJson(trailUrl, body.toString());
 
+                lastGpsPointAt = GpsDiagnostics.nowIso();
                 GpsDiagnostics.recordEvent(GpsTrackingService.this,
-                    GpsDiagnostics.KEY_LAST_GPS_POINT_AT, GpsDiagnostics.nowIso());
+                    GpsDiagnostics.KEY_LAST_GPS_POINT_AT, lastGpsPointAt);
                 GpsDiagnostics.recordEvent(GpsTrackingService.this,
                     GpsDiagnostics.KEY_LAST_HTTP_RESPONSE_AT, GpsDiagnostics.nowIso());
 
@@ -438,7 +454,20 @@ public class GpsTrackingService extends Service {
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_HTTP_REQUEST_AT,  GpsDiagnostics.nowIso());
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_HTTP_REQUEST_URL, hbUrl);
 
-            postJson(hbUrl, "{}");
+            // Include last known location and device info for HR alert emails
+            org.json.JSONObject hbBody = new org.json.JSONObject();
+            if (lastLat != 0.0 || lastLng != 0.0) {
+                hbBody.put("lat", lastLat);
+                hbBody.put("lng", lastLng);
+            }
+            if (!lastGpsPointAt.isEmpty()) {
+                hbBody.put("lastGpsPointAt", lastGpsPointAt);
+            }
+            hbBody.put("deviceManufacturer", android.os.Build.MANUFACTURER);
+            hbBody.put("deviceBrand",        android.os.Build.BRAND);
+            hbBody.put("deviceModel",        android.os.Build.MODEL);
+            hbBody.put("sdkInt",             android.os.Build.VERSION.SDK_INT);
+            postJson(hbUrl, hbBody.toString());
 
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_HEARTBEAT_AT,    GpsDiagnostics.nowIso());
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_HTTP_RESPONSE_AT, GpsDiagnostics.nowIso());
@@ -483,12 +512,54 @@ public class GpsTrackingService extends Service {
         int code = conn.getResponseCode();
         GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_BACKEND_STATUS_CODE, String.valueOf(code));
 
-        if (code == 401) {
-            // Service may have a stale token; try reading a fresher one from prefs
-            String refreshed = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getString(EXTRA_TOKEN, null);
+        if (code >= 200 && code < 300) {
+            // Success — reset consecutive 403 counter
+            if (consecutive403Count > 0) {
+                consecutive403Count = 0;
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CONSECUTIVE_403_COUNT, "0");
+            }
+        } else if (code == 401) {
+            // Stale token — read the latest from GpsSessionStore (encrypted prefs).
+            // Plain PREFS_NAME no longer holds credentials after migration.
+            GpsSessionStore.Session session = GpsSessionStore.getSession(this);
+            String refreshed = session != null ? session.authToken : null;
             if (refreshed != null && !refreshed.equals(authToken)) {
                 authToken = refreshed;
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_TOKEN_RETRY_SOURCE, "GpsSessionStore");
+            } else {
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_TOKEN_RETRY_SOURCE, "none_no_fresher_token");
+            }
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_TOKEN_RETRY_ATTEMPTED_AT, GpsDiagnostics.nowIso());
+        } else if (code == 403) {
+            // Read the error body to distinguish consent-revoked from other 403s
+            String errorBody = "";
+            try {
+                java.io.InputStream errStream = conn.getErrorStream();
+                if (errStream != null) {
+                    errorBody = new java.util.Scanner(errStream, "UTF-8").useDelimiter("\\A").next();
+                }
+            } catch (Exception ignored) {}
+
+            if (errorBody.contains("GPS_CONSENT_REQUIRED")) {
+                // Consent revoked — stop immediately
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_STOP_REASON, "GPS_CONSENT_REQUIRED_403");
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_CONSENT_REQUIRED, "true");
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CONSECUTIVE_403_COUNT, String.valueOf(consecutive403Count));
+                consecutive403Count = 0;
+                updateNotification("GPS Tracking Stopped", "Location consent was revoked. Open the app to re-enable.");
+                stopSelf();
+            } else {
+                // Unexpected 403 (role change, org mismatch, etc.) — back off after 3
+                consecutive403Count++;
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CONSECUTIVE_403_COUNT, String.valueOf(consecutive403Count));
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_403_AT, GpsDiagnostics.nowIso());
+                Log.w(TAG, "Unexpected 403 (" + consecutive403Count + "/3): " + errorBody);
+                if (consecutive403Count >= 3) {
+                    GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_STOP_REASON, "consecutive_403_backoff");
+                    consecutive403Count = 0;
+                    updateNotification("GPS Tracking Paused", "Authentication error — open the app to resume.");
+                    stopSelf();
+                }
             }
         }
         conn.disconnect();

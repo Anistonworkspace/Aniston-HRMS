@@ -41,7 +41,7 @@ export class DocumentController {
         data.employeeId = req.user.employeeId;
       }
 
-      const doc = await documentService.create(data, fileUrl, req.user!.userId);
+      const doc = await documentService.create(data, fileUrl, req.user!.userId, req.user!.role);
 
       // Auto-update KYC document gate if this is a KYC document
       const kycTypes = ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE',
@@ -216,7 +216,7 @@ export class DocumentController {
         }
       }
 
-      await documentService.remove(req.params.id, req.user!.userId, req.user!.organizationId);
+      await documentService.remove(req.params.id, req.user!.userId, req.user!.organizationId, req.user!.role);
 
       // Reset KYC gate if this doc was part of an employee's KYC submission
       if (docToDelete?.employeeId) {

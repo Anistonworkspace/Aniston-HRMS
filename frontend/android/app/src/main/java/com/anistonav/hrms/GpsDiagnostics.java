@@ -85,6 +85,11 @@ public class GpsDiagnostics {
     public static final String KEY_LAST_HTTP_RESPONSE_AT        = "lastHttpResponseAt";
     public static final String KEY_LAST_HTTP_REQUEST_URL        = "lastHttpRequestUrl";
     public static final String KEY_LAST_ERROR_MESSAGE           = "lastErrorMessage";
+    public static final String KEY_CONSECUTIVE_403_COUNT        = "consecutive403Count";
+    public static final String KEY_LAST_403_AT                  = "last403At";
+    public static final String KEY_TOKEN_RETRY_SOURCE           = "tokenRetrySource";
+    public static final String KEY_TOKEN_RETRY_ATTEMPTED_AT     = "tokenRetryAttemptedAt";
+    public static final String KEY_GPS_CONSENT_REQUIRED         = "gpsConsentRequired";
 
     // ── Device info ───────────────────────────────────────────────────────────
     public static final String KEY_MANUFACTURER                 = "manufacturer";
@@ -103,10 +108,31 @@ public class GpsDiagnostics {
     public static final String KEY_OEM_AUTO_START_NOT_FOUND     = "oemAutoStartNotFound";
     public static final String KEY_GPS_STOP_REASON              = "gpsStopReason";
 
+    // ── Boot / DirectBoot / unlock chain ──────────────────────────────────────
+    public static final String KEY_DIRECT_BOOT_LOCKED                = "directBootLocked";
+    public static final String KEY_USER_UNLOCKED_RECEIVER_REGISTERED = "userUnlockedReceiverRegistered";
+    public static final String KEY_RESTART_DEFERRED_UNTIL_UNLOCK     = "restartDeferredUntilUnlock";
+
     // ── Point skip diagnostics ────────────────────────────────────────────────
     public static final String KEY_LAST_POINT_SKIP_REASON       = "lastPointSkipReason";
     public static final String KEY_LAST_POINT_SKIP_AT           = "lastPointSkipAt";
     public static final String KEY_NEXT_GPS_CAPTURE_AT          = "nextGpsCaptureAt";
+
+    // ── Alarm diagnostics ─────────────────────────────────────────────────────
+    public static final String KEY_EXACT_ALARM_GRANTED          = "exactAlarmGranted";
+    public static final String KEY_LAST_ALARM_TYPE              = "lastAlarmType";
+    public static final String KEY_LAST_ALARM_SCHEDULE_RESULT   = "lastAlarmScheduleResult";
+    public static final String KEY_LAST_ALARM_SCHEDULE_ERROR    = "lastAlarmScheduleError";
+
+    // ── Per-component credential snapshot ─────────────────────────────────────
+    // Each component writes its view of credentials so we can compare them.
+    // Only presence flags (true/false/length) — never actual values.
+    public static final String KEY_ATTENDANCE_ID_PRESENT        = "attendanceIdPresent";
+    public static final String KEY_ATTENDANCE_ID_FIRST8         = "attendanceIdFirst8";
+    public static final String KEY_PLUGIN_CRED_SNAPSHOT_AT      = "pluginCredSnapshotAt";
+    public static final String KEY_SERVICE_CRED_SNAPSHOT_AT     = "serviceCredSnapshotAt";
+    public static final String KEY_RECEIVER_CRED_SNAPSHOT_AT    = "receiverCredSnapshotAt";
+    public static final String KEY_WATCHDOG_CRED_SNAPSHOT_AT    = "watchdogCredSnapshotAt";
 
     // ── Core write ────────────────────────────────────────────────────────────
 
@@ -218,9 +244,10 @@ public class GpsDiagnostics {
             obj.put(KEY_LAST_LOCATION_REQUEST_AT,     p.getString(KEY_LAST_LOCATION_REQUEST_AT,     ""));
             obj.put(KEY_LAST_LOCATION_RECEIVED_AT,    p.getString(KEY_LAST_LOCATION_RECEIVED_AT,    ""));
 
-            // GPS interval (read from tracking prefs for source-of-truth)
-            SharedPreferences trackP = ctx.getSharedPreferences(GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
-            long intervalMs = trackP.getLong(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS, -1);
+            // GPS interval — read from GpsSessionStore (encrypted prefs); plain prefs
+            // no longer holds this key after migrateFromPlain().
+            GpsSessionStore.Session sess = GpsSessionStore.getSession(ctx);
+            long intervalMs = (sess != null && sess.gpsIntervalMs > 0) ? sess.gpsIntervalMs : -1;
             obj.put(KEY_GPS_INTERVAL_MS, intervalMs > 0 ? String.valueOf(intervalMs) : "");
             obj.put(KEY_GPS_INTERVAL_LABEL, intervalMsToLabel(intervalMs));
             obj.put(KEY_GPS_INTERVAL_SOURCE,          p.getString(KEY_GPS_INTERVAL_SOURCE,          ""));
@@ -261,8 +288,22 @@ public class GpsDiagnostics {
             obj.put(KEY_LAST_POINT_SKIP_AT,           p.getString(KEY_LAST_POINT_SKIP_AT,           ""));
             obj.put(KEY_NEXT_GPS_CAPTURE_AT,          p.getString(KEY_NEXT_GPS_CAPTURE_AT,          ""));
 
-            // Token presence flag — never expose the actual token
-            String token = trackP.getString(GpsTrackingService.EXTRA_TOKEN, null);
+            // Alarm diagnostics
+            obj.put(KEY_EXACT_ALARM_GRANTED,          p.getString(KEY_EXACT_ALARM_GRANTED,          ""));
+            obj.put(KEY_LAST_ALARM_TYPE,              p.getString(KEY_LAST_ALARM_TYPE,              ""));
+            obj.put(KEY_LAST_ALARM_SCHEDULE_RESULT,   p.getString(KEY_LAST_ALARM_SCHEDULE_RESULT,   ""));
+            obj.put(KEY_LAST_ALARM_SCHEDULE_ERROR,    p.getString(KEY_LAST_ALARM_SCHEDULE_ERROR,    ""));
+
+            // Per-component credential snapshot
+            obj.put(KEY_ATTENDANCE_ID_PRESENT,        p.getString(KEY_ATTENDANCE_ID_PRESENT,        ""));
+            obj.put(KEY_ATTENDANCE_ID_FIRST8,         p.getString(KEY_ATTENDANCE_ID_FIRST8,         ""));
+            obj.put(KEY_PLUGIN_CRED_SNAPSHOT_AT,      p.getString(KEY_PLUGIN_CRED_SNAPSHOT_AT,      ""));
+            obj.put(KEY_SERVICE_CRED_SNAPSHOT_AT,     p.getString(KEY_SERVICE_CRED_SNAPSHOT_AT,     ""));
+            obj.put(KEY_RECEIVER_CRED_SNAPSHOT_AT,    p.getString(KEY_RECEIVER_CRED_SNAPSHOT_AT,    ""));
+            obj.put(KEY_WATCHDOG_CRED_SNAPSHOT_AT,    p.getString(KEY_WATCHDOG_CRED_SNAPSHOT_AT,    ""));
+
+            // Token presence flag — read from GpsSessionStore (encrypted); never expose value
+            String token = (sess != null) ? sess.authToken : null;
             obj.put("tokenPresent", token != null && !token.isEmpty());
 
         } catch (Exception e) {

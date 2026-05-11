@@ -12,31 +12,43 @@ export default function GpsDiagnosticsPanel() {
 
 // Fields that indicate a problem when they have specific values — shown in red
 const ALERT_RULES: Record<string, (v: string) => boolean> = {
-  credentialsPresent:         (v) => v === 'false',
-  trackingEnabled:            (v) => v === 'false',
-  baseUrlValid:               (v) => v === 'false',
-  serviceRunning:             (v) => v === 'false',
-  lastWatchdogResult:         (v) => v.startsWith('no_credentials') || v.startsWith('failed'),
-  lastRestartResult:          (v) => v.startsWith('failed') || v.startsWith('missing_credentials'),
-  suspectedForceStop:         (v) => v === 'true',
-  batteryOptimizationIgnored: (v) => v === 'false',
-  locationPermissionFine:     (v) => v === 'false',
+  credentialsPresent:          (v) => v === 'false',
+  trackingEnabled:             (v) => v === 'false',
+  baseUrlValid:                (v) => v === 'false',
+  serviceRunning:              (v) => v === 'false',
+  lastWatchdogResult:          (v) => v.startsWith('no_credentials') || v.startsWith('failed'),
+  lastRestartResult:           (v) => v.startsWith('failed') || v.startsWith('missing_credentials') || v === 'deferred_to_user_unlocked',
+  suspectedForceStop:          (v) => v === 'true',
+  batteryOptimizationIgnored:  (v) => v === 'false',
+  locationPermissionFine:      (v) => v === 'false',
   locationPermissionBackground:(v) => v === 'false',
-  tokenPresent:               (v) => v === 'false',
+  tokenPresent:                (v) => v === 'false',
+  attendanceIdPresent:         (v) => v === 'false',
+  lastAlarmScheduleResult:     (v) => v.startsWith('failed'),
+  exactAlarmGranted:           (v) => v === 'false',
+  consecutive403Count:         (v) => parseInt(v, 10) >= 2,
+  gpsConsentRequired:          (v) => v === 'true',
 };
 
 // Fields that indicate success when they have specific values — shown in green
 const OK_RULES: Record<string, (v: string) => boolean> = {
-  credentialsPresent:         (v) => v === 'true',
-  trackingEnabled:            (v) => v === 'true',
-  baseUrlValid:               (v) => v === 'true',
-  serviceRunning:             (v) => v === 'true',
-  batteryOptimizationIgnored: (v) => v === 'true',
-  locationPermissionFine:     (v) => v === 'true',
+  credentialsPresent:          (v) => v === 'true',
+  trackingEnabled:             (v) => v === 'true',
+  baseUrlValid:                (v) => v === 'true',
+  serviceRunning:              (v) => v === 'true',
+  batteryOptimizationIgnored:  (v) => v === 'true',
+  locationPermissionFine:      (v) => v === 'true',
   locationPermissionBackground:(v) => v === 'true',
-  tokenPresent:               (v) => v === 'true',
-  lastWatchdogResult:         (v) => v === 'service_already_running' || v === 'restarted_service',
-  lastRestartResult:          (v) => v === 'started' || v === 'skipped_already_running',
+  tokenPresent:                (v) => v === 'true',
+  attendanceIdPresent:         (v) => v === 'true',
+  lastWatchdogResult:          (v) => v === 'service_already_running' || v === 'restarted_service',
+  lastRestartResult:           (v) => v === 'started' || v === 'skipped_already_running',
+  exactAlarmGranted:           (v) => v === 'true',
+  lastAlarmScheduleResult:     (v) => v === 'ok' || v === 'ok_inexact_fallback',
+  lastAlarmType:               (v) => v === 'exact',
+  consecutive403Count:         (v) => v === '0',
+  gpsConsentRequired:          (v) => v === 'false',
+  directBootLocked:            (v) => v === 'false',
 };
 
 // Human-friendly group labels and field order for readability
@@ -45,7 +57,8 @@ const GROUPS: Array<{ label: string; keys: string[] }> = [
     label: 'Session & Service',
     keys: ['sessionState', 'serviceRunning', 'trackingEnabled', 'credentialsPresent',
            'missingCredentialFields', 'tokenPresent', 'foregroundNotificationVisible',
-           'nativeSessionStoredAt', 'nativeSessionClearedAt', 'gpsStopReason'],
+           'nativeSessionStoredAt', 'nativeSessionClearedAt',
+           'gpsStopReason', 'gpsConsentRequired'],
   },
   {
     label: 'URL & API',
@@ -71,7 +84,8 @@ const GROUPS: Array<{ label: string; keys: string[] }> = [
     keys: ['lastRestartReceiverFiredAt', 'lastRestartReceiverAction',
            'lastRestartAttemptAt', 'restartCredentialsPresent',
            'restartServiceIntentCreatedAt', 'restartStartForegroundServiceCalledAt',
-           'lastRestartResult', 'lastRestartException'],
+           'lastRestartResult', 'lastRestartException',
+           'directBootLocked', 'userUnlockedReceiverRegistered', 'restartDeferredUntilUnlock'],
   },
   {
     label: 'Watchdog',
@@ -86,11 +100,25 @@ const GROUPS: Array<{ label: string; keys: string[] }> = [
   {
     label: 'HTTP',
     keys: ['lastHttpRequestAt', 'lastHttpRequestUrl', 'lastHttpResponseAt',
-           'lastBackendStatusCode', 'lastErrorMessage'],
+           'lastBackendStatusCode', 'lastErrorMessage',
+           'consecutive403Count', 'last403At',
+           'tokenRetrySource', 'tokenRetryAttemptedAt'],
   },
   {
     label: 'Force-Stop Detection',
     keys: ['suspectedForceStop', 'suspectedForceStopAt'],
+  },
+  {
+    label: 'Alarm Diagnostics',
+    keys: ['exactAlarmGranted', 'lastAlarmType', 'lastAlarmScheduleResult', 'lastAlarmScheduleError'],
+  },
+  {
+    label: 'Credential Snapshot',
+    keys: [
+      'attendanceIdPresent', 'attendanceIdFirst8',
+      'pluginCredSnapshotAt', 'serviceCredSnapshotAt',
+      'receiverCredSnapshotAt', 'watchdogCredSnapshotAt',
+    ],
   },
   {
     label: 'Device',

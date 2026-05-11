@@ -7,6 +7,7 @@ import { writeFileSync, existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { storageService } from '../../services/storage.service.js';
 import { logger } from '../../lib/logger.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 import type { CreateDocumentInput, DocumentQuery } from './document.validation.js';
 
 export class DocumentService {
@@ -59,7 +60,12 @@ export class DocumentService {
     return doc;
   }
 
-  async create(data: CreateDocumentInput, fileUrl: string, userId: string) {
+  async create(data: CreateDocumentInput, fileUrl: string, userId: string, userRole?: string) {
+    // HR restriction gate — only gate when uploading for a specific employee
+    if (userRole === 'HR' && data.employeeId) {
+      await assertHRActionAllowed('HR', data.employeeId, 'canHRManageDocuments');
+    }
+
     // If the employee already has an active document of the same type, replace it:
     // soft-delete the old record and physically remove its file so there are no duplicates.
     if (data.employeeId && data.type) {
@@ -172,13 +178,18 @@ export class DocumentService {
     return updated;
   }
 
-  async remove(id: string, userId?: string, organizationId?: string) {
+  async remove(id: string, userId?: string, organizationId?: string, userRole?: string) {
     const doc = await prisma.document.findFirst({
       where: organizationId
         ? { id, employee: { organizationId } }
         : { id },
     });
     if (!doc) throw new NotFoundError('Document');
+
+    // HR restriction gate
+    if (userRole === 'HR' && doc.employeeId) {
+      await assertHRActionAllowed('HR', doc.employeeId, 'canHRManageDocuments');
+    }
 
     // Soft-delete the DB record first
     const deleted = await prisma.document.update({

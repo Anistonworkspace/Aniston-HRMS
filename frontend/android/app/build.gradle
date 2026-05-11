@@ -7,8 +7,8 @@ android {
         applicationId "com.anistonav.hr.twa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 19
-        versionName "1.5.4"
+        versionCode 20
+        versionName "1.5.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
@@ -62,7 +62,10 @@ dependencies {
     // In-App Update API — prompts employees to update to latest APK version
     implementation 'com.google.android.play:app-update:2.1.0'
     // Biometric authentication — fingerprint/face lock after background idle
-    implementation 'androidx.biometric:biometric:1.2.0-alpha05'
+    implementation 'androidx.biometric:biometric:1.1.0'
+    // EncryptedSharedPreferences — secures GPS credentials (auth token, employee ID) at rest
+    // 1.1.0-alpha06 is required; 1.0.0 stable uses deprecated MasterKeys.getOrCreate() API
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 }
 
 apply from: 'capacitor.build.gradle'

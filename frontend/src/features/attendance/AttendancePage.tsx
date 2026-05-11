@@ -38,6 +38,7 @@ import { useAuthDownload } from '../../hooks/useAuthDownload';
 import { useEmpPerms } from '../../hooks/useEmpPerms';
 import PermDenied from '../../components/PermDenied';
 import ShiftChangeRequestPanel from './components/ShiftChangeRequestPanel';
+import HomeLocationRequestPanel from './components/HomeLocationRequestPanel';
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500',
@@ -1728,6 +1729,11 @@ function AttendancePersonalView() {
         className="mt-4"
       >
         <MyShiftsSection />
+      </motion.div>
+
+      {/* Home Location Request Panel (WFH employees) */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="mt-4">
+        <HomeLocationRequestPanel />
       </motion.div>
 
       {/* Shift Change Request Panel */}

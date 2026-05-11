@@ -18,6 +18,8 @@
 -keep class com.anistonav.hrms.GpsTrackingPlugin { *; }
 -keep class com.anistonav.hrms.PermissionPlugin { *; }
 -keep class com.anistonav.hrms.GpsDiagnostics { *; }
+-keep class com.anistonav.hrms.GpsSessionStore { *; }
+-keep class com.anistonav.hrms.GpsSessionStore$Session { *; }
 -keep class com.anistonav.hrms.MainActivity { *; }
 
 # ── WebView JavaScript interfaces ─────────────────────────────────────────────

@@ -44,6 +44,19 @@ export class PayrollController {
 
   async createPayrollRun(req: Request, res: Response, next: NextFunction) {
     try {
+      // HR restriction: if ANY employee in this org has canHRRunPayroll=false, block HR
+      if (req.user!.role === 'HR') {
+        const blocked = await prisma.hRActionRestriction.findFirst({
+          where: { organizationId: req.user!.organizationId, canHRRunPayroll: false },
+        });
+        if (blocked) {
+          res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Action blocked: Super Admin has restricted HR from running payroll for one or more employees in this organization. Contact your Super Admin to grant this permission.' },
+          });
+          return;
+        }
+      }
       const { month, year } = createPayrollRunSchema.parse(req.body);
       const run = await payrollService.createPayrollRun(month, year, req.user!.organizationId, req.user!.userId);
       res.status(201).json({ success: true, data: run, message: 'Payroll run created' });
@@ -52,6 +65,19 @@ export class PayrollController {
 
   async processPayroll(req: Request, res: Response, next: NextFunction) {
     try {
+      // HR restriction: same org-level check for payroll processing
+      if (req.user!.role === 'HR') {
+        const blocked = await prisma.hRActionRestriction.findFirst({
+          where: { organizationId: req.user!.organizationId, canHRRunPayroll: false },
+        });
+        if (blocked) {
+          res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Action blocked: Super Admin has restricted HR from running payroll for one or more employees in this organization. Contact your Super Admin to grant this permission.' },
+          });
+          return;
+        }
+      }
       const result = await payrollService.processPayroll(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: result, message: 'Payroll processed' });
     } catch (err) { next(err); }

@@ -720,27 +720,64 @@ router.post('/comp-off/redeem', authenticate, async (req, res, next) => {
 
 // Called by native Android service every 5 min — resets 16-min Redis TTL
 // Backend detects force-stop when key expires without being refreshed
+// Optional body: { lat?: number; lng?: number; lastGpsPointAt?: string }
 router.post('/gps-heartbeat', requireEmpPerm('canMarkAttendance'), async (req, res, next) => {
   try {
     const { redis } = await import('../../lib/redis.js');
+    const { prisma } = await import('../../lib/prisma.js');
     const employeeId = req.user!.employeeId;
     if (!employeeId) { res.status(400).json({ success: false }); return; }
 
-    // Mark employee as actively tracked (no TTL — persists until stopped)
     const orgId = req.user!.organizationId;
-    const emp = await (await import('../../lib/prisma.js')).prisma.employee.findUnique({
-      where: { id: employeeId },
-      select: { firstName: true, lastName: true, employeeCode: true },
-    });
+    const { lat, lng, lastGpsPointAt, deviceManufacturer, deviceBrand, deviceModel, sdkInt } = req.body ?? {};
+
+    const [emp, todayRecord] = await Promise.all([
+      prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { firstName: true, lastName: true, employeeCode: true, locationTrackingConsented: true },
+      }),
+      prisma.attendanceRecord.findFirst({
+        where: {
+          employeeId,
+          date: new Date(new Date().toISOString().slice(0, 10)),
+          checkIn: { not: null },
+          checkOut: null,
+        },
+        select: { id: true, checkIn: true },
+        orderBy: { checkIn: 'desc' },
+      }),
+    ]);
+
+    // DPDP Act 2023 — reject heartbeat if employee has not consented to location tracking.
+    // The native GPS service should never start without consent (enforced in JS), but
+    // this server-side check closes the gap in case of stale APK or tampered client.
+    if (emp && emp.locationTrackingConsented === false) {
+      res.status(403).json({ success: false, error: { code: 'GPS_CONSENT_REQUIRED', message: 'Location tracking consent is required' } });
+      return;
+    }
+
     const payload = JSON.stringify({
       orgId,
       employeeId,
+      attendanceId: todayRecord?.id ?? '',
       name: emp ? `${emp.firstName} ${emp.lastName}` : employeeId,
       employeeCode: emp?.employeeCode || '',
-      alertSent: false,
+      alertSent: false, // always reset — employee is alive and sending heartbeats
+      lastHeartbeatAt: new Date().toISOString(),
+      ...(todayRecord?.checkIn  ? { checkInAt: todayRecord.checkIn.toISOString() } : {}),
+      ...(lat != null           ? { lastLatitude: lat }               : {}),
+      ...(lng != null           ? { lastLongitude: lng }              : {}),
+      ...(lastGpsPointAt        ? { lastGpsPointAt }                  : {}),
+      ...(deviceManufacturer    ? { deviceManufacturer }              : {}),
+      ...(deviceBrand           ? { deviceBrand }                     : {}),
+      ...(deviceModel           ? { deviceModel }                     : {}),
+      ...(sdkInt != null        ? { sdkInt }                          : {}),
     });
-    // gps:active key has NO TTL — only removed on explicit stop or after alert fires
-    await redis.set(`gps:active:${employeeId}`, payload, 'NX'); // set only if not already set
+    // gps:active key has NO TTL — only removed on explicit stop or after alert fires.
+    // Unconditional SET (not NX) so that alertSent is always reset to false when the
+    // service recovers after a force-stop. NX would leave stale alertSent=true in place,
+    // preventing the heartbeat monitor from re-detecting a second force-stop.
+    await redis.set(`gps:active:${employeeId}`, payload);
     // Heartbeat key: 16-min TTL (3 missed × 5-min interval + 1-min buffer)
     await redis.setex(`gps:hb:${employeeId}`, 960, '1');
 

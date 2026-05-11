@@ -41,6 +41,12 @@ router.patch('/shifts/change-request/:id', superAdminAuth, (req, res, next) => s
 router.get('/shifts/hr-restrictions/:employeeId', superAdminAuth, (req, res, next) => shiftController.getHRRestrictions(req, res, next));
 router.post('/shifts/hr-restrictions/:employeeId', superAdminAuth, (req, res, next) => shiftController.setHRRestrictions(req, res, next));
 
+// Home Location Requests
+router.post('/shifts/home-location-request', allStaff, (req, res, next) => shiftController.submitHomeLocationRequest(req, res, next));
+router.get('/shifts/home-location-requests', superAdminAuth, (req, res, next) => shiftController.getHomeLocationRequests(req, res, next));
+router.get('/shifts/my-home-location-request', allStaff, (req, res, next) => shiftController.getMyHomeLocationRequest(req, res, next));
+router.patch('/shifts/home-location-request/:id/review', superAdminAuth, (req, res, next) => shiftController.reviewHomeLocationRequest(req, res, next));
+
 // Office Locations + Geofence CRUD
 router.get('/locations', hrAuth, (req, res, next) => shiftController.getLocations(req, res, next));
 router.post('/locations', hrAuth, (req, res, next) => shiftController.createLocation(req, res, next));
