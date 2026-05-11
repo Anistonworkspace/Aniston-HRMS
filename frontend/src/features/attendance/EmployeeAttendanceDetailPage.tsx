@@ -28,6 +28,19 @@ const CheckInModal = lazy(() => import('./components/MapSection').then(m => ({ d
 const GpsTrailModal = lazy(() => import('./components/GpsTrailModal'));
 
 // ==========================================
+// Date helpers — always use local calendar date, never UTC conversion
+// ==========================================
+/** Returns 'YYYY-MM-DD' in the browser's local timezone (avoids IST midnight shift) */
+const toDateStr = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Extracts 'YYYY-MM-DD' from an API date string using UTC parts (server stores dates as UTC midnight) */
+const toUTCDateStr = (d: string | Date) => {
+  const dt = typeof d === 'string' ? new Date(d) : d;
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+};
+
+// ==========================================
 // Constants
 // ==========================================
 const STATUS_BG: Record<string, string> = {
@@ -62,6 +75,10 @@ const ANOMALY_COLORS: Record<string, string> = {
   INSUFFICIENT_HOURS: 'bg-rose-50 text-rose-700',
   OUTSIDE_GEOFENCE: 'bg-red-50 text-red-700',
   GPS_SPOOF: 'bg-red-50 text-red-700',
+  GPS_GAP: 'bg-orange-50 text-orange-700',
+  GPS_NO_DATA: 'bg-slate-50 text-slate-600',
+  GPS_SIGNAL_LOST: 'bg-amber-50 text-amber-700',
+  GPS_HEARTBEAT_MISSED: 'bg-red-50 text-red-800',
 };
 
 const SHIFT_BADGE: Record<string, string> = {
@@ -83,7 +100,7 @@ export default function EmployeeAttendanceDetailPage() {
   // HR/Admin/SuperAdmin cannot manually mark or regularize their own attendance
   const isSelf = !!(user?.employeeId && user.employeeId === employeeId);
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(toDateStr(new Date()));
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [gpsTrailModal, setGpsTrailModal] = useState<{ date: string } | null>(null);
 
@@ -119,8 +136,11 @@ export default function EmployeeAttendanceDetailPage() {
   const shift = shiftAssignment?.shift;
   const shiftType = shift?.shiftType || 'OFFICE';
 
-  const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0];
-  const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+  const y = currentMonth.getFullYear();
+  const m = currentMonth.getMonth() + 1;
+  const daysInCurrentMonth = new Date(y, m, 0).getDate();
+  const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+  const endDate = `${y}-${String(m).padStart(2, '0')}-${String(daysInCurrentMonth).padStart(2, '0')}`;
   const { data: attRes } = useGetEmployeeAttendanceQuery({ employeeId: employeeId || '', startDate, endDate });
   const records = attRes?.data?.records || attRes?.data?.data || [];
   const holidays = attRes?.data?.holidays || [];
@@ -128,7 +148,7 @@ export default function EmployeeAttendanceDetailPage() {
 
   // Selected record — hoisted so it can be used in trackingGapWarning below
   const selectedRecord = useMemo(() => {
-    return records.find((r: any) => new Date(r.date).toISOString().split('T')[0] === selectedDate);
+    return records.find((r: any) => toUTCDateStr(r.date) === selectedDate);
   }, [records, selectedDate]);
 
   // Enriched detail for selected date
@@ -139,7 +159,7 @@ export default function EmployeeAttendanceDetailPage() {
   const detail = detailRes?.data;
 
   // GPS trail for FIELD — polls every 30 s fallback + instant socket-driven refetch
-  const isToday = selectedDate === new Date().toISOString().split('T')[0];
+  const isToday = selectedDate === toDateStr(new Date());
   const { data: gpsRes, refetch: refetchGps } = useGetEmployeeGPSTrailQuery(
     { employeeId: employeeId || '', date: selectedDate },
     { skip: shiftType !== 'FIELD', pollingInterval: isToday ? 30000 : 0 }
@@ -233,11 +253,9 @@ export default function EmployeeAttendanceDetailPage() {
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const recordMap = new Map<string, any>();
-    records.forEach((r: any) => { recordMap.set(new Date(r.date).toISOString().split('T')[0], r); });
-    const holidayDates = new Set(
-      holidays.map((h: any) => new Date(h.date).toISOString().split('T')[0])
-    );
-    const todayStr = new Date().toISOString().split('T')[0];
+    records.forEach((r: any) => { recordMap.set(toUTCDateStr(r.date), r); });
+    const holidayDates = new Set(holidays.map((h: any) => toUTCDateStr(h.date)));
+    const todayStr = toDateStr(new Date());
     // Today counts as absent only after shift start grace window (or default 9:30 + 30 min = 10:00)
     const nowHHMM = new Date().getHours() * 60 + new Date().getMinutes();
     const shiftStartMins = shift?.startTime
@@ -559,6 +577,70 @@ export default function EmployeeAttendanceDetailPage() {
               <p className="text-xs text-gray-400 text-center py-4">No record for this date</p>
             )}
           </div>
+
+          {/* GPS Live Status Panel — FIELD shift, today only, HR view */}
+          {isHR && isToday && shiftType === 'FIELD' && detail?.gpsStatus && (
+            <div className={cn(
+              'layer-card p-4',
+              detail.gpsStatus === 'HEARTBEAT_MISSED' && 'border border-red-200 bg-red-50/30',
+              detail.gpsStatus === 'RECENTLY_MISSED' && 'border border-amber-200 bg-amber-50/30'
+            )}>
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
+                <Activity size={12} className={
+                  detail.gpsStatus === 'ACTIVE' ? 'text-emerald-500' :
+                  detail.gpsStatus === 'RECENTLY_MISSED' ? 'text-amber-500' : 'text-red-500'
+                } />
+                GPS Live Status
+                <span className={cn('ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold', {
+                  'bg-emerald-100 text-emerald-700': detail.gpsStatus === 'ACTIVE',
+                  'bg-red-100 text-red-700': detail.gpsStatus === 'HEARTBEAT_MISSED',
+                  'bg-amber-100 text-amber-700': detail.gpsStatus === 'RECENTLY_MISSED',
+                  'bg-gray-100 text-gray-500': detail.gpsStatus === 'STOPPED',
+                })}>
+                  {detail.gpsStatus === 'ACTIVE' ? 'Active'
+                    : detail.gpsStatus === 'HEARTBEAT_MISSED' ? 'Heartbeat Missed'
+                    : detail.gpsStatus === 'RECENTLY_MISSED' ? 'Recently Missed'
+                    : 'Stopped'}
+                </span>
+              </h3>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                {detail.lastHeartbeatAt && (
+                  <div>
+                    <span className="text-gray-400">Last heartbeat</span>
+                    <p className="text-gray-700 font-medium">{new Date(detail.lastHeartbeatAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                  </div>
+                )}
+                {detail.lastGpsPointAt && (
+                  <div>
+                    <span className="text-gray-400">Last GPS point</span>
+                    <p className="text-gray-700 font-medium">{new Date(detail.lastGpsPointAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                  </div>
+                )}
+                {detail.lastLatitude != null && detail.lastLongitude != null && (
+                  <div className="col-span-2">
+                    <span className="text-gray-400">Last known location</span>
+                    <a
+                      href={`https://www.google.com/maps?q=${detail.lastLatitude},${detail.lastLongitude}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-brand-600 hover:underline font-medium"
+                    >
+                      <MapPin size={10} />
+                      {detail.lastLatitude.toFixed(5)}, {detail.lastLongitude.toFixed(5)}
+                    </a>
+                  </div>
+                )}
+                {detail.activeGpsAnomaly && (
+                  <div className="col-span-2">
+                    <span className={cn('px-1.5 py-0.5 rounded text-[9px] font-semibold', ANOMALY_COLORS[detail.activeGpsAnomaly] || 'bg-gray-100 text-gray-600')}>
+                      <AlertTriangle size={9} className="inline mr-0.5" />
+                      Active anomaly: {detail.activeGpsAnomaly.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Attendance Timeline (enriched) */}
           {attendanceLogs.length > 0 && (
