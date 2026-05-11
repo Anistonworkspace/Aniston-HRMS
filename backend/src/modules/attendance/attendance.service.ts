@@ -4,6 +4,7 @@ import { emitToOrg, invalidateDashboardCache } from '../../sockets/index.js';
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 import type { ClockInInput, ClockOutInput, GPSTrailBatchInput, AttendanceQuery, MarkAttendanceInput } from './attendance.validation.js';
 
 // ============================
@@ -243,8 +244,12 @@ export class AttendanceService {
       );
     }
 
-    // FIELD shift: GPS is accepted when provided but never required — employee may be
-    // in a low-signal area. The native GPS service handles live tracking separately.
+    // GPS coordinates are MANDATORY for non-WFH FIELD clock-in — same rule as OFFICE.
+    if (!effectiveWfh && currentShiftType === 'FIELD' && (!data.latitude || !data.longitude)) {
+      throw new BadRequestError(
+        'GPS coordinates are required to mark attendance for field shifts. Please enable location services and try again.'
+      );
+    }
 
     // ===== PHASE 1.4: GPS spoofing detection — block if detected =====
     if (data.latitude && data.longitude) {
@@ -567,8 +572,8 @@ export class AttendanceService {
     const isWfhShiftCheckout = (clockOutShiftAssignment?.shift as any)?.isWfhShift === true;
     const clockOutShiftType = (clockOutShiftAssignment?.shift as any)?.shiftType || 'OFFICE';
 
-    // GPS coordinates are MANDATORY for non-WFH OFFICE clock-out — same rule as clock-in.
-    if (!isWfhShiftCheckout && clockOutShiftType === 'OFFICE' && (!data.latitude || !data.longitude)) {
+    // GPS coordinates are MANDATORY for non-WFH OFFICE and FIELD clock-out — no exceptions.
+    if (!isWfhShiftCheckout && (clockOutShiftType === 'OFFICE' || clockOutShiftType === 'FIELD') && (!data.latitude || !data.longitude)) {
       throw new BadRequestError(
         'Location is required to clock out. Please enable location services on your device and try again.'
       );
@@ -2194,6 +2199,12 @@ export class AttendanceService {
     });
     if (!reg) throw new NotFoundError('Regularization request');
 
+    // HR restriction gate
+    const regEmployeeId = reg.attendance?.employeeId;
+    if (approverRole === 'HR' && regEmployeeId) {
+      await assertHRActionAllowed('HR', regEmployeeId, 'canHRResolveRegularization');
+    }
+
     // HR cannot approve/reject regularization for another HR/Admin/SuperAdmin
     if (['HR'].includes(approverRole || '')) {
       const targetRole = reg.attendance?.employee?.user?.role;
@@ -2500,7 +2511,7 @@ export class AttendanceService {
    * Mark attendance for a specific employee on a specific date (HR/Admin)
    * Creates or updates (upsert) an attendance record.
    */
-  async markAttendance(data: MarkAttendanceInput, markedBy: string, organizationId?: string) {
+  async markAttendance(data: MarkAttendanceInput, markedBy: string, organizationId?: string, markedByRole?: string) {
     const employee = await prisma.employee.findUnique({ where: { id: data.employeeId } });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -2514,6 +2525,27 @@ export class AttendanceService {
     // → PG would store 2026-04-29 (WRONG). Appending T00:00:00.000Z keeps it as 2026-04-30 in PG.
     const [dy, dm, dd] = data.date.split('-');
     const date = new Date(`${dy}-${dm}-${dd}T00:00:00.000Z`);
+
+    // HR restriction gate
+    if (markedByRole === 'HR') {
+      await assertHRActionAllowed('HR', data.employeeId, 'canHRMarkAttendance');
+    }
+
+    // HR must have a pending regularization request from the employee before manually marking
+    if (markedByRole === 'HR') {
+      const regularization = await prisma.attendanceRegularization.findFirst({
+        where: {
+          employeeId: data.employeeId,
+          status: { in: ['PENDING', 'MANAGER_APPROVED'] },
+          attendance: { date },
+        },
+      });
+      if (!regularization) {
+        throw new BadRequestError(
+          'No regularization request found for this date. The employee must submit a regularization request before HR can manually mark their attendance.'
+        );
+      }
+    }
 
     // Block HR from marking attendance before the employee's joining date
     if (employee.joiningDate) {
@@ -3822,9 +3854,10 @@ export class AttendanceService {
     // ── DETECT the EMP column by scanning data rows 2–10 for EMP-xxx values ──
     // Row 1 is the header ("EMP Number" text) — not a real code.
     // Scan actual data rows to find which column holds EMP-xxx format codes.
-    // Default: col B (index 2) = EMP Number, col E (index 5) = day 1.
+    // Default: col B (index 2) = EMP Number, col F (index 6) = day 1.
+    // Excel layout: A=Name, B=EMP, C=Designation, D=DateOfJoining, E=Z(serial), F=day1
     let empColIndex = 2;
-    let dayStartColIndex = 5;
+    let dayStartColIndex = 6;
 
     outer:
     for (let r = 2; r <= Math.min(10, sheet.rowCount); r++) {
@@ -3833,9 +3866,9 @@ export class AttendanceService {
         const val = row.getCell(c).text?.toString().trim().toUpperCase() ?? '';
         if (/^EMP-\d+/.test(val)) {
           empColIndex = c;
-          // Day columns always start 3 columns after EMP column
-          // (skip Designation + Date of Joining columns)
-          dayStartColIndex = c + 3;
+          // Day columns start 4 columns after EMP column
+          // (skip Designation + Date of Joining + Z/serial column)
+          dayStartColIndex = c + 4;
           break outer;
         }
       }
