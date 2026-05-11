@@ -32,6 +32,14 @@ export function startBackupWorker() {
     logger.warn(`[Backup Worker] Startup stuck-backup cleanup failed: ${err.message}`);
   });
 
+  // Periodically clean up stuck IN_PROGRESS records (every 5 minutes).
+  // Catches cases where a backup hangs without a server restart to trigger cleanup.
+  setInterval(() => {
+    backupService.cleanupStuckBackups().catch((err: any) => {
+      logger.warn(`[Backup Worker] Periodic stuck-backup cleanup failed: ${err.message}`);
+    });
+  }, 5 * 60 * 1000);
+
   const worker = new Worker(
     'database-backup',
     async (job) => {

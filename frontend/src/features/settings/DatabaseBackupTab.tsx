@@ -110,7 +110,7 @@ interface BackupTableProps {
   accessToken: string | null;
   onRestoreDb: (b: DatabaseBackup) => void;
   onRestoreFiles: (b: DatabaseBackup) => void;
-  onDelete: (id: string) => void;
+  onDelete: (b: DatabaseBackup) => void;
   deletingId: string | null;
   restoringId: string | null;
 }
@@ -118,7 +118,11 @@ interface BackupTableProps {
 function BackupTable({ category, accessToken, onRestoreDb, onRestoreFiles, onDelete, deletingId, restoringId }: BackupTableProps) {
   const [page, setPage] = useState(1);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
-  const { data, isLoading, isFetching } = useListBackupsQuery({ page, category });
+  const { data, isLoading, isFetching } = useListBackupsQuery(
+    { page, category },
+    // Fix 2: Auto-poll every 3s while any backup in this category is IN_PROGRESS
+    { pollingInterval: data?.backups?.some(b => b.status === 'IN_PROGRESS') ? 3000 : 0 }
+  );
 
   const backups = data?.backups ?? [];
   const meta = data?.meta;
@@ -249,7 +253,7 @@ function BackupTable({ category, accessToken, onRestoreDb, onRestoreFiles, onDel
                         </button>
                       </>
                     )}
-                    <button onClick={() => onDelete(backup.id)} disabled={deletingId === backup.id} title="Delete"
+                    <button onClick={() => onDelete(backup)} disabled={deletingId === backup.id} title="Delete"
                       className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
                       {deletingId === backup.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                     </button>
@@ -305,7 +309,7 @@ export default function DatabaseBackupTab() {
 
   // Confirm modals
   const [confirmCreate, setConfirmCreate] = useState<BackupCategory | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<DatabaseBackup | null>(null);
   const [confirmRestoreDb, setConfirmRestoreDb] = useState<DatabaseBackup | null>(null);
   const [confirmRestoreFiles, setConfirmRestoreFiles] = useState<DatabaseBackup | null>(null);
   const [confirmUploadDb, setConfirmUploadDb] = useState<File | null>(null);
@@ -333,11 +337,11 @@ export default function DatabaseBackupTab() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (backup: DatabaseBackup) => {
     setConfirmDelete(null);
-    setDeletingId(id);
+    setDeletingId(backup.id);
     try {
-      await deleteBackup(id).unwrap();
+      await deleteBackup(backup.id).unwrap();
       toast.success('Backup deleted');
     } catch (err: any) {
       toast.error(err?.data?.error?.message ?? 'Delete failed');
@@ -563,8 +567,8 @@ export default function DatabaseBackupTab() {
           category="DATABASE"
           accessToken={accessToken}
           onRestoreDb={(b) => setConfirmRestoreDb(b)}
-          onRestoreFiles={() => {}} // not used for DB table
-          onDelete={(id) => setConfirmDelete(id)}
+          onRestoreFiles={() => {}}
+          onDelete={(b) => setConfirmDelete(b)}
           deletingId={deletingId}
           restoringId={restoringId}
         />
@@ -608,9 +612,9 @@ export default function DatabaseBackupTab() {
         <BackupTable
           category="FILES"
           accessToken={accessToken}
-          onRestoreDb={() => {}} // not used for Files table
+          onRestoreDb={() => {}}
           onRestoreFiles={(b) => setConfirmRestoreFiles(b)}
-          onDelete={(id) => setConfirmDelete(id)}
+          onDelete={(b) => setConfirmDelete(b)}
           deletingId={deletingId}
           restoringId={restoringId}
         />
@@ -658,8 +662,8 @@ export default function DatabaseBackupTab() {
 
       {confirmDelete && (
         <ConfirmModal
-          title="Delete Backup"
-          message="This will permanently delete the backup file from disk and remove it from history. This cannot be undone."
+          title={`Delete ${confirmDelete.category === 'DATABASE' ? 'Database' : 'Files'} Backup`}
+          message={`Permanently delete "${confirmDelete.filename}" (${formatBytes(confirmDelete.sizeBytes)}) from disk and history? This cannot be undone.`}
           confirmLabel="Delete Permanently"
           confirmCls="bg-red-600 hover:bg-red-700 text-white"
           onConfirm={() => handleDelete(confirmDelete)}
