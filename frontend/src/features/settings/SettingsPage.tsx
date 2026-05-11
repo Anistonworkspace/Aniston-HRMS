@@ -21,6 +21,33 @@ import PasswordResetTab from './PasswordResetTab';
 import CrashReportsTab from './CrashReportsTab';
 // LeaveSettingsTab removed — leave type management is now in Leave Management page
 
+// Module-level consts declared here (before all functions) to avoid Vite/Rollup TDZ errors
+const ROLE_OPTIONS = [
+  { value: 'SUPER_ADMIN', label: 'Super Admin', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+  { value: 'ADMIN', label: 'Admin', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  { value: 'HR', label: 'HR', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { value: 'MANAGER', label: 'Manager', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { value: 'EMPLOYEE', label: 'Employee', color: 'bg-gray-50 text-gray-600 border-gray-200' },
+];
+
+const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string }> = {
+  DEEPSEEK: { modelName: 'deepseek-chat', placeholder: 'sk-...' },
+  OPENAI: { modelName: 'gpt-4o', placeholder: 'sk-...' },
+  ANTHROPIC: { modelName: 'claude-sonnet-4-20250514', placeholder: 'sk-ant-...' },
+  GEMINI: { modelName: 'gemini-2.0-flash', placeholder: 'AIza...' },
+  CUSTOM: { modelName: '', placeholder: 'API key' },
+};
+
+const AGENT_HEARTBEAT_TIMEOUT_MS = 2 * 60 * 1000;
+
+const ACTION_COLOR: Record<string, string> = {
+  CREATE: 'bg-emerald-50 text-emerald-700',
+  UPDATE: 'bg-blue-50 text-blue-700',
+  DELETE: 'bg-red-50 text-red-700',
+  APPROVE: 'bg-indigo-50 text-indigo-700',
+  REJECT: 'bg-orange-50 text-orange-700',
+};
+
 type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates' | 'crash-reports' | 'account-activity';
 
 export default function SettingsPage() {
@@ -915,14 +942,6 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 // USER ROLES TAB
 // ==================
 
-const ROLE_OPTIONS = [
-  { value: 'SUPER_ADMIN', label: 'Super Admin', color: 'bg-purple-50 text-purple-700 border-purple-200' },
-  { value: 'ADMIN', label: 'Admin', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  { value: 'HR', label: 'HR', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  { value: 'MANAGER', label: 'Manager', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  { value: 'EMPLOYEE', label: 'Employee', color: 'bg-gray-50 text-gray-600 border-gray-200' },
-];
-
 function UserRolesTab() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -1516,14 +1535,6 @@ function WhatsAppStats() {
   );
 }
 
-const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string }> = {
-  DEEPSEEK: { modelName: 'deepseek-chat', placeholder: 'sk-...' },
-  OPENAI: { modelName: 'gpt-4o', placeholder: 'sk-...' },
-  ANTHROPIC: { modelName: 'claude-sonnet-4-20250514', placeholder: 'sk-ant-...' },
-  GEMINI: { modelName: 'gemini-2.0-flash', placeholder: 'AIza...' },
-  CUSTOM: { modelName: '', placeholder: 'API key' },
-};
-
 function ExternalApiIntegrationTab() {
   const { data: taskConfigRes } = useGetTaskConfigQuery();
   const [upsertTaskConfig, { isLoading: savingTask }] = useUpsertTaskConfigMutation();
@@ -2073,8 +2084,6 @@ function KnowledgeBaseSection() {
 }
 
 /* ===== AGENT SETUP TAB ===== */
-const AGENT_HEARTBEAT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes — agent considered disconnected after this
-
 function AgentSetupTab() {
   const { data: res, isLoading } = useGetAgentSetupListQuery(undefined, { pollingInterval: 30_000 });
   const { data: downloadRes, isLoading: checkingDownload } = useGetAgentDownloadStatusQuery();
@@ -2483,14 +2492,6 @@ function DocumentTemplatesTab() {
 // ==================
 // ACCOUNT ACTIVITY TAB
 // ==================
-
-const ACTION_COLOR: Record<string, string> = {
-  CREATE: 'bg-emerald-50 text-emerald-700',
-  UPDATE: 'bg-blue-50 text-blue-700',
-  DELETE: 'bg-red-50 text-red-700',
-  APPROVE: 'bg-indigo-50 text-indigo-700',
-  REJECT: 'bg-orange-50 text-orange-700',
-};
 
 // ── Activity Detail Modal ──────────────────────────────────────────────────
 function ActivityDetailModal({ log, onClose }: { log: any; onClose: () => void }) {
