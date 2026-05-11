@@ -4121,7 +4121,6 @@ export class AttendanceService {
               data: {
                 employeeId,
                 leaveTypeId,
-                organizationId: empOrgId,
                 startDate: run.start,
                 endDate: run.end,
                 days: run.days,
