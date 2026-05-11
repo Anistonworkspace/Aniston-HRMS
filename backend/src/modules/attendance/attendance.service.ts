@@ -4141,9 +4141,9 @@ export class AttendanceService {
           },
         });
 
-        // Step C: Reverse leave balance changes from a prior import of this month.
-        // Old logs store the deduction amount as a negative number (-1, -0.5 …).
-        // We add those back (i.e. subtract the negative → add) to restore balance.
+        // Step C: Wipe ALL prior Excel-import logs for this month and reset
+        // previousUsed to 0 for each affected leave type.
+        // Using deleteMany + direct set avoids all sign/accumulation bugs.
         const oldLogs = await prisma.leaveAllocationLog.findMany({
           where: {
             employeeId,
@@ -4151,25 +4151,32 @@ export class AttendanceService {
             allocationType: 'PREVIOUS_USED',
             reason: { contains: `Excel import — ${month}/${year}` },
           },
-          select: { id: true, leaveTypeId: true, days: true },
+          select: { id: true, leaveTypeId: true },
         });
 
-        for (const log of oldLogs) {
+        const affectedLeaveTypeIds = [...new Set(oldLogs.map(l => l.leaveTypeId))];
+
+        // Delete all old import logs for this month
+        if (oldLogs.length > 0) {
+          await prisma.leaveAllocationLog.deleteMany({
+            where: { id: { in: oldLogs.map(l => l.id) } },
+          });
+        }
+
+        // Reset previousUsed to 0 for each affected leave type.
+        // used = used - previousUsed (keeps approved-only used intact).
+        for (const leaveTypeId of affectedLeaveTypeIds) {
           const bal = await prisma.leaveBalance.findFirst({
-            where: { employeeId, leaveTypeId: log.leaveTypeId, year },
+            where: { employeeId, leaveTypeId, year },
           });
           if (bal) {
-            // Always subtract the absolute deduction regardless of how old logs stored it
-            // (old logs may have days=+N positive; new logs store days=-N negative)
-            const deduction = Math.abs(Number(log.days));
-            const revertUsed = Math.max(0, Number(bal.used) - deduction);
-            const revertPrev = Math.max(0, Number((bal as any).previousUsed ?? 0) - deduction);
+            const prevUsed = Math.abs(Number((bal as any).previousUsed ?? 0));
+            const approvedOnly = Math.max(0, Number(bal.used) - prevUsed);
             await prisma.leaveBalance.update({
               where: { id: bal.id },
-              data: { used: revertUsed, previousUsed: revertPrev },
+              data: { used: approvedOnly, previousUsed: 0 },
             });
           }
-          await prisma.leaveAllocationLog.delete({ where: { id: log.id } });
         }
       } catch (err: any) {
         errors.push(`Reset failed for ${employeeId}: ${err.message}`);
@@ -4226,11 +4233,13 @@ export class AttendanceService {
           });
 
           if (existing) {
+            // Set absolutely: approved-only used (after Step C reset) + this import's days
+            const approvedOnly = Math.max(0, Number(existing.used) - Number((existing as any).previousUsed ?? 0));
             await prisma.leaveBalance.update({
               where: { id: existing.id },
               data: {
-                used: { increment: totalDays },
-                previousUsed: { increment: totalDays },
+                used: approvedOnly + totalDays,
+                previousUsed: totalDays,
               },
             });
           } else {
