@@ -4027,9 +4027,8 @@ export class AttendanceService {
         const cellValueStr = typeof cellValue === 'object' && cellValue !== null && 'richText' in (cellValue as any)
           ? (cellValue as any).richText.map((r: any) => r.text).join('')
           : cellValue?.toString().trim() || '';
-        const raw = (cellText || cellValueStr || '').toUpperCase();
-        // Debug: log non-empty non-P cells so we can see exact values
-        if (raw && raw !== 'P' && day <= 5) logger.info(`[Import-debug] emp=${empCode} day=${day} col=${colIndex} text=${JSON.stringify(cell.text)} value=${JSON.stringify(cellValue)} raw=${raw}`);
+        // Normalize: remove all internal spaces so "A (CL)" → "A(CL)", "HD (SL)" → "HD(SL)"
+        const raw = (cellText || cellValueStr || '').toUpperCase().replace(/\s+/g, '');
 
         let status: string;
         let leaveTypeId: string | null = null;
