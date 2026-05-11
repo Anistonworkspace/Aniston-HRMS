@@ -1585,13 +1585,14 @@ export class AttendanceService {
         // Accept but flag — don't block offline sync for a single noisy reading
       }
 
-      // Frequency check: not applicable to first point or when min interval is very small
-      if (lastAcceptedTs !== null && minIntervalMs > 30_000) {
+      // Frequency check: skip for offline_sync batches — they are time-compressed uploads
+      // where points were captured at the correct interval but arrived out-of-order or delayed.
+      // Applying frequency checks to offline batches produces false anomalies.
+      const isOfflineSync = (data as any).source === 'offline_sync';
+      if (!isOfflineSync && lastAcceptedTs !== null && minIntervalMs > 30_000) {
         const gap = ts - lastAcceptedTs;
         if (gap < minIntervalMs) {
           anomalies.push(`GPS_TOO_FREQUENT:gap=${Math.round(gap / 1000)}s,min=${Math.round(minIntervalMs / 1000)}s`);
-          // For batch offline syncs, frequency anomalies are logged but NOT rejected
-          // as the employee may have had a legitimate reconnect sending accumulated points
         }
       }
 
@@ -1617,6 +1618,8 @@ export class AttendanceService {
       } catch { /* non-blocking */ }
     }
 
+    const batchSource: string = (data as any).source ?? 'realtime';
+
     const dbPoints = validPoints.map((p) => {
       // Use the timestamp's calendar date so multi-day offline sync lands on correct days
       const pointDate = new Date(p.timestamp);
@@ -1633,6 +1636,7 @@ export class AttendanceService {
         heading: p.heading ?? null,
         batteryLevel: p.batteryLevel ?? null,
         timestamp: new Date(p.timestamp),
+        source: batchSource,
       };
     });
 
@@ -3563,6 +3567,50 @@ export class AttendanceService {
       }),
     ]);
 
+    // For today: enrich with live GPS status from Redis
+    const todayStr = new Date().toISOString().slice(0, 10);
+    let gpsLiveStatus: {
+      gpsStatus: 'ACTIVE' | 'HEARTBEAT_MISSED' | 'STOPPED' | 'UNKNOWN';
+      lastHeartbeatAt: string | null;
+      lastGpsPointAt: string | null;
+      lastLatitude: number | null;
+      lastLongitude: number | null;
+      activeGpsAnomaly: string | null;
+    } | null = null;
+
+    if (date === todayStr) {
+      try {
+        const { redis } = await import('../../lib/redis.js');
+        const [activeRaw, hbAlive] = await Promise.all([
+          redis.get(`gps:active:${employeeId}`),
+          redis.exists(`gps:hb:${employeeId}`),
+        ]);
+        if (activeRaw) {
+          const activeData: any = JSON.parse(activeRaw);
+          const openAnomaly = anomalies.find(
+            (a: any) => a.type === 'GPS_HEARTBEAT_MISSED' && !a.resolvedAt
+          );
+          gpsLiveStatus = {
+            gpsStatus: hbAlive ? 'ACTIVE' : (activeData.alertSent ? 'HEARTBEAT_MISSED' : 'HEARTBEAT_MISSED'),
+            lastHeartbeatAt: activeData.lastHeartbeatAt ?? null,
+            lastGpsPointAt: activeData.lastGpsPointAt ?? null,
+            lastLatitude: activeData.lastLatitude ?? null,
+            lastLongitude: activeData.lastLongitude ?? null,
+            activeGpsAnomaly: openAnomaly ? openAnomaly.type : null,
+          };
+        } else {
+          gpsLiveStatus = {
+            gpsStatus: 'STOPPED',
+            lastHeartbeatAt: null,
+            lastGpsPointAt: null,
+            lastLatitude: null,
+            lastLongitude: null,
+            activeGpsAnomaly: null,
+          };
+        }
+      } catch { /* Redis unavailable — omit GPS status */ }
+    }
+
     return {
       record,
       regularizations,
@@ -3571,6 +3619,7 @@ export class AttendanceService {
       shiftAssignment,
       shift: shiftAssignment?.shift || null,
       location: shiftAssignment?.location || null,
+      ...(gpsLiveStatus ?? {}),
     };
   }
 
@@ -3853,14 +3902,9 @@ export class AttendanceService {
     let skipped = 0;
     const errors: string[] = [];
 
-    // ── DETECT the EMP column by scanning data rows 2–10 for EMP-xxx values ──
-    // Row 1 is the header ("EMP Number" text) — not a real code.
-    // Scan actual data rows to find which column holds EMP-xxx format codes.
-    // Default: col B (index 2) = EMP Number, col F (index 6) = day 1.
-    // Excel layout: A=Name, B=EMP, C=Designation, D=DateOfJoining, E=Z(serial), F=day1
-    let empColIndex = 2;
-    let dayStartColIndex = 6;
-
+    // ── STEP 1: Detect EMP column by scanning data rows 2–10 ──────────────────
+    // Row 1 is the header — scan actual data rows for EMP-xxx codes.
+    let empColIndex = 2; // default: column B
     outer:
     for (let r = 2; r <= Math.min(10, sheet.rowCount); r++) {
       const row = sheet.getRow(r);
@@ -3868,11 +3912,22 @@ export class AttendanceService {
         const val = row.getCell(c).text?.toString().trim().toUpperCase() ?? '';
         if (/^EMP-\d+/.test(val)) {
           empColIndex = c;
-          // Day columns start 4 columns after EMP column
-          // (skip Designation + Date of Joining + Z/serial column)
-          dayStartColIndex = c + 4;
           break outer;
         }
+      }
+    }
+
+    // ── STEP 2: Detect day-1 column from the header row ───────────────────────
+    // Scan header row (row 1) to the right of the EMP column and find the first
+    // cell whose text is exactly "1" — that is where day 1 starts.
+    // This handles any number of extra columns between EMP and the day columns.
+    let dayStartColIndex = empColIndex + 3; // safe fallback (col E when EMP=col B)
+    const headerRow = sheet.getRow(1);
+    for (let c = empColIndex + 1; c <= Math.min(sheet.columnCount, empColIndex + 10); c++) {
+      const val = headerRow.getCell(c).text?.toString().trim();
+      if (val === '1') {
+        dayStartColIndex = c;
+        break;
       }
     }
 
