@@ -3819,21 +3819,22 @@ export class AttendanceService {
     let skipped = 0;
     const errors: string[] = [];
 
-    // ── AUTO-DETECT the EMP column and the first day column ──────────────────
-    // Scan rows 1–5 to find which column holds EMP-xxx values.
-    // The day columns start 2 columns after the EMP column (col A=name, B=EMP,
-    // C=designation, D=joining → E=day1, but we detect rather than hard-code).
-    let empColIndex = 2; // default: column B (1-indexed)
-    let dayStartColIndex = 5; // default: column E (1-indexed)
+    // ── DETECT the EMP column by scanning data rows 2–10 for EMP-xxx values ──
+    // Row 1 is the header ("EMP Number" text) — not a real code.
+    // Scan actual data rows to find which column holds EMP-xxx format codes.
+    // Default: col B (index 2) = EMP Number, col E (index 5) = day 1.
+    let empColIndex = 2;
+    let dayStartColIndex = 5;
 
     outer:
-    for (let r = 1; r <= Math.min(5, sheet.rowCount); r++) {
+    for (let r = 2; r <= Math.min(10, sheet.rowCount); r++) {
       const row = sheet.getRow(r);
-      for (let c = 1; c <= sheet.columnCount; c++) {
+      for (let c = 1; c <= Math.min(sheet.columnCount, 10); c++) {
         const val = row.getCell(c).text?.toString().trim().toUpperCase() ?? '';
-        if (val.startsWith('EMP-') || val.startsWith('EMP ')) {
+        if (/^EMP-\d+/.test(val)) {
           empColIndex = c;
-          // Day columns start 2 after the EMP column (skip designation + joining date)
+          // Day columns always start 3 columns after EMP column
+          // (skip Designation + Date of Joining columns)
           dayStartColIndex = c + 3;
           break outer;
         }
