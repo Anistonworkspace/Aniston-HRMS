@@ -88,7 +88,7 @@ export class AttendanceService {
 
     // ===== GPS TIMESTAMP STALENESS CHECK =====
     // GPS coordinates must be acquired within the last 60 seconds — truly live location only.
-    if (data.gpsTimestamp && data.latitude && data.longitude) {
+    if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
       const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
       const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
@@ -237,22 +237,23 @@ export class AttendanceService {
     }
 
     // GPS coordinates are MANDATORY for every non-WFH OFFICE clock-in — no exceptions.
-    // This is the primary server-side enforcement; the frontend check is UX-only.
-    if (!effectiveWfh && currentShiftType === 'OFFICE' && (!data.latitude || !data.longitude)) {
+    // Use == null (not falsy) so lat=0/lng=0 (which are valid coordinates near the equator/meridian
+    // but also the value sent when a device has no fix) are treated as missing — not as valid coords.
+    if (!effectiveWfh && currentShiftType === 'OFFICE' && (data.latitude == null || data.longitude == null)) {
       throw new BadRequestError(
         'Location is required to mark attendance. Please enable location services on your device and try again.'
       );
     }
 
     // GPS coordinates are MANDATORY for non-WFH FIELD clock-in — same rule as OFFICE.
-    if (!effectiveWfh && currentShiftType === 'FIELD' && (!data.latitude || !data.longitude)) {
+    if (!effectiveWfh && currentShiftType === 'FIELD' && (data.latitude == null || data.longitude == null)) {
       throw new BadRequestError(
         'GPS coordinates are required to mark attendance for field shifts. Please enable location services and try again.'
       );
     }
 
     // ===== PHASE 1.4: GPS spoofing detection — block if detected =====
-    if (data.latitude && data.longitude) {
+    if (data.latitude != null && data.longitude != null) {
       const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude);
       if (spoofResult.spoofing) {
         logger.warn(`[Attendance] GPS spoofing blocked for ${employeeId}: ${spoofResult.distance}m jump in ${spoofResult.timeDiff}min`);
@@ -277,7 +278,7 @@ export class AttendanceService {
     let geofenceDistance: number | null = null;
     let geofenceStatus = 'NO_GEOFENCE';
 
-    if (!effectiveWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
+    if (!effectiveWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude != null && data.longitude != null) {
       // GPS accuracy check — reject if accuracy is too poor for reliable geofence decisions
       if (data.accuracy && data.accuracy > 150) {
         throw new BadRequestError(
@@ -316,7 +317,7 @@ export class AttendanceService {
       }
     }
 
-    const locationData = data.latitude && data.longitude
+    const locationData = data.latitude != null && data.longitude != null
       ? { lat: data.latitude, lng: data.longitude, accuracy: data.accuracy }
       : null;
 
@@ -464,8 +465,8 @@ export class AttendanceService {
       },
     });
 
-    // Log anomaly if no GPS provided at clock-in
-    if (!data.latitude || !data.longitude) {
+    // Log anomaly if no GPS provided at clock-in (use == null so 0,0 coords don't trigger this)
+    if (data.latitude == null || data.longitude == null) {
       const isFieldMode = employee.workMode === 'FIELD_SALES' || currentShiftType === 'FIELD';
       try {
         await prisma.attendanceAnomaly.create({
@@ -540,7 +541,7 @@ export class AttendanceService {
 
     // ===== GPS TIMESTAMP STALENESS CHECK (clock-out) =====
     // GPS coordinates must be acquired within the last 60 seconds — truly live location only.
-    if (data.gpsTimestamp && data.latitude && data.longitude) {
+    if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
       const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
       const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
@@ -573,7 +574,8 @@ export class AttendanceService {
     const clockOutShiftType = (clockOutShiftAssignment?.shift as any)?.shiftType || 'OFFICE';
 
     // GPS coordinates are MANDATORY for non-WFH OFFICE and FIELD clock-out — no exceptions.
-    if (!isWfhShiftCheckout && (clockOutShiftType === 'OFFICE' || clockOutShiftType === 'FIELD') && (!data.latitude || !data.longitude)) {
+    // Use == null so lat=0/lng=0 (falsy but technically a coordinate) is still treated as missing.
+    if (!isWfhShiftCheckout && (clockOutShiftType === 'OFFICE' || clockOutShiftType === 'FIELD') && (data.latitude == null || data.longitude == null)) {
       throw new BadRequestError(
         'Location is required to clock out. Please enable location services on your device and try again.'
       );
@@ -581,7 +583,7 @@ export class AttendanceService {
 
     const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
     let checkoutGeofenceViolation = false;
-    if (!isWfhShiftCheckout && clockOutShiftType === 'OFFICE' && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
+    if (!isWfhShiftCheckout && clockOutShiftType === 'OFFICE' && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude != null && data.longitude != null) {
       if (!(data.accuracy && data.accuracy > 150)) {
         const gfCoords = geofenceForCheckout.coordinates as any;
         if (gfCoords?.lat && gfCoords?.lng) {
@@ -863,7 +865,7 @@ export class AttendanceService {
       });
     }
 
-    const locationData = data.latitude && data.longitude
+    const locationData = data.latitude != null && data.longitude != null
       ? { lat: data.latitude, lng: data.longitude, accuracy: data.accuracy }
       : null;
 
@@ -928,8 +930,8 @@ export class AttendanceService {
       } catch { /* non-blocking */ }
     }
 
-    // Log anomaly if no GPS provided at clock-out
-    if (!data.latitude || !data.longitude) {
+    // Log anomaly if no GPS provided at clock-out (use == null so 0,0 coords don't trigger this)
+    if (data.latitude == null || data.longitude == null) {
       try {
         await prisma.attendanceAnomaly.create({
           data: {
