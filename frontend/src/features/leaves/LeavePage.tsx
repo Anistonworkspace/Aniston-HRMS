@@ -1575,7 +1575,7 @@ function EmployeeLeaveDetailModal({
                             </div>
                             <div className={`rounded-lg py-1.5 px-1 ${prevUsed > 0 ? 'bg-white' : 'bg-gray-50 opacity-50'}`}>
                               <p className="font-bold text-orange-500 font-mono" data-mono>{prevUsed}</p>
-                              <p className="text-gray-400">Prev Used</p>
+                              <p className="text-gray-400">Excel Import</p>
                             </div>
                             <div className={`rounded-lg py-1.5 px-1 ${b.pending > 0 ? 'bg-white' : 'bg-gray-50 opacity-50'}`}>
                               <p className="font-bold text-blue-600 font-mono" data-mono>{b.pending}</p>
@@ -1584,7 +1584,7 @@ function EmployeeLeaveDetailModal({
                           </div>
                           {/* Formula */}
                           <p className="text-[9px] text-gray-300 mt-1.5 text-right">
-                            ({policyAlloc}{manualAdj !== 0 ? (manualAdj > 0 ? `+${manualAdj}` : `${manualAdj}`) : ''} policy{b.carriedForward > 0 ? ` +${b.carriedForward} CF` : ''}) − {approvedUsed} approved − {prevUsed} prev − {b.pending} pending = <strong className="text-gray-400">{b.remaining}</strong>
+                            ({policyAlloc}{manualAdj !== 0 ? (manualAdj > 0 ? `+${manualAdj}` : `${manualAdj}`) : ''} policy{b.carriedForward > 0 ? ` +${b.carriedForward} CF` : ''}) − {approvedUsed} approved{prevUsed > 0 ? ` − ${prevUsed} excel` : ''} − {b.pending} pending = <strong className="text-gray-400">{b.remaining}</strong>
                           </p>
                         </div>
                       );

@@ -4236,7 +4236,16 @@ function ConnectionsTab({ employee, isManagement, navigate }: { employee: any; i
                   <span className="text-sm font-bold font-mono text-brand-600" data-mono>{Number(lb.allocated) + Number(lb.carriedForward || 0) - Number(lb.used) - Number(lb.pending || 0)}</span>
                   <span className="text-[10px] text-gray-400">of {Number(lb.allocated)} available</span>
                 </div>
-                {Number(lb.used) > 0 && <p className="text-[10px] text-gray-400 mt-0.5">Used: {Number(lb.used)}</p>}
+                {(() => {
+                  const prev = Number(lb.previousUsed ?? 0);
+                  const approved = Math.max(0, Number(lb.used) - prev);
+                  return (
+                    <div className="mt-0.5 space-y-0.5">
+                      {approved > 0 && <p className="text-[10px] text-amber-600">Approved: {approved}</p>}
+                      {prev > 0 && <p className="text-[10px] text-orange-500">Excel import: {prev}</p>}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>
