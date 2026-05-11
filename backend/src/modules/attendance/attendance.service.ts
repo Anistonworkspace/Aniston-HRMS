@@ -4127,26 +4127,32 @@ export class AttendanceService {
         continue;
       }
 
-      // Step D: Write attendance records (upsert handles any race-condition duplicates)
+      // Step D: Write attendance records
+      // Use updateMany+create (not upsert) to avoid timezone mismatch on date column
       for (const entry of days) {
         try {
-          await (prisma.attendanceRecord.upsert as any)({
-            where: { employeeId_date: { employeeId, date: entry.date } },
-            create: {
-              employeeId,
-              date: entry.date,
-              status: entry.status as any,
-              workMode: 'OFFICE' as any,
-              source: 'MANUAL_HR' as any,
-              notes: `Imported from Excel (${month}/${year})`,
-            },
-            update: {
+          const dateStr = entry.date.toISOString().split('T')[0]; // 'YYYY-MM-DD'
+          const updated = await prisma.attendanceRecord.updateMany({
+            where: { employeeId, date: new Date(dateStr) },
+            data: {
               status: entry.status as any,
               workMode: 'OFFICE' as any,
               source: 'MANUAL_HR' as any,
               notes: `Imported from Excel (${month}/${year})`,
             },
           });
+          if (updated.count === 0) {
+            await prisma.attendanceRecord.create({
+              data: {
+                employeeId,
+                date: new Date(dateStr),
+                status: entry.status as any,
+                workMode: 'OFFICE' as any,
+                source: 'MANUAL_HR' as any,
+                notes: `Imported from Excel (${month}/${year})`,
+              },
+            });
+          }
         } catch (err: any) {
           errors.push(`${employeeId} day ${entry.date.getUTCDate()}: ${err.message}`);
         }
