@@ -826,7 +826,7 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
           </div>
         ))}
       </div>
-      </div>{/* end offices sub-tab */}
+      </div>}
     </div>
   );
 }
