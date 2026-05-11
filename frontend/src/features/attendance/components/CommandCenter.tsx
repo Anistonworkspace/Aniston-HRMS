@@ -21,8 +21,8 @@ import AnomalyDetectionPanel from './AnomalyDetectionPanel';
 import MarkManualModal from './MarkManualModal';
 import GeoLocationsTab from './GeoLocationsTab';
 import ImportAttendanceModal from './ImportAttendanceModal';
+import ExportAttendanceModal from './ExportAttendanceModal';
 import toast from 'react-hot-toast';
-import { useAuthDownload } from '../../../hooks/useAuthDownload';
 
 const TABS = [
   { key: 'today', label: 'Today' },
@@ -39,11 +39,11 @@ export default function CommandCenter() {
   const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const { download: authDownload, downloading: exportDownloading } = useAuthDownload();
 
   const [activeTab, setActiveTab] = useState<TabKey>('today');
   const [showMarkManual, setShowMarkManual] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
@@ -134,12 +134,7 @@ export default function CommandCenter() {
     setPage(1);
   }, [sortBy]);
 
-  const handleExport = () => {
-    const date = new Date(filters.date);
-    const month = date.getMonth() + 1;
-    const year = date.getFullYear();
-    authDownload(`/attendance/export?month=${month}&year=${year}`, `attendance-${month}-${year}.xlsx`);
-  };
+  const handleExport = () => setShowExport(true);
 
   const handleDetectAnomalies = async () => {
     try {
@@ -248,7 +243,8 @@ export default function CommandCenter() {
       {activeTab === 'geo-locations' && <GeoLocationsTab />}
 
       <MarkManualModal isOpen={showMarkManual} onClose={() => setShowMarkManual(false)} defaultDate={filters.date} />
-      {showImport && <ImportAttendanceModal onClose={() => setShowImport(false)} />}
+      {showImport  && <ImportAttendanceModal onClose={() => setShowImport(false)} />}
+      {showExport  && <ExportAttendanceModal onClose={() => setShowExport(false)} defaultDate={filters.date} />}
     </div>
   );
 }
