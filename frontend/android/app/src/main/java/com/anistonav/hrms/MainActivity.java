@@ -1,7 +1,6 @@
 package com.anistonav.hrms;
 
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -58,21 +57,11 @@ public class MainActivity extends BridgeActivity {
     private void tryAutoRestartGps() {
         if (GpsTrackingService.sIsRunning) return;
 
-        SharedPreferences prefs = getSharedPreferences(GpsTrackingService.PREFS_NAME, MODE_PRIVATE);
-        String token = prefs.getString(GpsTrackingService.EXTRA_TOKEN, null);
-        String employeeId = prefs.getString(GpsTrackingService.EXTRA_EMPLOYEE_ID, null);
-        String orgId = prefs.getString(GpsTrackingService.EXTRA_ORG_ID, null);
-        String backendUrl = prefs.getString(GpsTrackingService.EXTRA_BACKEND_URL, null);
+        // Use GpsSessionStore for canonical session check — same source as watchdog + receiver
+        if (!GpsSessionStore.hasValidSession(this)) return;
 
-        if (token == null || token.isEmpty()) return;
-        if (employeeId == null || employeeId.isEmpty()) return;
-
+        // No extras needed — GpsTrackingService.restoreFromPrefs() reads from GpsSessionStore
         Intent svc = new Intent(this, GpsTrackingService.class);
-        svc.putExtra(GpsTrackingService.EXTRA_TOKEN, token);
-        svc.putExtra(GpsTrackingService.EXTRA_EMPLOYEE_ID, employeeId);
-        if (orgId != null) svc.putExtra(GpsTrackingService.EXTRA_ORG_ID, orgId);
-        if (backendUrl != null) svc.putExtra(GpsTrackingService.EXTRA_BACKEND_URL, backendUrl);
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(svc);
         } else {

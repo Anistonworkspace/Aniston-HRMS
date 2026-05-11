@@ -6,38 +6,8 @@ import { emitToUser } from '../../sockets/index.js';
 export class ShiftService {
   // ===================== SHIFTS =====================
 
-  /**
-   * Cleanup: ensure only one active shift per type (OFFICE, FIELD).
-   * HYBRID shifts are treated as OFFICE duplicates and deactivated.
-   * Deactivates duplicates, keeping the default or most-assigned one.
-   */
-  private async ensureOnePerType(organizationId: string) {
-    // Only migrate deprecated HYBRID shifts to OFFICE — no longer enforce one-per-type for OFFICE/FIELD
-    const hybridShifts = await prisma.shift.findMany({
-      where: { organizationId, shiftType: 'HYBRID', isActive: true },
-    });
-    if (hybridShifts.length > 0) {
-      const officeShift = await prisma.shift.findFirst({
-        where: { organizationId, shiftType: 'OFFICE', isActive: true },
-        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-      });
-      for (const hybrid of hybridShifts) {
-        if (officeShift) {
-          await prisma.shiftAssignment.updateMany({
-            where: { shiftId: hybrid.id, OR: [{ endDate: null }, { endDate: { gt: new Date() } }] },
-            data: { shiftId: officeShift.id },
-          });
-        }
-        await prisma.shift.update({
-          where: { id: hybrid.id },
-          data: { isActive: false, code: `${hybrid.code}_HYB_${Date.now()}` },
-        });
-      }
-    }
-  }
-
   async getShifts(organizationId: string) {
-    // Always ensure the two default shifts (General + Live Tracking) exist
+    // Always ensure the three default shifts (General + Live Tracking + Hybrid WFH) exist
     await this.ensureDefaultShifts(organizationId);
 
     const today = new Date();
@@ -139,6 +109,44 @@ export class ShiftService {
             isDefault: false,
             isActive: true,
             trackingIntervalMinutes: 60,
+          },
+        });
+      }
+    }
+
+    if (!types.includes('HYBRID')) {
+      const deletedHybrid = await prisma.shift.findFirst({
+        where: { organizationId, shiftType: 'HYBRID', isActive: false },
+      });
+      if (deletedHybrid) {
+        await prisma.shift.update({
+          where: { id: deletedHybrid.id },
+          data: {
+            isActive: true,
+            code: 'HYBRID-WFH',
+            name: 'Hybrid (WFH)',
+            startTime: '09:00',
+            endTime: '18:00',
+            allowWfh: true,
+            isWfhShift: true,
+          },
+        });
+      } else {
+        await prisma.shift.create({
+          data: {
+            organizationId,
+            name: 'Hybrid (WFH)',
+            code: 'HYBRID-WFH',
+            shiftType: 'HYBRID',
+            startTime: '09:00',
+            endTime: '18:00',
+            graceMinutes: 15,
+            fullDayHours: 8,
+            halfDayHours: 4,
+            isDefault: false,
+            isActive: true,
+            allowWfh: true,
+            isWfhShift: true,
           },
         });
       }
@@ -629,6 +637,155 @@ export class ShiftService {
     });
 
     return { message: 'Location deleted' };
+  }
+
+  // ===================== SHIFT CHANGE REQUESTS =====================
+
+  async createShiftChangeRequest(
+    employeeId: string,
+    toShiftId: string,
+    requestedBy: string,
+    requestedByRole: string,
+    organizationId: string,
+    reason?: string,
+  ) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId, deletedAt: null } });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const toShift = await prisma.shift.findFirst({ where: { id: toShiftId, organizationId, isActive: true } });
+    if (!toShift) throw new NotFoundError('Target shift');
+
+    // Find current active shift for the employee
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentAssignment = await prisma.shiftAssignment.findFirst({
+      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gt: today } }], deletedAt: null },
+      include: { shift: true },
+    });
+
+    return prisma.shiftChangeRequest.create({
+      data: {
+        employeeId,
+        fromShiftId: currentAssignment?.shiftId || null,
+        toShiftId,
+        requestedBy,
+        requestedByRole,
+        reason: reason || null,
+        organizationId,
+        status: 'PENDING',
+      },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+        toShift: { select: { id: true, name: true, shiftType: true } },
+      },
+    });
+  }
+
+  async getShiftChangeRequests(organizationId: string, status?: string) {
+    return prisma.shiftChangeRequest.findMany({
+      where: {
+        organizationId,
+        ...(status ? { status: status as any } : {}),
+      },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, avatar: true } },
+        toShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getMyShiftChangeRequests(employeeId: string) {
+    return prisma.shiftChangeRequest.findMany({
+      where: { employeeId },
+      include: {
+        toShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async reviewShiftChangeRequest(
+    id: string,
+    action: 'APPROVED' | 'REJECTED',
+    reviewedBy: string,
+    organizationId: string,
+    reviewRemarks?: string,
+  ) {
+    const request = await prisma.shiftChangeRequest.findFirst({ where: { id, organizationId } });
+    if (!request) throw new NotFoundError('Shift change request');
+    if (request.status !== 'PENDING') throw new BadRequestError('This request has already been reviewed.');
+
+    await prisma.shiftChangeRequest.update({
+      where: { id },
+      data: { status: action, reviewedBy, reviewedAt: new Date(), reviewRemarks: reviewRemarks || null },
+    });
+
+    if (action === 'APPROVED') {
+      // Execute the actual shift assignment
+      await this.assignShift(
+        { employeeId: request.employeeId, shiftId: request.toShiftId, startDate: new Date().toISOString().split('T')[0] },
+        organizationId,
+        reviewedBy,
+      );
+    }
+
+    return { message: action === 'APPROVED' ? 'Shift change approved and applied.' : 'Shift change request rejected.' };
+  }
+
+  // ===================== HR ACTION RESTRICTIONS =====================
+
+  async getHRRestrictions(employeeId: string, organizationId: string) {
+    const record = await prisma.hRActionRestriction.findFirst({ where: { employeeId } });
+    return record ?? {
+      employeeId,
+      canHRChangeShift: true,
+      canHRMarkAttendance: true,
+      canHREditProfile: true,
+      canHRManageLeave: true,
+      canHRManageDocuments: true,
+      canHRChangeRole: true,
+      canHRRunPayroll: true,
+      canHREditSalary: true,
+      canHRViewPayroll: true,
+      canHRAddPayrollAdjustment: true,
+      canHRExportAttendance: true,
+      canHRResolveRegularization: true,
+      canHRSetHybridSchedule: true,
+      canHRManageKYC: true,
+      canHRManageExit: true,
+      canHRResetPassword: true,
+    };
+  }
+
+  async setHRRestrictions(
+    employeeId: string,
+    organizationId: string,
+    restrictions: {
+      canHRChangeShift?: boolean;
+      canHRMarkAttendance?: boolean;
+      canHREditProfile?: boolean;
+      canHRManageLeave?: boolean;
+      canHRManageDocuments?: boolean;
+      canHRChangeRole?: boolean;
+      canHRRunPayroll?: boolean;
+      canHREditSalary?: boolean;
+      canHRViewPayroll?: boolean;
+      canHRAddPayrollAdjustment?: boolean;
+      canHRExportAttendance?: boolean;
+      canHRResolveRegularization?: boolean;
+      canHRSetHybridSchedule?: boolean;
+      canHRManageKYC?: boolean;
+      canHRManageExit?: boolean;
+      canHRResetPassword?: boolean;
+    },
+    createdBy: string,
+  ) {
+    return prisma.hRActionRestriction.upsert({
+      where: { employeeId },
+      create: { employeeId, organizationId, createdBy, ...restrictions },
+      update: { ...restrictions },
+    });
   }
 }
 

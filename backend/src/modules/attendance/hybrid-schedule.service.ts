@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 
 export class HybridScheduleService {
   async getSchedule(employeeId: string) {
@@ -10,7 +11,11 @@ export class HybridScheduleService {
     officeDays: number[];
     wfhDays: number[];
     notes?: string;
-  }, organizationId: string, setBy: string) {
+  }, organizationId: string, setBy: string, setByRole?: string) {
+    if (setByRole === 'HR') {
+      await assertHRActionAllowed('HR', employeeId, 'canHRSetHybridSchedule');
+    }
+
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
     });

@@ -56,8 +56,19 @@ export default function MobileBottomNav() {
             })
           );
           coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
-        } catch {
-          // GPS unavailable — proceed without (backend handles this gracefully)
+        } catch (gpsErr: any) {
+          if (isFieldShift) {
+            setGettingLocation(false);
+            const msg =
+              gpsErr?.code === 1
+                ? 'Location access denied. Field employees must enable GPS to mark attendance.'
+                : gpsErr?.code === 2
+                ? 'GPS signal unavailable. Please move to an open area and try again.'
+                : 'Could not get your location. Field employees must have GPS enabled to mark attendance.';
+            toast.error(msg, { duration: 5000 });
+            return;
+          }
+          // Non-field shifts: proceed without GPS (backend enforces for OFFICE shifts)
         }
       }
       setGettingLocation(false);

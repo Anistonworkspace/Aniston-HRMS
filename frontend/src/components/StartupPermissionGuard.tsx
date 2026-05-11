@@ -20,6 +20,9 @@ import {
   getDeviceInfo,
   type PermissionStatus,
 } from '../lib/capacitorPermissions';
+import { registerPlugin } from '@capacitor/core';
+
+const GpsTracking = registerPlugin<{ recordDiagnostic?: (opts: { key: string; value: string }) => Promise<void> }>('GpsTracking', { web: {} as any });
 
 const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 
@@ -214,11 +217,12 @@ function buildSteps(oem: OemCategory): StepDef[] {
         'MIUI and HyperOS kill background services when you swipe the app away unless Autostart is enabled. ' +
         'Without this, GPS stops the moment you leave the app.',
       instructions: [
-        'Path 1 — Security app:  Open the Security app (pre-installed) → Autostart → find Aniston HRMS → enable the toggle',
-        'Path 2 — Settings:  Settings → Apps → Manage apps → Aniston HRMS → Other permissions → Autostart → enable',
-        'Path 3 — Settings (HyperOS):  Settings → Apps → Manage apps → Aniston HRMS → Battery saver → No restrictions',
-        'Also recommended:  Open Recent Apps → long-press the Aniston HRMS card → tap the Lock icon (🔒) to prevent it being cleared',
-        "Return here and tap 'I've enabled it' when done",
+        'Path 1 — Security app: Open the pre-installed Security (or Phone Manager) app → Autostart → find Aniston HRMS → enable toggle',
+        'Path 2 — Settings: Settings → Apps → Manage apps → Aniston HRMS → Other permissions → Autostart → ON',
+        'Path 3 — HyperOS (newer phones): Settings → Apps → Manage apps → Aniston HRMS → Battery saver → No restrictions',
+        'Path 4 — HyperOS App Info: Long-press the Aniston HRMS app icon → App Info → Battery → No restrictions',
+        'Lock the app: Open Recent Apps → long-press the Aniston HRMS card → tap the Lock icon (🔒)',
+        "Tap 'I've enabled it' below when done",
       ],
       permKey: 'autostart_xiaomi',
       actionLabel: 'Open App Settings',
@@ -478,6 +482,13 @@ export default function StartupPermissionGuard({ children }: { children: React.R
 
   function handleCantFind() {
     setCantFind(true);
+    // Record in native diagnostics so HR anomaly panel can see this device skipped autostart
+    if (currentStep && isAndroid) {
+      const label = currentStep.permKey.replace('autostart_', '') || 'unknown';
+      try {
+        GpsTracking.recordDiagnostic?.({ key: 'oemAutoStartNotFound', value: label + ':' + new Date().toISOString() }).catch(() => {});
+      } catch { /* plugin may not have this method on older builds */ }
+    }
   }
 
   if (!visible || !currentStep) return <>{children}</>;
@@ -550,9 +561,27 @@ export default function StartupPermissionGuard({ children }: { children: React.R
             {cantFind && (
               <div className="bg-amber-900/40 border border-amber-600/40 rounded-xl p-4 mb-5 flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-                <p className="text-amber-200 text-sm leading-snug">
-                  No problem — tap Continue to proceed. GPS may have reduced reliability on this device.
-                </p>
+                <div>
+                  <p className="text-amber-200 text-sm leading-snug font-medium mb-1">
+                    That's okay — tap Continue to proceed.
+                  </p>
+                  {currentStep?.permKey === 'autostart_xiaomi' ? (
+                    <p className="text-amber-200/80 text-xs leading-relaxed">
+                      On some Xiaomi/POCO devices the Autostart setting is inside{' '}
+                      <span className="font-semibold">Security app → Autostart</span>. If you still
+                      can't find it, try{' '}
+                      <span className="font-semibold">
+                        Settings → Privacy Protection → Special app access → Battery optimization
+                      </span>{' '}
+                      and set Aniston HRMS to "Not optimized". GPS may have reduced reliability
+                      until this is set.
+                    </p>
+                  ) : (
+                    <p className="text-amber-200/80 text-xs leading-relaxed">
+                      GPS may have reduced reliability on this device without this setting.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, ConflictError, BadRequestError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { letterService } from '../letter/letter.service.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 import type { SetLastWorkingDayInput, AddHandoverTaskInput, UpdateHandoverTaskInput, ConfirmAssetReturnInput, UpdateITChecklistInput, SaveExitInterviewInput, SaveITNotesInput } from './exit.validation.js';
 
 export class ExitService {
@@ -9,7 +10,11 @@ export class ExitService {
   // LAST WORKING DAY
   // ========================
 
-  async setLastWorkingDay(employeeId: string, data: SetLastWorkingDayInput, userId: string, orgId: string) {
+  async setLastWorkingDay(employeeId: string, data: SetLastWorkingDayInput, userId: string, orgId: string, userRole?: string) {
+    if (userRole === 'HR') {
+      await assertHRActionAllowed('HR', employeeId, 'canHRManageExit');
+    }
+
     const emp = await prisma.employee.findFirst({ where: { id: employeeId, organizationId: orgId } });
     if (!emp) throw new NotFoundError('Employee');
     if (!['APPROVED', 'NO_DUES_PENDING'].includes(emp.exitStatus || ''))

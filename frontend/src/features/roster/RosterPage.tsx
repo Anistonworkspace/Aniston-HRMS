@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2 } from 'lucide-react';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send } from 'lucide-react';
 import {
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
   useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
   useAssignShiftMutation, useAutoAssignDefaultMutation, useGetAllAssignmentsQuery,
+  useCreateShiftChangeRequestMutation,
 } from '../workforce/workforceApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
+import { useAppSelector } from '../../app/store';
 import LocationPickerMap from '../../components/map/LocationPickerMap';
 import LocationSearch from '../../components/map/LocationSearch';
 import { MapContainer, TileLayer, Marker, Circle, useMap } from 'react-leaflet';
@@ -72,6 +74,7 @@ export default function RosterPage() {
 const SHIFT_DISPLAY: Record<string, { label: string; description: string; badgeClass: string; bgColor: string; textColor: string; borderColor: string }> = {
   OFFICE: { label: 'General Shift', description: 'Geofence-based attendance. Employees can only mark in/out within assigned office locations. HR is notified if marking outside geofence.', badgeClass: 'bg-blue-50 text-blue-600', bgColor: '#eff6ff', textColor: '#1d4ed8', borderColor: '#bfdbfe' },
   FIELD: { label: 'Live Tracking', description: 'GPS-based live location tracking. Ideal for field sales employees. Locations are recorded at regular intervals.', badgeClass: 'bg-green-50 text-green-600', bgColor: '#f0fdf4', textColor: '#15803d', borderColor: '#bbf7d0' },
+  HYBRID: { label: 'Hybrid (WFH)', description: 'Flexible hybrid shift. Employees can work from office or home. WFH days are configurable and shift change requests can target this shift.', badgeClass: 'bg-purple-50 text-purple-600', bgColor: '#faf5ff', textColor: '#7c3aed', borderColor: '#ddd6fe' },
 };
 
 function getShiftDisplay(shiftType: string, shiftName?: string) {
@@ -801,17 +804,37 @@ function getShiftTypeLabel(shiftType: string, shiftName?: string) {
 }
 
 function AssignmentsPanel() {
+  const user = useAppSelector(s => s.auth.user);
+  const isHR = user?.role === 'HR';
   const { data: empRes } = useGetEmployeesQuery({ limit: 100 });
   const { data: shiftRes } = useGetShiftsQuery();
   const { data: locRes } = useGetLocationsQuery();
   const { data: assignRes } = useGetAllAssignmentsQuery();
   const [assignShift, { isLoading }] = useAssignShiftMutation();
   const [autoAssign, { isLoading: autoAssigning }] = useAutoAssignDefaultMutation();
+  const [createShiftChangeRequest, { isLoading: requesting }] = useCreateShiftChangeRequestMutation();
   const [search, setSearch] = useState('');
+  // HR shift change request modal state
+  const [requestModal, setRequestModal] = useState<{ empId: string; empName: string } | null>(null);
+  const [requestShiftId, setRequestShiftId] = useState('');
+  const [requestReason, setRequestReason] = useState('');
   const employees = empRes?.data || [];
   const shifts = shiftRes?.data || [];
   const locations = locRes?.data || [];
   const existingAssignments = assignRes?.data || [];
+
+  const handleHRRequest = async () => {
+    if (!requestModal || !requestShiftId) { toast.error('Please select a shift'); return; }
+    try {
+      await createShiftChangeRequest({ employeeId: requestModal.empId, toShiftId: requestShiftId, reason: requestReason || undefined }).unwrap();
+      toast.success(`Shift change request submitted for ${requestModal.empName}. Awaiting Super Admin approval.`);
+      setRequestModal(null);
+      setRequestShiftId('');
+      setRequestReason('');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to submit request');
+    }
+  };
 
   // Build a map of employeeId → current assignment from DB
   const assignmentMap = new Map<string, any>();
@@ -951,16 +974,23 @@ function AssignmentsPanel() {
                         )}
                       </td>
                       <td className="p-3">
-                        <button onClick={() => startEdit(emp.id)}
-                          className="text-xs py-1.5 px-4 rounded-lg font-medium bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center gap-1">
-                          <Pencil size={12} /> Change
-                        </button>
+                        {isHR ? (
+                          <button onClick={() => { setRequestModal({ empId: emp.id, empName: `${emp.firstName} ${emp.lastName}` }); setRequestShiftId(''); setRequestReason(''); }}
+                            className="text-xs py-1.5 px-4 rounded-lg font-medium bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1">
+                            <Send size={12} /> Request
+                          </button>
+                        ) : (
+                          <button onClick={() => startEdit(emp.id)}
+                            className="text-xs py-1.5 px-4 rounded-lg font-medium bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                            <Pencil size={12} /> Change
+                          </button>
+                        )}
                       </td>
                     </>
                   )}
 
-                  {/* EDITING/NEW STATE — dropdowns */}
-                  {showEditing && (
+                  {/* EDITING/NEW STATE — dropdowns (only for SUPER_ADMIN/ADMIN, not HR) */}
+                  {showEditing && !isHR && (
                     <>
                       <td className="p-3">
                         <select value={p.shiftId} onChange={e => setPending(prev => ({...prev, [emp.id]: { ...prev[emp.id], shiftId: e.target.value }}))}
@@ -1012,6 +1042,46 @@ function AssignmentsPanel() {
           </tbody>
         </table>
       </div>
+
+      {/* HR Shift Change Request Modal */}
+      {requestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-gray-800">Request Shift Change</h3>
+              <button onClick={() => setRequestModal(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Submitting a shift change request for <span className="font-semibold text-gray-700">{requestModal.empName}</span>.
+              This will be sent to Super Admin for approval.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Target Shift *</label>
+                <select value={requestShiftId} onChange={e => setRequestShiftId(e.target.value)} className="input-glass w-full text-sm">
+                  <option value="">Select shift...</option>
+                  {shifts.map((s: any) => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.startTime}–{s.endTime})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Reason (optional)</label>
+                <textarea value={requestReason} onChange={e => setRequestReason(e.target.value)} rows={2}
+                  placeholder="Why is this shift change needed?" className="input-glass w-full text-sm resize-none" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setRequestModal(null)} className="btn-secondary flex-1 text-sm">Cancel</button>
+              <button onClick={handleHRRequest} disabled={requesting || !requestShiftId}
+                className="flex-1 text-sm px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {requesting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                Submit Request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

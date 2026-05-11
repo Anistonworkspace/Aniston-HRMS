@@ -32,6 +32,8 @@ import {
   useRecalculatePolicyAllocationsMutation,
   useCreateEmployeeAdjustmentMutation,
   usePostConditionMessageMutation,
+  useSubmitDraftMutation,
+  useGetDraftsCountQuery,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -146,6 +148,10 @@ function LeaveManagementView() {
     onSocketEvent('leave:applied', handler);
     return () => offSocketEvent('leave:applied', handler);
   }, [dispatch]);
+
+  // Draft count — shown as nudge banner on approvals tab so HR can remind employees
+  const { data: draftsCountRes } = useGetDraftsCountQuery(undefined, { skip: !isHRAdmin });
+  const draftsCount: number = draftsCountRes?.data?.count ?? 0;
 
   // Pending approvals (PENDING + MANAGER_APPROVED) — used for pending tab
   const { data: approvalsRes, isLoading: approvalsLoading, isError: approvalsError, error: approvalsErrorData } = useGetPendingApprovalsQuery(
@@ -397,6 +403,23 @@ function LeaveManagementView() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
         >
+          {/* Draft nudge banner — shown when employees have unsubmitted drafts */}
+          {isHRAdmin && draftsCount > 0 && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+              <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800">
+                  {draftsCount} unsubmitted draft{draftsCount > 1 ? 's' : ''} in the org
+                </p>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  {draftsCount === 1
+                    ? 'An employee saved a leave request as draft but has not submitted it for approval yet. Please remind them to submit.'
+                    : `${draftsCount} employees saved leave requests as drafts but have not submitted them for approval yet. Please remind them to submit.`}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Status filter pills */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             {[
@@ -2788,6 +2811,7 @@ function LeavePersonalView() {
 function LeaveRequestCard({ leave }: { leave: any }) {
   const { t } = useTranslation();
   const [cancelLeave] = useCancelLeaveMutation();
+  const [submitDraft, { isLoading: submittingDraft }] = useSubmitDraftMutation();
   const [postConditionMessage, { isLoading: submitting }] = usePostConditionMessageMutation();
   const [showConditionModal, setShowConditionModal] = useState(false);
   const [conditionReply, setConditionReply] = useState('');
@@ -2799,6 +2823,15 @@ function LeaveRequestCard({ leave }: { leave: any }) {
       toast.success('Leave cancelled');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || t('common.failed'));
+    }
+  };
+
+  const handleSubmitDraft = async () => {
+    try {
+      await submitDraft({ id: leave.id, acknowledgements: { reviewedTasks: true, assignedHandover: true, acceptedVisibility: true } }).unwrap();
+      toast.success('Leave request submitted for approval!');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to submit leave request');
     }
   };
 
@@ -2884,6 +2917,16 @@ function LeaveRequestCard({ leave }: { leave: any }) {
                     )}
                   >
                     {conditionMessages.length > 0 ? 'View Thread' : 'Respond'}
+                  </button>
+                )}
+                {leave.status === 'DRAFT' && (
+                  <button
+                    onClick={handleSubmitDraft}
+                    disabled={submittingDraft}
+                    className="text-[11px] px-2.5 py-1 rounded-lg font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors disabled:opacity-60 flex items-center gap-1"
+                  >
+                    {submittingDraft ? <Loader2 size={11} className="animate-spin" /> : <ChevronRight size={11} />}
+                    Submit for Approval
                   </button>
                 )}
                 {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (

@@ -4,6 +4,7 @@ import { Role } from '@aniston/shared';
 import { payrollController } from './payroll.controller.js';
 import { payrollService } from './payroll.service.js';
 import { amendPayrollRecordSchema, salaryStructureSchema } from './payroll.validation.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 
 const router = Router();
 router.use(authenticate);
@@ -24,6 +25,9 @@ router.put('/employee/:id/salary',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
+      if (req.user!.role === 'HR') {
+        await assertHRActionAllowed('HR', req.params.id, 'canHREditSalary');
+      }
       const data = salaryStructureSchema.parse(req.body);
       const result = await payrollService.upsertSalaryStructure(req.params.id, data, req.user!.organizationId, req.user!.userId);
       if ('requiresConfirmation' in result) {
@@ -120,6 +124,9 @@ router.get('/salary-history/:employeeId',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
+      if (req.user!.role === 'HR') {
+        await assertHRActionAllowed('HR', req.params.employeeId, 'canHRViewPayroll');
+      }
       const history = await payrollService.getSalaryHistory(req.params.employeeId as string, req.user!.organizationId);
       res.json({ success: true, data: history });
     } catch (err) { next(err); }

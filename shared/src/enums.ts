@@ -319,6 +319,12 @@ export enum ShiftType {
   HYBRID = 'HYBRID',
 }
 
+export enum ShiftChangeRequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
 // ============================================
 // Enterprise Attendance Enums
 // ============================================

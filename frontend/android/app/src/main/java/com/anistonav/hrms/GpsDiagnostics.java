@@ -57,6 +57,8 @@ public class GpsDiagnostics {
     public static final String KEY_LAST_WATCHDOG_RUN_AT         = "lastWatchdogRunAt";
     public static final String KEY_LAST_WATCHDOG_RESULT         = "lastWatchdogResult";
     public static final String KEY_WATCHDOG_CREDENTIALS_PRESENT = "watchdogCredentialsPresent";
+    public static final String KEY_WATCHDOG_MISSING_FIELDS      = "watchdogMissingFields";
+    public static final String KEY_WATCHDOG_RESTART_ATTEMPT_AT  = "watchdogRestartAttemptAt";
     public static final String KEY_WATCHDOG_EXCEPTION           = "watchdogException";
 
     // ── GPS & heartbeat ───────────────────────────────────────────────────────
@@ -94,6 +96,17 @@ public class GpsDiagnostics {
     public static final String KEY_SESSION_STATE                = "sessionState";
     public static final String KEY_NATIVE_SESSION_STORED_AT     = "nativeSessionStoredAt";
     public static final String KEY_NATIVE_SESSION_CLEARED_AT    = "nativeSessionClearedAt";
+
+    // ── Force-stop / OEM kill detection ──────────────────────────────────────
+    public static final String KEY_SUSPECTED_FORCE_STOP         = "suspectedForceStop";
+    public static final String KEY_SUSPECTED_FORCE_STOP_AT      = "suspectedForceStopAt";
+    public static final String KEY_OEM_AUTO_START_NOT_FOUND     = "oemAutoStartNotFound";
+    public static final String KEY_GPS_STOP_REASON              = "gpsStopReason";
+
+    // ── Point skip diagnostics ────────────────────────────────────────────────
+    public static final String KEY_LAST_POINT_SKIP_REASON       = "lastPointSkipReason";
+    public static final String KEY_LAST_POINT_SKIP_AT           = "lastPointSkipAt";
+    public static final String KEY_NEXT_GPS_CAPTURE_AT          = "nextGpsCaptureAt";
 
     // ── Core write ────────────────────────────────────────────────────────────
 
@@ -195,6 +208,8 @@ public class GpsDiagnostics {
             obj.put(KEY_LAST_WATCHDOG_RUN_AT,         p.getString(KEY_LAST_WATCHDOG_RUN_AT,         ""));
             obj.put(KEY_LAST_WATCHDOG_RESULT,         p.getString(KEY_LAST_WATCHDOG_RESULT,         ""));
             obj.put(KEY_WATCHDOG_CREDENTIALS_PRESENT, p.getString(KEY_WATCHDOG_CREDENTIALS_PRESENT, ""));
+            obj.put(KEY_WATCHDOG_MISSING_FIELDS,      p.getString(KEY_WATCHDOG_MISSING_FIELDS,      ""));
+            obj.put(KEY_WATCHDOG_RESTART_ATTEMPT_AT,  p.getString(KEY_WATCHDOG_RESTART_ATTEMPT_AT,  ""));
             obj.put(KEY_WATCHDOG_EXCEPTION,           p.getString(KEY_WATCHDOG_EXCEPTION,           ""));
 
             // GPS & heartbeat
@@ -234,6 +249,17 @@ public class GpsDiagnostics {
             obj.put(KEY_SESSION_STATE,                p.getString(KEY_SESSION_STATE,                "unknown"));
             obj.put(KEY_NATIVE_SESSION_STORED_AT,     p.getString(KEY_NATIVE_SESSION_STORED_AT,     ""));
             obj.put(KEY_NATIVE_SESSION_CLEARED_AT,    p.getString(KEY_NATIVE_SESSION_CLEARED_AT,    ""));
+
+            // Force-stop / OEM kill detection
+            obj.put(KEY_SUSPECTED_FORCE_STOP,         p.getString(KEY_SUSPECTED_FORCE_STOP,         "false"));
+            obj.put(KEY_SUSPECTED_FORCE_STOP_AT,      p.getString(KEY_SUSPECTED_FORCE_STOP_AT,      ""));
+            obj.put(KEY_OEM_AUTO_START_NOT_FOUND,     p.getString(KEY_OEM_AUTO_START_NOT_FOUND,     ""));
+            obj.put(KEY_GPS_STOP_REASON,              p.getString(KEY_GPS_STOP_REASON,              ""));
+
+            // Point skip diagnostics
+            obj.put(KEY_LAST_POINT_SKIP_REASON,       p.getString(KEY_LAST_POINT_SKIP_REASON,       ""));
+            obj.put(KEY_LAST_POINT_SKIP_AT,           p.getString(KEY_LAST_POINT_SKIP_AT,           ""));
+            obj.put(KEY_NEXT_GPS_CAPTURE_AT,          p.getString(KEY_NEXT_GPS_CAPTURE_AT,          ""));
 
             // Token presence flag — never expose the actual token
             String token = trackP.getString(GpsTrackingService.EXTRA_TOKEN, null);

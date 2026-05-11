@@ -120,6 +120,11 @@ export const leaveApi = api.injectEndpoints({
       ],
     }),
 
+    getDraftsCount: builder.query<any, void>({
+      query: () => '/leaves/drafts-count',
+      providesTags: ['Leave'],
+    }),
+
     getLeaveDetail: builder.query<any, string>({
       query: (id) => `/leaves/${id}/detail`,
       providesTags: (result, error, id) => [{ type: 'Leave' as const, id }],
@@ -276,6 +281,7 @@ export const {
   // Leave Impact Flow
   useSaveDraftMutation,
   useSubmitDraftMutation,
+  useGetDraftsCountQuery,
   useGetLeaveDetailQuery,
   useGetManagerReviewQuery,
   useGetHrReviewQuery,

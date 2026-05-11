@@ -173,6 +173,13 @@ export class LeaveController {
     } catch (err) { next(err); }
   }
 
+  async getDraftsCount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const count = await leaveService.getDraftsCount(req.user!.organizationId);
+      res.json({ success: true, data: { count } });
+    } catch (err) { next(err); }
+  }
+
   // ── Detail & Review ──
 
   async getLeaveDetail(req: Request, res: Response, next: NextFunction) {

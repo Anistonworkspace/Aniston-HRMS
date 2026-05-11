@@ -10,7 +10,7 @@ export class ExitController {
     try {
       const data = setLastWorkingDaySchema.parse(req.body);
       const result = await exitService.setLastWorkingDay(
-        req.params.employeeId, data, req.user!.userId, req.user!.organizationId,
+        req.params.employeeId, data, req.user!.userId, req.user!.organizationId, req.user!.role,
       );
       res.json({ success: true, data: result });
     } catch (err) { next(err); }

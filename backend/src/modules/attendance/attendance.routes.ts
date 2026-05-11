@@ -8,6 +8,7 @@ import { storageService, StorageFolder } from '../../services/storage.service.js
 import { BadRequestError } from '../../middleware/errorHandler.js';
 import { compOffService } from './compoff.service.js';
 import { enqueueNotification, enqueueEmail } from '../../jobs/queues.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 
 const uploadExcelMemory = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -133,6 +134,9 @@ router.get(
       const employeeId = req.query.employeeId as string;
 
       if (employeeId) {
+        if (req.user!.role === 'HR') {
+          await assertHRActionAllowed('HR', employeeId, 'canHRExportAttendance');
+        }
         const { generateEmployeeAttendanceExcel } = await import('../../utils/attendanceExcelExporter.js');
         const buffer = await generateEmployeeAttendanceExcel(employeeId, month, year);
         const monthName = new Date(year, month - 1).toLocaleString('en-IN', { month: 'short' });

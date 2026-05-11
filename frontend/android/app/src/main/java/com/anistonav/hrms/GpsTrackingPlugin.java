@@ -49,26 +49,17 @@ public class GpsTrackingPlugin extends Plugin {
             return;
         }
 
-        // Normalise URL — same logic as GpsTrackingService.normaliseBackendUrl()
-        String backendUrl = normaliseUrl(rawUrl);
-
         Context ctx = getContext();
 
-        // ── Persist ALL credentials to SharedPreferences BEFORE starting service ──
+        // Normalise URL via GpsSessionStore (single canonical implementation)
+        String backendUrl = GpsSessionStore.normaliseBackendUrl(rawUrl);
+
+        // ── Persist ALL credentials BEFORE starting service via GpsSessionStore ──
         // This is the single most important step for watchdog/restart reliability.
-        // The service also calls saveToPrefs() on start, but writing here first
-        // means the watchdog can read valid state even if the service is killed
-        // within the first few milliseconds.
-        ctx.getSharedPreferences(GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(GpsTrackingService.EXTRA_BACKEND_URL,              backendUrl)
-            .putString(GpsTrackingService.EXTRA_TOKEN,                    authToken)
-            .putString(GpsTrackingService.EXTRA_EMPLOYEE_ID,              employeeId)
-            .putString(GpsTrackingService.EXTRA_ORG_ID,                   orgId)
-            .putString(GpsTrackingService.EXTRA_ATTENDANCE_ID,            attendanceId)
-            .putLong  (GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS, (long) Math.max(1, Math.min(240, intervalMinutes)) * 60_000L)
-            .putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED,    true)
-            .apply();
+        // All 5 GPS components now read credentials from the same place.
+        long gpsIntervalMs = (long) Math.max(1, Math.min(240, intervalMinutes)) * 60_000L;
+        GpsSessionStore.saveSession(ctx, backendUrl, authToken, employeeId,
+                                    orgId, attendanceId, gpsIntervalMs);
 
         // Record diagnostic fields immediately
         String heartbeatUrl = backendUrl + "/api/attendance/gps-heartbeat";
@@ -115,11 +106,8 @@ public class GpsTrackingPlugin extends Plugin {
             Log.w(TAG, "Stop service intent failed (already stopped?): " + e.getMessage());
         }
         GpsDiagnostics.markCheckedOut(ctx);
-        // Flip tracking_enabled=false in prefs so watchdog/receiver know to stay idle
-        ctx.getSharedPreferences(GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false)
-            .apply();
+        // Clear session via GpsSessionStore so watchdog/receiver know to stay idle
+        GpsSessionStore.clearSession(ctx);
         GpsWatchdogWorker.cancel(ctx);
         call.resolve();
     }
@@ -132,10 +120,7 @@ public class GpsTrackingPlugin extends Plugin {
             return;
         }
         Context ctx = getContext();
-        ctx.getSharedPreferences(GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(GpsTrackingService.EXTRA_TOKEN, newToken)
-            .apply();
+        GpsSessionStore.updateToken(ctx, newToken);
         Intent intent = new Intent(ctx, GpsTrackingService.class);
         intent.setAction(GpsTrackingService.ACTION_UPDATE_TOKEN);
         intent.putExtra(GpsTrackingService.EXTRA_TOKEN, newToken);
@@ -231,18 +216,5 @@ public class GpsTrackingPlugin extends Plugin {
         call.resolve();
     }
 
-    // ── URL normalisation (mirrors GpsTrackingService.normaliseBackendUrl) ────
-
-    private static String normaliseUrl(String raw) {
-        if (raw == null || raw.trim().isEmpty()) return PRODUCTION_BACKEND;
-        raw = raw.trim();
-        while (raw.endsWith("/")) raw = raw.substring(0, raw.length() - 1);
-        if (raw.startsWith("https://") || raw.startsWith("http://")) {
-            if (raw.endsWith("/api")) raw = raw.substring(0, raw.length() - 4);
-            return raw;
-        }
-        Log.e(TAG, "Relative backendUrl detected in plugin: '" + raw + "' — using production default");
-        return PRODUCTION_BACKEND;
-    }
-
 }
+

@@ -1678,14 +1678,10 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
           <div className="overflow-x-auto pb-2">
             <div className="flex items-start">
               {/* Day labels column */}
-              <div className="shrink-0 mr-2 pt-5">
-                {DAY_LABELS.map((label, i) => (
-                  <div key={label} style={{ height: CELL + GAP }} className="flex items-center">
-                    {i % 2 === 0 ? (
-                      <span className="text-[10px] text-gray-400 w-7 text-right leading-none">{label}</span>
-                    ) : (
-                      <span className="w-7" />
-                    )}
+              <div className="shrink-0 mr-1.5 pt-5">
+                {DAY_LABELS.map((label) => (
+                  <div key={label} style={{ height: CELL + GAP }} className="flex items-center justify-end">
+                    <span className="text-[9px] text-gray-400 w-6 text-right leading-none">{label}</span>
                   </div>
                 ))}
               </div>
@@ -1734,7 +1730,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
             </div>
 
             {/* Legend */}
-            <div className="flex items-center gap-3 mt-3 ml-9">
+            <div className="flex items-center gap-3 mt-3 ml-8">
               <span className="text-[10px] text-gray-400">Less</span>
               {[
                 { color: '#f3f4f6', label: 'No data' },
@@ -1753,7 +1749,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
                 </div>
               ))}
             </div>
-            <p className="text-[10px] text-gray-300 mt-2 ml-9 italic">This is based on the attendance of this Employee</p>
+            <p className="text-[10px] text-gray-300 mt-2 ml-8 italic">This is based on the attendance of this Employee</p>
           </div>
         )}
       </div>

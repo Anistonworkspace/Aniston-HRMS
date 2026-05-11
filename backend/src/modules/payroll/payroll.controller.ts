@@ -4,10 +4,14 @@ import { salaryVisibilityService } from './salary-visibility.service.js';
 import { salaryStructureSchema, createPayrollRunSchema } from './payroll.validation.js';
 import { generateSalarySlipPDF } from '../../utils/pdfGenerator.js';
 import { prisma } from '../../lib/prisma.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 
 export class PayrollController {
   async getSalaryStructure(req: Request, res: Response, next: NextFunction) {
     try {
+      if (req.user!.role === 'HR') {
+        await assertHRActionAllowed('HR', req.params.employeeId, 'canHRViewPayroll');
+      }
       const structure = await payrollService.getSalaryStructure(req.params.employeeId, req.user!.organizationId);
       res.json({ success: true, data: structure });
     } catch (err) { next(err); }
@@ -15,6 +19,9 @@ export class PayrollController {
 
   async upsertSalaryStructure(req: Request, res: Response, next: NextFunction) {
     try {
+      if (req.user!.role === 'HR') {
+        await assertHRActionAllowed('HR', req.params.employeeId, 'canHREditSalary');
+      }
       const data = salaryStructureSchema.parse(req.body);
       const result = await payrollService.upsertSalaryStructure(
         req.params.employeeId, data, req.user!.organizationId, req.user!.userId

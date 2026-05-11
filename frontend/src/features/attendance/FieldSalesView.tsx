@@ -598,10 +598,15 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
     await syncPoints();
 
+    if (!currentPos) {
+      toast.error('No GPS position available. Please ensure location is enabled and try again.');
+      return;
+    }
+
     try {
       await clockOut({
-        latitude: currentPos?.lat,
-        longitude: currentPos?.lng,
+        latitude: currentPos.lat,
+        longitude: currentPos.lng,
       }).unwrap();
 
       const remaining = bufferRef.current.length;

@@ -201,7 +201,7 @@ export class AttendanceController {
           });
         }
       }
-      const record = await attendanceService.markAttendance(data, req.user!.userId, req.user!.organizationId);
+      const record = await attendanceService.markAttendance(data, req.user!.userId, req.user!.organizationId, req.user!.role);
       res.status(201).json({ success: true, data: record, message: 'Attendance marked successfully' });
     } catch (err) { next(err); }
   }
@@ -268,7 +268,7 @@ export class AttendanceController {
       const { officeDays, wfhDays, notes } = req.body;
       const result = await hybridScheduleService.setSchedule(
         req.params.employeeId, { officeDays, wfhDays, notes },
-        req.user!.organizationId, req.user!.userId
+        req.user!.organizationId, req.user!.userId, req.user!.role
       );
       res.json({ success: true, data: result, message: 'Hybrid schedule saved' });
     } catch (err) { next(err); }

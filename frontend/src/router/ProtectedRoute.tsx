@@ -19,9 +19,9 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   // All hooks must be called unconditionally before any early return (Rules of Hooks)
   const shouldFetchUser = isAuthenticated && !user && !!accessToken;
-  // Re-fetch /auth/me when user came from login (department is absent or undefined — login
-  // response is a subset of /auth/me). This ensures full profile data is always loaded.
-  const userNeedsHydration = isAuthenticated && !!user && !!accessToken && !user.department;
+  // Re-fetch /auth/me when user came from login (workMode is absent on the login subset
+  // but present in the full /auth/me response). This ensures full profile data is loaded.
+  const userNeedsHydration = isAuthenticated && !!user && !!accessToken && !user.workMode;
   // Also re-fetch /auth/me when Redux says onboarding incomplete — catches stale token after completion
   const shouldVerifyOnboarding = isAuthenticated && !!user && user.onboardingComplete === false && !GATE_EXEMPT_ROLES.includes(user?.role || '');
   const { data: meData, isLoading, isError, error: meError } = useGetMeQuery(undefined, {

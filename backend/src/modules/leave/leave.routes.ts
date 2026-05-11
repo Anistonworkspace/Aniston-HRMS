@@ -110,6 +110,13 @@ router.get('/:id/notifications',
 // Cancel
 router.delete('/:id', (req, res, next) => leaveController.cancelLeave(req, res, next));
 
+// Draft count for HR nudge banner
+router.get(
+  '/drafts-count',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => leaveController.getDraftsCount(req, res, next)
+);
+
 // Approvals
 router.get(
   '/approvals',

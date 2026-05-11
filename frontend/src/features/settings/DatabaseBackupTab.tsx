@@ -118,10 +118,11 @@ interface BackupTableProps {
 function BackupTable({ category, accessToken, onRestoreDb, onRestoreFiles, onDelete, deletingId, restoringId }: BackupTableProps) {
   const [page, setPage] = useState(1);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
-  const { data, isLoading, isFetching } = useListBackupsQuery(
+  const { data, isLoading, isFetching } = useListBackupsQuery({ page, category });
+  const hasInProgress = data?.backups?.some((b: any) => b.status === 'IN_PROGRESS') ?? false;
+  useListBackupsQuery(
     { page, category },
-    // Fix 2: Auto-poll every 3s while any backup in this category is IN_PROGRESS
-    { pollingInterval: data?.backups?.some(b => b.status === 'IN_PROGRESS') ? 3000 : 0 }
+    { pollingInterval: hasInProgress ? 3000 : 0, skip: !hasInProgress }
   );
 
   const backups = data?.backups ?? [];

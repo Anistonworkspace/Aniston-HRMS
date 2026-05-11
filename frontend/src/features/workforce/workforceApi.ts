@@ -176,6 +176,37 @@ export const workforceApi = api.injectEndpoints({
       query: (id) => ({ url: `/workforce/locations/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Attendance'],
     }),
+
+    // Shift Change Requests
+    createShiftChangeRequest: builder.mutation<ApiResponse<any>, { employeeId?: string; toShiftId: string; reason?: string }>({
+      query: (body) => ({ url: '/workforce/shifts/change-request', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+    getShiftChangeRequests: builder.query<ApiResponse<any[]>, { status?: string } | void>({
+      query: (params) => {
+        const q = (params as any)?.status ? `?status=${(params as any).status}` : '';
+        return `/workforce/shifts/change-requests${q}`;
+      },
+      providesTags: ['Attendance'],
+    }),
+    getMyShiftChangeRequests: builder.query<ApiResponse<any[]>, void>({
+      query: () => '/workforce/shifts/my-change-requests',
+      providesTags: ['Attendance'],
+    }),
+    reviewShiftChangeRequest: builder.mutation<ApiResponse<any>, { id: string; action: 'APPROVED' | 'REJECTED'; reviewRemarks?: string }>({
+      query: ({ id, ...body }) => ({ url: `/workforce/shifts/change-request/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    // HR Action Restrictions
+    getHRRestrictions: builder.query<ApiResponse<any>, string>({
+      query: (employeeId) => `/workforce/shifts/hr-restrictions/${employeeId}`,
+      providesTags: ['Employee'],
+    }),
+    setHRRestrictions: builder.mutation<ApiResponse<any>, { employeeId: string; restrictions: Record<string, boolean> }>({
+      query: ({ employeeId, restrictions }) => ({ url: `/workforce/shifts/hr-restrictions/${employeeId}`, method: 'POST', body: restrictions }),
+      invalidatesTags: ['Employee'],
+    }),
   }),
 });
 
@@ -192,4 +223,10 @@ export const {
   useCreateLocationMutation,
   useUpdateLocationMutation,
   useDeleteLocationMutation,
+  useCreateShiftChangeRequestMutation,
+  useGetShiftChangeRequestsQuery,
+  useGetMyShiftChangeRequestsQuery,
+  useReviewShiftChangeRequestMutation,
+  useGetHRRestrictionsQuery,
+  useSetHRRestrictionsMutation,
 } = workforceApi;

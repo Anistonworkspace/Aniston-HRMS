@@ -5,7 +5,6 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
@@ -44,37 +43,30 @@ public class GpsRestartReceiver extends BroadcastReceiver {
     }
 
     private void restartIfNeeded(Context context) {
-        // ── Step 1: Record attempt timestamp immediately (before any return path) ──
-        // This guarantees lastRestartAttemptAt is never blank after the receiver fires.
-        String attemptAt = GpsDiagnostics.nowIso();
-        GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_ATTEMPT_AT, attemptAt);
+        // ── Step 1: Record attempt timestamp IMMEDIATELY — before ANY return path ──
+        // A blank lastRestartAttemptAt after the receiver fires = JVM crash before here.
+        GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_ATTEMPT_AT, GpsDiagnostics.nowIso());
 
-        // ── Step 2: Read credentials ──────────────────────────────────────────────
-        SharedPreferences prefs = context.getSharedPreferences(
-            GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
+        // ── Step 2: Use GpsSessionStore for canonical credential check ────────────
+        boolean hasSession   = GpsSessionStore.hasValidSession(context);
+        String  missingFields = GpsSessionStore.getMissingFields(context);
+        boolean shouldTrack  = GpsSessionStore.shouldTrack(context);
 
-        String token       = prefs.getString(GpsTrackingService.EXTRA_TOKEN,       null);
-        String employeeId  = prefs.getString(GpsTrackingService.EXTRA_EMPLOYEE_ID, null);
-        String backendUrl  = prefs.getString(GpsTrackingService.EXTRA_BACKEND_URL, null);
-        boolean trackingEnabled = prefs.getBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false);
-
+        GpsSessionStore.Session session = GpsSessionStore.getSession(context);
         GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RESTART_CREDENTIALS_PRESENT,
-            (token != null && !token.isEmpty() && employeeId != null && !employeeId.isEmpty()) ? "true" : "false");
+            hasSession ? "true" : "false");
 
-        // ── Step 3: Guard — no active session ─────────────────────────────────────
-        if (!trackingEnabled) {
+        // ── Step 3: Guard — employee checked out or no active session ─────────────
+        if (!shouldTrack) {
             Log.d(TAG, "tracking_enabled=false — not restarting GPS service");
             GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT, "skipped_not_checked_in");
             return;
         }
-        if (token == null || token.isEmpty()) {
-            Log.d(TAG, "No auth token in prefs — not restarting");
-            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT, "missing_credentials:auth_token");
-            return;
-        }
-        if (employeeId == null || employeeId.isEmpty()) {
-            Log.d(TAG, "No employeeId in prefs — not restarting");
-            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT, "missing_credentials:employee_id");
+        if (!hasSession) {
+            String reason = !missingFields.isEmpty() ? missingFields : "unknown";
+            Log.d(TAG, "Missing credentials (" + reason + ") — not restarting");
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT,
+                "missing_credentials:" + reason);
             return;
         }
 
@@ -89,10 +81,9 @@ public class GpsRestartReceiver extends BroadcastReceiver {
         }
 
         // ── Step 5: Build and start service intent ────────────────────────────────
-        Log.i(TAG, "Restarting GPS service for employee: " + employeeId);
+        // No extras in intent — GpsTrackingService.restoreFromPrefs() reads from GpsSessionStore.
+        Log.i(TAG, "Restarting GPS service for employee: " + session.employeeId);
         Intent serviceIntent = new Intent(context, GpsTrackingService.class);
-        // Pass null extras → service calls restoreFromPrefs() to recover all credentials
-        // (avoids duplicating all fields in the alarm intent)
 
         GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RESTART_SERVICE_INTENT_CREATED_AT, GpsDiagnostics.nowIso());
 
@@ -109,10 +100,8 @@ public class GpsRestartReceiver extends BroadcastReceiver {
         } catch (Exception e) {
             Log.e(TAG, "Failed to restart GPS service: " + e.getMessage());
             String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT,
-                "failed:" + reason);
-            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RESTART_EXCEPTION,
-                reason);
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT,  "failed:" + reason);
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RESTART_EXCEPTION,    reason);
             GpsDiagnostics.recordError(context, "restart_exception: " + reason);
         }
     }

@@ -1203,6 +1203,20 @@ export class LeaveService {
     return draft;
   }
 
+  /** Count DRAFT leave requests across the org — used for the HR nudge banner */
+  async getDraftsCount(organizationId: string): Promise<number> {
+    const orgEmployees = await prisma.employee.findMany({
+      where: { organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    return prisma.leaveRequest.count({
+      where: {
+        employeeId: { in: orgEmployees.map((e) => e.id) },
+        status: 'DRAFT',
+      },
+    });
+  }
+
   /**
    * Submit a draft leave request (full policy enforcement + task audit)
    */

@@ -816,7 +816,7 @@ router.post('/kyc/:employeeId/verify', authenticate, authorize(Role.SUPER_ADMIN,
   async (req, res, next) => {
     try {
       const { documentGateService } = await import('./document-gate.service.js');
-      const gate = await documentGateService.verifyKyc(req.params.employeeId, req.user!.userId, req.user!.organizationId);
+      const gate = await documentGateService.verifyKyc(req.params.employeeId, req.user!.userId, req.user!.organizationId, req.user!.role);
       res.json({ success: true, data: gate, message: 'KYC verified' });
     } catch (err) { next(err); }
   }
@@ -827,7 +827,7 @@ router.post('/kyc/:employeeId/reject', authenticate, authorize(Role.SUPER_ADMIN,
   async (req, res, next) => {
     try {
       const { documentGateService } = await import('./document-gate.service.js');
-      const gate = await documentGateService.rejectKyc(req.params.employeeId, req.body.reason, req.user!.userId);
+      const gate = await documentGateService.rejectKyc(req.params.employeeId, req.body.reason, req.user!.userId, req.user!.role);
       res.json({ success: true, data: gate, message: 'KYC rejected' });
     } catch (err) { next(err); }
   }

@@ -107,6 +107,69 @@ export class ShiftController {
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+
+  // Shift Change Requests
+  async createShiftChangeRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, toShiftId, reason } = req.body;
+      if (!toShiftId) return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'toShiftId is required' } });
+      // Employees submit for themselves; HR/Admin submit for any employee
+      const targetEmployeeId = req.user!.role === 'EMPLOYEE' || req.user!.role === 'INTERN'
+        ? req.user!.employeeId!
+        : (employeeId || req.user!.employeeId!);
+      const result = await shiftService.createShiftChangeRequest(
+        targetEmployeeId, toShiftId, req.user!.userId, req.user!.role, req.user!.organizationId, reason,
+      );
+      res.status(201).json({ success: true, data: result, message: 'Shift change request submitted' });
+    } catch (err) { next(err); }
+  }
+
+  async getShiftChangeRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status } = req.query as { status?: string };
+      const requests = await shiftService.getShiftChangeRequests(req.user!.organizationId, status);
+      res.json({ success: true, data: requests });
+    } catch (err) { next(err); }
+  }
+
+  async getMyShiftChangeRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = req.user!.employeeId;
+      if (!employeeId) return res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked.' } });
+      const requests = await shiftService.getMyShiftChangeRequests(employeeId);
+      res.json({ success: true, data: requests });
+    } catch (err) { next(err); }
+  }
+
+  async reviewShiftChangeRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { action, reviewRemarks } = req.body;
+      if (!['APPROVED', 'REJECTED'].includes(action)) {
+        return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'action must be APPROVED or REJECTED' } });
+      }
+      const result = await shiftService.reviewShiftChangeRequest(
+        req.params.id, action, req.user!.userId, req.user!.organizationId, reviewRemarks,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  // HR Action Restrictions
+  async getHRRestrictions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await shiftService.getHRRestrictions(req.params.employeeId, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async setHRRestrictions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await shiftService.setHRRestrictions(
+        req.params.employeeId, req.user!.organizationId, req.body, req.user!.userId,
+      );
+      res.json({ success: true, data: result, message: 'HR action restrictions updated' });
+    } catch (err) { next(err); }
+  }
 }
 
 export const shiftController = new ShiftController();

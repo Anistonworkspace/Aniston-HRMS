@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 
 export class PayrollAdjustmentService {
   async listByRun(payrollRunId: string, organizationId: string) {
@@ -50,7 +51,11 @@ export class PayrollAdjustmentService {
     payrollRunId: string; employeeId: string;
     type: string; componentName: string;
     amount: number; isDeduction: boolean; reason: string;
-  }, organizationId: string, userId: string) {
+  }, organizationId: string, userId: string, userRole?: string) {
+    if (userRole === 'HR') {
+      await assertHRActionAllowed('HR', data.employeeId, 'canHRAddPayrollAdjustment');
+    }
+
     // Verify run exists and is in DRAFT or REVIEW status
     const run = await prisma.payrollRun.findFirst({
       where: { id: data.payrollRunId, organizationId },

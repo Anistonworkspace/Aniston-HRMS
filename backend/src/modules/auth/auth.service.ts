@@ -8,6 +8,7 @@ import { AppError, UnauthorizedError, NotFoundError, BadRequestError } from '../
 import type { JwtPayload } from '../../middleware/auth.middleware.js';
 import { employeePermissionService } from '../employee-permissions/employee-permissions.service.js';
 import { enqueueEmail } from '../../jobs/queues.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 import { logger } from '../../lib/logger.js';
 
 const REFRESH_TOKEN_PREFIX = 'refresh_token:';
@@ -358,6 +359,11 @@ export class AuthService {
     // Multi-tenant guard: HR/Admin can only reset users in their own org
     if (caller.role !== 'SUPER_ADMIN' && target.organizationId !== caller.organizationId) {
       throw new NotFoundError('User');
+    }
+
+    // HR restriction gate — check if SuperAdmin has blocked this HR from resetting this employee's password
+    if (caller.role === 'HR' && target.employee?.id) {
+      await assertHRActionAllowed('HR', target.employee.id as string, 'canHRResetPassword');
     }
 
     // Role hierarchy: HR can only reset EMPLOYEE / INTERN / GUEST_INTERVIEWER / MANAGER

@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js
 import { emitToOrg, emitToUser } from '../../sockets/index.js';
 import { logger } from '../../lib/logger.js';
 import { enqueueEmail } from '../../jobs/queues.js';
+import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
 
 // =====================
 // CONSTANTS
@@ -481,7 +482,11 @@ export class DocumentGateService {
     return updated;
   }
 
-  async verifyKyc(employeeId: string, verifiedBy: string, organizationId?: string) {
+  async verifyKyc(employeeId: string, verifiedBy: string, organizationId?: string, verifierRole?: string) {
+    if (verifierRole === 'HR') {
+      await assertHRActionAllowed('HR', employeeId, 'canHRManageKYC');
+    }
+
     const gate = await prisma.onboardingDocumentGate.findFirst({
       where: organizationId
         ? { employeeId, employee: { organizationId } }
@@ -664,7 +669,11 @@ export class DocumentGateService {
     return updated;
   }
 
-  async rejectKyc(employeeId: string, reason: string, rejectedBy: string) {
+  async rejectKyc(employeeId: string, reason: string, rejectedBy: string, rejectorRole?: string) {
+    if (rejectorRole === 'HR') {
+      await assertHRActionAllowed('HR', employeeId, 'canHRManageKYC');
+    }
+
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 

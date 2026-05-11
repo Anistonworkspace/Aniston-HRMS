@@ -37,6 +37,7 @@ import { enqueueAction } from '../../lib/offlineQueue';
 import { useAuthDownload } from '../../hooks/useAuthDownload';
 import { useEmpPerms } from '../../hooks/useEmpPerms';
 import PermDenied from '../../components/PermDenied';
+import ShiftChangeRequestPanel from './components/ShiftChangeRequestPanel';
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500',
@@ -919,18 +920,17 @@ function AttendancePersonalView() {
     let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
       if (isFieldShift) {
-        // FIELD shift: GPS is best-effort — try Capacitor first, then web, then proceed
-        // without coords. Backend does not require GPS for FIELD checkout.
-        try {
-          if (isNativeAndroid) {
+        if (isNativeAndroid) {
+          try {
             const pos = await getCurrentPosition();
             coords = { latitude: pos.lat, longitude: pos.lng, accuracy: pos.accuracy ?? 0, gpsTimestamp: new Date(pos.timestamp ?? Date.now()).toISOString() };
-          } else {
+          } catch {
             coords = await getGPS();
           }
-        } catch {
-          // GPS unavailable — proceed without coordinates (backend allows this for FIELD)
+        } else {
+          coords = await getGPS();
         }
+        if (coords === null) return; // FIELD shift: GPS is mandatory, block if unavailable
       } else {
         coords = await getGPS();
         if (coords === null) return; // OFFICE shift: GPS is mandatory, block if unavailable
@@ -1728,6 +1728,11 @@ function AttendancePersonalView() {
         className="mt-4"
       >
         <MyShiftsSection />
+      </motion.div>
+
+      {/* Shift Change Request Panel */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="mt-4">
+        <ShiftChangeRequestPanel />
       </motion.div>
 
       {/* GPS Diagnostics — Android only, collapsed by default */}

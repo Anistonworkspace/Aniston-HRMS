@@ -21,7 +21,7 @@ export class PayrollAdjustmentController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createAdjustmentSchema.parse(req.body);
-      const adjustment = await payrollAdjustmentService.create(data, req.user!.organizationId, req.user!.userId);
+      const adjustment = await payrollAdjustmentService.create(data, req.user!.organizationId, req.user!.userId, req.user!.role);
       res.status(201).json({ success: true, data: adjustment, message: 'Adjustment created' });
     } catch (err) { next(err); }
   }

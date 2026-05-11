@@ -205,6 +205,7 @@ function EmployeeDashboard() {
     skip: !user?.employeeId,
   });
   const todayStatus = todayRes?.data;
+  const isFieldShift = (todayStatus?.shift as any)?.shiftType === 'FIELD';
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
 
@@ -278,19 +279,18 @@ function EmployeeDashboard() {
             gpsTimestamp: new Date().toISOString(),
           };
         } catch (gpsErr: any) {
-          // code 1 = PERMISSION_DENIED, code 2 = POSITION_UNAVAILABLE, code 3 = TIMEOUT
-          if (gpsErr?.code === 1) {
-            toast('Location access denied. Clocking in without GPS — HR may review your attendance.', {
-              icon: '📍',
-              duration: 4000,
-            });
-          } else if (gpsErr?.code === 2) {
-            toast('GPS signal unavailable. Clocking in without location.', {
-              icon: '📍',
-              duration: 3000,
-            });
+          if (isFieldShift) {
+            setGettingGps(false);
+            const msg =
+              gpsErr?.code === 1
+                ? 'Location access denied. Field employees must enable GPS to mark attendance.'
+                : gpsErr?.code === 2
+                ? 'GPS signal unavailable. Please move to an open area and try again.'
+                : 'Could not get your location. Field employees must have GPS enabled to mark attendance.';
+            toast.error(msg, { duration: 5000 });
+            return;
           }
-          // code 3 (timeout) — silent, just proceed
+          // Non-field shifts (OFFICE etc.): proceed — backend enforces GPS for OFFICE shifts
         }
       }
       setGettingGps(false);

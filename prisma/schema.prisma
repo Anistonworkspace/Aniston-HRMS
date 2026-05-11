@@ -258,6 +258,8 @@ model Employee {
   documentGate           OnboardingDocumentGate?
   exitAccessConfig       ExitAccessConfig?
   permissionOverride     PermissionOverride?
+  hrActionRestriction    HRActionRestriction?
+  shiftChangeRequests    ShiftChangeRequest[]
   headOfDepartments      Department[]          @relation("DepartmentHead")
   hybridSchedule         HybridSchedule?
   // Sunday / special-day work override
@@ -2387,6 +2389,12 @@ enum ShiftType {
   HYBRID
 }
 
+enum ShiftChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Shift {
   id                      String    @id @default(uuid())
   name                    String
@@ -2425,8 +2433,9 @@ model Shift {
 
   deletedAt      DateTime?
 
-  organization Organization     @relation(fields: [organizationId], references: [id])
-  assignments  ShiftAssignment[]
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  assignments    ShiftAssignment[]
+  changeRequests ShiftChangeRequest[] @relation("ToShift")
 
   @@unique([code, organizationId])
   @@index([organizationId])
@@ -2454,6 +2463,73 @@ model ShiftAssignment {
   @@index([employeeId, endDate])
   @@index([employeeId, startDate, endDate])
   @@index([organizationId, startDate])
+}
+
+model ShiftChangeRequest {
+  id             String   @id @default(uuid())
+  employeeId     String
+  fromShiftId    String?
+  toShiftId      String
+  requestedBy    String
+  requestedByRole String
+  reason         String?
+  status         ShiftChangeRequestStatus @default(PENDING)
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  reviewRemarks  String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  toShift    Shift    @relation("ToShift", fields: [toShiftId], references: [id])
+
+  @@index([employeeId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model HRActionRestriction {
+  id             String   @id @default(uuid())
+  employeeId     String   @unique
+  organizationId String
+
+  // Shift & Profile
+  canHRChangeShift       Boolean @default(true)
+  canHRMarkAttendance    Boolean @default(true)
+  canHREditProfile       Boolean @default(true)
+  canHRManageLeave       Boolean @default(true)
+  canHRManageDocuments   Boolean @default(true)
+  canHRChangeRole        Boolean @default(true)
+
+  // Payroll & Salary
+  canHRRunPayroll           Boolean @default(true)
+  canHREditSalary           Boolean @default(true)
+  canHRViewPayroll          Boolean @default(true)
+  canHRAddPayrollAdjustment Boolean @default(true)
+
+  // Attendance (extended)
+  canHRExportAttendance      Boolean @default(true)
+  canHRResolveRegularization Boolean @default(true)
+  canHRSetHybridSchedule     Boolean @default(true)
+
+  // KYC & Documents
+  canHRManageKYC     Boolean @default(true)
+
+  // Offboarding
+  canHRManageExit    Boolean @default(true)
+
+  // Auth
+  canHRResetPassword Boolean @default(true)
+
+  createdBy  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([organizationId])
 }
 
 // =====================

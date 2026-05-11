@@ -2,7 +2,6 @@ package com.anistonav.hrms;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
@@ -35,35 +34,27 @@ public class GpsWatchdogWorker extends Worker {
     @Override
     public Result doWork() {
         Context ctx = getApplicationContext();
-        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RUN_AT, GpsDiagnostics.nowIso());
+        String runAt = GpsDiagnostics.nowIso();
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RUN_AT, runAt);
 
-        SharedPreferences prefs = ctx.getSharedPreferences(
-            GpsTrackingService.PREFS_NAME, Context.MODE_PRIVATE);
+        // ── Use GpsSessionStore for canonical credential check ────────────────
+        // This is the fix for the root bug: watchdog was reading prefs independently
+        // with slightly different timing, causing false "no_credentials" results even
+        // when the service was running with valid credentials.
+        String missingFields = GpsSessionStore.getMissingFields(ctx);
+        boolean hasSession   = GpsSessionStore.hasValidSession(ctx);
 
-        // ── Validate each credential field individually ────────────────────────
-        boolean trackingEnabled = prefs.getBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false);
-        String  token           = prefs.getString(GpsTrackingService.EXTRA_TOKEN,       null);
-        String  employeeId      = prefs.getString(GpsTrackingService.EXTRA_EMPLOYEE_ID, null);
-        String  backendUrl      = prefs.getString(GpsTrackingService.EXTRA_BACKEND_URL, null);
-
-        // Build precise missing-fields string for diagnostics
-        StringBuilder missing = new StringBuilder();
-        if (!trackingEnabled)                             missing.append("tracking_disabled,");
-        if (token      == null || token.isEmpty())        missing.append("auth_token,");
-        if (employeeId == null || employeeId.isEmpty())   missing.append("employee_id,");
-        if (backendUrl == null || backendUrl.isEmpty())   missing.append("backend_url,");
-
-        boolean credentialsOk = trackingEnabled
-            && token      != null && !token.isEmpty()
-            && employeeId != null && !employeeId.isEmpty();
-
+        // Record diagnostics from the same source the service uses
         GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_CREDENTIALS_PRESENT,
-            credentialsOk ? "true" : "false");
+            hasSession ? "true" : "false");
 
-        if (!credentialsOk) {
-            String reason = missing.length() > 0
-                ? missing.toString().replaceAll(",$", "")
-                : "unknown";
+        // Always record the exact missing fields for diagnostics panel
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_MISSING_FIELDS,
+            missingFields.isEmpty() ? "" : missingFields);
+
+        if (!hasSession) {
+            // Distinguish "employee checked out" from "credentials missing"
+            String reason = !missingFields.isEmpty() ? missingFields : "unknown";
             Log.d(TAG, "No active GPS session (" + reason + ") — watchdog idle");
             GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT,
                 "no_credentials:" + reason);
@@ -77,10 +68,14 @@ public class GpsWatchdogWorker extends Worker {
             return Result.success();
         }
 
-        // ── Restart service ────────────────────────────────────────────────────
-        Log.w(TAG, "GPS service not running but credentials found — restarting for: " + employeeId);
+        // ── Restart service — credentials confirmed via GpsSessionStore ────────
+        GpsSessionStore.Session session = GpsSessionStore.getSession(ctx);
+        Log.w(TAG, "GPS service not running but session found — restarting for: " + session.employeeId);
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT,       "attempting_restart");
+        GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_RESTART_ATTEMPT_AT, GpsDiagnostics.nowIso());
         try {
             Intent serviceIntent = new Intent(ctx, GpsTrackingService.class);
+            // No extras needed — GpsTrackingService.restoreFromPrefs() reads from GpsSessionStore
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ctx.startForegroundService(serviceIntent);
             } else {

@@ -137,9 +137,17 @@ public class GpsTrackingService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // ── CRITICAL: Call startForeground() IMMEDIATELY on every path that keeps
+        // the service alive. Android 12+ gives only ~10s from startForegroundService()
+        // to startForeground() before the system throws ForegroundServiceDidNotStartInTimeException.
+        // We call it here unconditionally before any credential checks or async work.
+        // The notification text will be updated once we know the actual state.
+        startForegroundNow("Aniston HRMS — GPS Active", "Starting…");
+
         if (intent == null) {
             // Restarted by START_STICKY after OS kill — restore credentials from prefs
             restoreFromPrefs();
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_SERVICE_STOP_REASON, "sticky_restart");
         } else if (ACTION_STOP.equals(intent.getAction())) {
             stoppedByEmployee = true;
             postTrackingStop();
@@ -150,7 +158,7 @@ public class GpsTrackingService extends Service {
             String newToken = intent.getStringExtra(EXTRA_TOKEN);
             if (newToken != null && !newToken.isEmpty()) {
                 authToken = newToken;
-                saveToPrefs();
+                GpsSessionStore.updateToken(this, newToken);
             }
             return START_STICKY;
 
@@ -158,66 +166,71 @@ public class GpsTrackingService extends Service {
             int minutes = intent.getIntExtra(EXTRA_TRACKING_INTERVAL_MINUTES, 60);
             minutes = Math.max(1, Math.min(240, minutes));
             gpsIntervalMs = (long) minutes * 60_000L;
-            saveToPrefs();
+            GpsSessionStore.updateInterval(this, gpsIntervalMs);
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE,      "shift_update");
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_INTERVAL_UPDATED_AT, GpsDiagnostics.nowIso());
             if (sIsRunning) restartLocationUpdates();
             return START_STICKY;
 
         } else {
-            // Fresh start from plugin or restart receiver
-            backendUrl   = normaliseBackendUrl(intent.getStringExtra(EXTRA_BACKEND_URL));
-            authToken    = intent.getStringExtra(EXTRA_TOKEN);
-            employeeId   = intent.getStringExtra(EXTRA_EMPLOYEE_ID);
-            orgId        = intent.getStringExtra(EXTRA_ORG_ID);
-            attendanceId = intent.getStringExtra(EXTRA_ATTENDANCE_ID);
+            // Fresh start from plugin or restart receiver.
+            // Extras may be null if restarted from GpsRestartReceiver with no extras — fall
+            // back to GpsSessionStore (which was written by the plugin before start).
+            String intentUrl    = intent.getStringExtra(EXTRA_BACKEND_URL);
+            String intentToken  = intent.getStringExtra(EXTRA_TOKEN);
+            String intentEmpId  = intent.getStringExtra(EXTRA_EMPLOYEE_ID);
 
-            int intervalMinutes = intent.getIntExtra(EXTRA_TRACKING_INTERVAL_MINUTES, 0);
-            if (intervalMinutes > 0) {
-                intervalMinutes = Math.max(1, Math.min(240, intervalMinutes));
-                gpsIntervalMs = intervalMinutes * 60_000L;
-                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE, "roster_config");
+            if (intentToken != null && !intentToken.isEmpty()) {
+                // Caller provided full credentials in the intent
+                backendUrl   = normaliseBackendUrl(intentUrl);
+                authToken    = intentToken;
+                employeeId   = intentEmpId;
+                orgId        = intent.getStringExtra(EXTRA_ORG_ID);
+                attendanceId = intent.getStringExtra(EXTRA_ATTENDANCE_ID);
+
+                int intervalMinutes = intent.getIntExtra(EXTRA_TRACKING_INTERVAL_MINUTES, 0);
+                if (intervalMinutes > 0) {
+                    intervalMinutes = Math.max(1, Math.min(240, intervalMinutes));
+                    gpsIntervalMs = (long) intervalMinutes * 60_000L;
+                    GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE, "roster_config");
+                } else {
+                    gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
+                    GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE, "default");
+                }
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_INTERVAL_UPDATED_AT, GpsDiagnostics.nowIso());
+                saveToPrefs();
             } else {
-                gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
-                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE, "default");
+                // No credentials in intent — restore from GpsSessionStore
+                // (happens when GpsRestartReceiver or WatchdogWorker starts the service
+                // without passing extras, relying on the plugin having saved them first)
+                restoreFromPrefs();
+                GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_BASE_URL_SOURCE, "restored_from_prefs");
             }
-            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_INTERVAL_UPDATED_AT, GpsDiagnostics.nowIso());
-            saveToPrefs();
         }
 
-        // Validate required credentials before starting
-        if (authToken == null || authToken.isEmpty()) {
-            GpsDiagnostics.recordError(this, "missing_token");
+        // Validate required credentials — write precise diagnostics before stopping
+        String missingFields = GpsSessionStore.getMissingFields(this);
+        if (!missingFields.isEmpty()) {
+            GpsDiagnostics.recordError(this, "missing_credentials: " + missingFields);
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CREDENTIALS_PRESENT, "false");
-            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_MISSING_CREDENTIAL_FIELDS, "auth_token");
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        if (employeeId == null || employeeId.isEmpty()) {
-            GpsDiagnostics.recordError(this, "missing_employee_id");
-            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CREDENTIALS_PRESENT, "false");
-            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_MISSING_CREDENTIAL_FIELDS, "employee_id");
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        if (backendUrl == null || backendUrl.isEmpty()) {
-            GpsDiagnostics.recordError(this, "invalid_api_base_url:<null>");
-            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_BASE_URL_VALID, "false");
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_MISSING_CREDENTIAL_FIELDS, missingFields);
             stopSelf();
             return START_NOT_STICKY;
         }
 
-        // Record url diagnostics
+        // Record diagnostics for successful credential check
         String heartbeatUrl = backendUrl + "/api/attendance/gps-heartbeat";
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_API_BASE_URL, backendUrl);
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_HEARTBEAT_URL, heartbeatUrl);
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_BASE_URL_VALID, "true");
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_BASE_URL_SOURCE, "plugin_start");
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CREDENTIALS_PRESENT, "true");
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_MISSING_CREDENTIAL_FIELDS, "");
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_TRACKING_ENABLED, "true");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_API_BASE_URL,               backendUrl);
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_HEARTBEAT_URL,              heartbeatUrl);
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_BASE_URL_VALID,             "true");
+        if (GpsDiagnostics.getDiagnosticsJson(this).contains("\"" + GpsDiagnostics.KEY_BASE_URL_SOURCE + "\":\"\"")) {
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_BASE_URL_SOURCE, "service_start");
+        }
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_CREDENTIALS_PRESENT,        "true");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_MISSING_CREDENTIAL_FIELDS,  "");
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_TRACKING_ENABLED,           "true");
 
-        startForegroundNow("Aniston HRMS — GPS Active", "Initialising location…");
+        updateNotification("Aniston HRMS — GPS Active", "Initialising location…");
         sIsRunning = true;
 
         GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_SERVICE_RUNNING,       "true");
@@ -229,72 +242,28 @@ public class GpsTrackingService extends Service {
         return START_STICKY;
     }
 
-    // ── URL normalisation ────────────────────────────────────────────────────
+    // ── URL normalisation — delegates to GpsSessionStore (canonical implementation) ─
 
-    /**
-     * Ensure backendUrl is always a full https:// origin with no trailing slash.
-     * Handles three bad inputs from stale prefs or old builds:
-     *   "/api"                       → "https://hr.anistonav.com"
-     *   "/api/attendance/..."        → "https://hr.anistonav.com"
-     *   "https://hr.anistonav.com/"  → "https://hr.anistonav.com"
-     *   null / empty                 → "https://hr.anistonav.com"
-     * A full absolute URL is returned unchanged (after trimming trailing slash).
-     */
     private static String normaliseBackendUrl(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return "https://hr.anistonav.com";
-        }
-        raw = raw.trim();
-        // Strip trailing slash(es)
-        while (raw.endsWith("/")) {
-            raw = raw.substring(0, raw.length() - 1);
-        }
-        // If it already starts with a scheme, accept it
-        if (raw.startsWith("https://") || raw.startsWith("http://")) {
-            // Strip any /api suffix that was accidentally stored
-            if (raw.endsWith("/api")) {
-                raw = raw.substring(0, raw.length() - 4);
-            }
-            return raw;
-        }
-        // Relative URL — cannot determine origin at runtime; use hard-coded production domain
-        Log.e("GpsTrackingService", "Invalid backendUrl (relative path): " + raw + " — using production default");
-        return "https://hr.anistonav.com";
+        return GpsSessionStore.normaliseBackendUrl(raw);
     }
 
-    // ── Prefs helpers ─────────────────────────────────────────────────────────
+    // ── Prefs helpers — delegates to GpsSessionStore ──────────────────────────
 
     private void saveToPrefs() {
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-            .putString(EXTRA_BACKEND_URL,               backendUrl)
-            .putString(EXTRA_TOKEN,                     authToken)
-            .putString(EXTRA_EMPLOYEE_ID,               employeeId)
-            .putString(EXTRA_ORG_ID,                    orgId)
-            .putString(EXTRA_ATTENDANCE_ID,             attendanceId)
-            .putLong  (PREFS_KEY_GPS_INTERVAL_MS,       gpsIntervalMs)
-            .putBoolean(PREFS_KEY_TRACKING_ENABLED,     true)
-            .apply();
-        // Also persist a copy of the session stored-at timestamp for diagnostics
+        GpsSessionStore.saveSession(this, backendUrl, authToken,
+                                    employeeId, orgId, attendanceId, gpsIntervalMs);
         GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_NATIVE_SESSION_STORED_AT, GpsDiagnostics.nowIso());
     }
 
     private void restoreFromPrefs() {
-        SharedPreferences p = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        backendUrl   = normaliseBackendUrl(p.getString(EXTRA_BACKEND_URL, null));
-        authToken    = p.getString(EXTRA_TOKEN,        null);
-        employeeId   = p.getString(EXTRA_EMPLOYEE_ID,  null);
-        orgId        = p.getString(EXTRA_ORG_ID,       null);
-        attendanceId = p.getString(EXTRA_ATTENDANCE_ID, null);
-
-        if (p.contains(PREFS_KEY_GPS_INTERVAL_MS)) {
-            gpsIntervalMs = p.getLong(PREFS_KEY_GPS_INTERVAL_MS, GPS_INTERVAL_MS_DEFAULT);
-        } else {
-            // Migrate from old prefs key that stored minutes instead of ms
-            long storedMinutes = p.getLong(EXTRA_TRACKING_INTERVAL_MINUTES, 0);
-            gpsIntervalMs = storedMinutes > 0
-                ? storedMinutes * 60_000L
-                : GPS_INTERVAL_MS_DEFAULT;
-        }
+        GpsSessionStore.Session s = GpsSessionStore.getSession(this);
+        backendUrl   = s.backendUrl;
+        authToken    = s.authToken;
+        employeeId   = s.employeeId;
+        orgId        = s.orgId;
+        attendanceId = s.attendanceId;
+        gpsIntervalMs = s.gpsIntervalMs > 0 ? s.gpsIntervalMs : GPS_INTERVAL_MS_DEFAULT;
     }
 
     // ── Wake lock ─────────────────────────────────────────────────────────────
@@ -346,7 +315,10 @@ public class GpsTrackingService extends Service {
                 updateNotification("GPS Active — " + kmh, coords + "  " + acc);
 
                 if (accuracy > MAX_ACCURACY_METERS) {
-                    Log.d(TAG, "Skipping inaccurate point: accuracy=" + accuracy + "m");
+                    String skipReason = "low_accuracy:" + String.format(Locale.US, "%.0f", accuracy) + "m";
+                    Log.d(TAG, "Skipping inaccurate point: " + skipReason);
+                    GpsDiagnostics.recordEvent(GpsTrackingService.this, GpsDiagnostics.KEY_LAST_POINT_SKIP_REASON, skipReason);
+                    GpsDiagnostics.recordEvent(GpsTrackingService.this, GpsDiagnostics.KEY_LAST_POINT_SKIP_AT,     nowIso);
                     return;
                 }
                 postGpsPoint(lastLat, lastLng, accuracy, speed);
@@ -696,10 +668,7 @@ public class GpsTrackingService extends Service {
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_SERVICE_STOP_REASON, "employee_checkout");
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_TRACKING_ENABLED,         "false");
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_NATIVE_SESSION_CLEARED_AT, GpsDiagnostics.nowIso());
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-                .clear()
-                .putBoolean(PREFS_KEY_TRACKING_ENABLED, false)
-                .apply();
+            GpsSessionStore.clearSession(this);
         } else {
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_SERVICE_STOP_REASON, "os_kill_or_restart");
         }
