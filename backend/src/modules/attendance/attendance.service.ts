@@ -3903,29 +3903,31 @@ export class AttendanceService {
     const errors: string[] = [];
 
     // ── STEP 1: Detect EMP column by scanning data rows 2–10 ──────────────────
-    // Row 1 is the header — scan actual data rows for EMP-xxx codes.
     let empColIndex = 2; // default: column B
-    outer:
+    outerEmp:
     for (let r = 2; r <= Math.min(10, sheet.rowCount); r++) {
       const row = sheet.getRow(r);
       for (let c = 1; c <= Math.min(sheet.columnCount, 10); c++) {
         const val = row.getCell(c).text?.toString().trim().toUpperCase() ?? '';
         if (/^EMP-\d+/.test(val)) {
           empColIndex = c;
-          break outer;
+          break outerEmp;
         }
       }
     }
 
-    // ── STEP 2: Detect day-1 column from the header row ───────────────────────
-    // Scan header row (row 1) to the right of the EMP column and find the first
-    // cell whose text is exactly "1" — that is where day 1 starts.
-    // This handles any number of extra columns between EMP and the day columns.
-    let dayStartColIndex = empColIndex + 3; // safe fallback (col E when EMP=col B)
+    // ── STEP 2: Detect day-1 column robustly ──────────────────────────────────
+    // Strategy: scan the header row (row 1) for cells "1","2","3" appearing
+    // consecutively — the column of "1" is definitively dayStartColIndex.
+    // This works regardless of how many non-day columns precede the days.
+    let dayStartColIndex = empColIndex + 3; // fallback
     const headerRow = sheet.getRow(1);
-    for (let c = empColIndex + 1; c <= Math.min(sheet.columnCount, empColIndex + 10); c++) {
-      const val = headerRow.getCell(c).text?.toString().trim();
-      if (val === '1') {
+    for (let c = empColIndex + 1; c <= sheet.columnCount; c++) {
+      const v1 = headerRow.getCell(c).text?.toString().trim();
+      const v2 = headerRow.getCell(c + 1).text?.toString().trim();
+      const v3 = headerRow.getCell(c + 2).text?.toString().trim();
+      // Confirm three consecutive cells contain "1","2","3"
+      if (v1 === '1' && v2 === '2' && v3 === '3') {
         dayStartColIndex = c;
         break;
       }
