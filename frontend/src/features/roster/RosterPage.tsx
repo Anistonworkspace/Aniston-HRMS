@@ -491,7 +491,7 @@ function ShiftsPanel() {
               {/* Timing row */}
               <div className="flex gap-3 text-xs text-gray-500 flex-wrap mb-3">
                 <span className="flex items-center gap-1"><Clock size={10} /> {s.startTime} — {s.endTime}</span>
-                <span>Grace: <strong>{s.graceMinutes}min</strong></span>
+                <span>Grace: <strong>{s.lateGraceMinutes ?? s.graceMinutes ?? 15}min</strong></span>
                 <span>Full day: <strong>{Number(s.fullDayHours)}h</strong></span>
                 <span>Half day: <strong>{Number(s.halfDayHours)}h</strong></span>
                 {s.trackingIntervalMinutes && <span>GPS: every <strong>{s.trackingIntervalMinutes >= 60 ? `${s.trackingIntervalMinutes / 60}h` : `${s.trackingIntervalMinutes}min`}</strong></span>}

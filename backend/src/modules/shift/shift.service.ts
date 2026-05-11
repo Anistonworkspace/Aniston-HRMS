@@ -40,9 +40,21 @@ export class ShiftService {
     // Always ensure the two default shifts (General + Live Tracking) exist
     await this.ensureDefaultShifts(organizationId);
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     return prisma.shift.findMany({
       where: { organizationId, isActive: true },
-      include: { _count: { select: { assignments: true } } },
+      include: {
+        _count: {
+          select: {
+            assignments: {
+              where: {
+                OR: [{ endDate: null }, { endDate: { gte: today } }],
+              },
+            },
+          },
+        },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
