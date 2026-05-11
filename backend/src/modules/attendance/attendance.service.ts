@@ -3967,14 +3967,18 @@ export class AttendanceService {
 
       for (let day = 1; day <= daysInMonth; day++) {
         const colIndex = dayStartColIndex - 1 + day; // day 1 = dayStartColIndex
-        const raw = row.getCell(colIndex).text?.toString().trim().toUpperCase();
-        if (!raw || raw === '' || raw === '~' || raw === '-' || raw === '--') continue;
+        const cell = row.getCell(colIndex);
+        // Use .text first; fall back to .value for rich-text / formula cells
+        const raw = (cell.text?.toString().trim() || cell.value?.toString().trim() || '').toUpperCase();
 
         let status: string;
         let leaveTypeId: string | null = null;
         let leaveDays = 0;
 
-        if (raw === 'P') {
+        if (!raw || raw === '~' || raw === '-' || raw === '--') {
+          // Blank cell = employee was present (HR only fills leave/absent codes explicitly)
+          status = 'PRESENT';
+        } else if (raw === 'P') {
           status = 'PRESENT';
         } else if (raw === 'A') {
           status = 'ABSENT';
