@@ -57,7 +57,10 @@ export class AttendanceService {
   async clockIn(employeeId: string, data: ClockInInput, organizationId: string) {
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
-      include: { officeLocation: { include: { geofence: true } } },
+      include: {
+        officeLocation: { include: { geofence: true } },
+        approvedHomeGeofence: true,
+      },
     });
     if (!employee) throw new NotFoundError('Employee');
     if (employee.status === 'INACTIVE' || employee.status === 'TERMINATED') {
@@ -314,6 +317,25 @@ export class AttendanceService {
         );
       } else {
         geofenceStatus = 'INSIDE';
+      }
+    }
+
+    // ===== WFH HOME GEOFENCE ENFORCEMENT =====
+    // If employee is on a WFH day AND has an approved home geofence, they must be within it.
+    // This prevents WFH abuse — employee must actually be at their registered home location.
+    if (effectiveWfh && (employee as any).approvedHomeGeofence && data.latitude != null && data.longitude != null) {
+      const homeGeofence = (employee as any).approvedHomeGeofence;
+      if (homeGeofence?.radiusMeters && homeGeofence?.coordinates) {
+        const coords = homeGeofence.coordinates as any;
+        if (coords?.lat && coords?.lng) {
+          const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+          if (distance > homeGeofence.radiusMeters) {
+            throw new BadRequestError(
+              `You are ${Math.round(distance)}m away from your approved home location. ` +
+              `Maximum allowed: ${homeGeofence.radiusMeters}m. Please mark attendance from your registered home address.`
+            );
+          }
+        }
       }
     }
 
@@ -606,6 +628,27 @@ export class AttendanceService {
         }
       }
     }
+    // ===== WFH HOME GEOFENCE ENFORCEMENT (clock-out) =====
+    if (isWfhShiftCheckout && data.latitude != null && data.longitude != null) {
+      const empWithHome = await prisma.employee.findFirst({
+        where: { id: employeeId },
+        include: { approvedHomeGeofence: true },
+      });
+      const homeGeofence = (empWithHome as any)?.approvedHomeGeofence;
+      if (homeGeofence?.radiusMeters && homeGeofence?.coordinates) {
+        const coords = homeGeofence.coordinates as any;
+        if (coords?.lat && coords?.lng) {
+          const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+          if (distance > homeGeofence.radiusMeters) {
+            throw new BadRequestError(
+              `You are ${Math.round(distance)}m away from your approved home location. ` +
+              `Maximum allowed: ${homeGeofence.radiusMeters}m. Please clock out from your registered home address.`
+            );
+          }
+        }
+      }
+    }
+
     const now = new Date();
 
     // ===== MINIMUM CHECKOUT TIME ENFORCEMENT =====
@@ -2542,7 +2585,7 @@ export class AttendanceService {
       const regularization = await prisma.attendanceRegularization.findFirst({
         where: {
           employeeId: data.employeeId,
-          status: { in: ['PENDING', 'MANAGER_APPROVED'] },
+          status: { in: ['PENDING', 'MANAGER_REVIEWED'] },
           attendance: { date },
         },
       });
@@ -3570,7 +3613,7 @@ export class AttendanceService {
     // For today: enrich with live GPS status from Redis
     const todayStr = new Date().toISOString().slice(0, 10);
     let gpsLiveStatus: {
-      gpsStatus: 'ACTIVE' | 'HEARTBEAT_MISSED' | 'STOPPED' | 'UNKNOWN';
+      gpsStatus: 'ACTIVE' | 'RECENTLY_MISSED' | 'HEARTBEAT_MISSED' | 'STOPPED' | 'UNKNOWN';
       lastHeartbeatAt: string | null;
       lastGpsPointAt: string | null;
       lastLatitude: number | null;
@@ -3979,7 +4022,14 @@ export class AttendanceService {
         const colIndex = dayStartColIndex - 1 + day; // day 1 = dayStartColIndex
         const cell = row.getCell(colIndex);
         // Use .text first; fall back to .value for rich-text / formula cells
-        const raw = (cell.text?.toString().trim() || cell.value?.toString().trim() || '').toUpperCase();
+        const cellText = cell.text?.toString().trim() || '';
+        const cellValue = cell.value;
+        const cellValueStr = typeof cellValue === 'object' && cellValue !== null && 'richText' in (cellValue as any)
+          ? (cellValue as any).richText.map((r: any) => r.text).join('')
+          : cellValue?.toString().trim() || '';
+        const raw = (cellText || cellValueStr || '').toUpperCase();
+        // Debug: log non-empty non-P cells so we can see exact values
+        if (raw && raw !== 'P' && day <= 5) logger.info(`[Import-debug] emp=${empCode} day=${day} col=${colIndex} text=${JSON.stringify(cell.text)} value=${JSON.stringify(cellValue)} raw=${raw}`);
 
         let status: string;
         let leaveTypeId: string | null = null;
