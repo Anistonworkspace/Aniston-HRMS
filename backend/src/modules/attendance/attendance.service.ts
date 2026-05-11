@@ -2094,10 +2094,21 @@ export class AttendanceService {
       throw new BadRequestError('Cannot submit regularization for future dates.');
     }
 
-    const existing = await prisma.attendanceRegularization.findUnique({
-      where: { attendanceId },
+    const existing = await prisma.attendanceRegularization.findFirst({
+      where: { attendanceId, status: { in: ['PENDING', 'APPROVED'] } },
     });
-    if (existing) throw new BadRequestError('Regularization already submitted for this date.');
+    if (existing) {
+      throw new BadRequestError(
+        existing.status === 'APPROVED'
+          ? 'This date has already been approved — no further regularization needed.'
+          : 'A regularization request is already pending for this date.'
+      );
+    }
+
+    // If a previous REJECTED request exists for this record, remove it so the unique constraint allows a fresh submission
+    await prisma.attendanceRegularization.deleteMany({
+      where: { attendanceId, status: 'REJECTED' },
+    });
 
     const reg = await prisma.attendanceRegularization.create({
       data: {

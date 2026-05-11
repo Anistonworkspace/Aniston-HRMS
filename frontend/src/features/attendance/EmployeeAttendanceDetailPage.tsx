@@ -1413,7 +1413,7 @@ export default function EmployeeAttendanceDetailPage() {
                           }).unwrap();
                           toast.success('Regularization request submitted');
                           setShowRegularizeModal(false);
-                        } catch { toast.error('Failed to submit regularization'); }
+                        } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to submit regularization'); }
                       }}
                       className="flex-1 px-3 py-2 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
                       <CheckCircle size={11} /> Submit Request
