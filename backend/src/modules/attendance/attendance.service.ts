@@ -463,7 +463,12 @@ export class AttendanceService {
           date: today,
           checkIn: now,
           status: autoHalfDay ? 'HALF_DAY' : (effectiveWfh ? 'WORK_FROM_HOME' : 'PRESENT'),
-          workMode: (currentShiftType === 'FIELD' ? 'FIELD_SALES' : currentShiftType === 'OFFICE' ? 'OFFICE' : employee.workMode) as any,
+          workMode: (
+            currentShiftType === 'FIELD'  ? 'FIELD_SALES' :
+            currentShiftType === 'OFFICE' ? 'OFFICE' :
+            currentShiftType === 'HYBRID' ? (effectiveWfh ? 'HYBRID' : 'OFFICE') :
+            employee.workMode
+          ) as any,
           source: data.source || 'MANUAL_APP',
           checkInLocation: locationData as any,
           notes: data.notes,
@@ -831,11 +836,20 @@ export class AttendanceService {
     const fullDayHours = shift ? Number(shift.fullDayHours) : Number(clockOutPolicy?.fullDayMinHours || 8);
     const halfDayHours = shift ? Number(shift.halfDayHours) : Number(clockOutPolicy?.halfDayMinHours || 4);
 
-    // Determine status based on shift/policy hours.
-    // If clocked in late enough to trigger auto-HALF_DAY, but worked full hours by checkout,
-    // upgrade back to PRESENT so employees who arrive late but stay late aren't penalised.
+    // Determine status based on shift/policy hours AND approved leave.
+    // Only mark HALF_DAY when employee has an approved half-day leave — never auto-derive
+    // HALF_DAY solely from hours worked (prevents employees gaming early checkout without leave approval).
+    const approvedHalfDayLeave = await prisma.leaveRequest.findFirst({
+      where: {
+        employeeId,
+        isHalfDay: true,
+        status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] },
+        startDate: { lte: recordDate },
+        endDate: { gte: recordDate },
+      },
+    });
     let status: 'PRESENT' | 'HALF_DAY' = 'PRESENT';
-    if (totalHours < halfDayHours) {
+    if (totalHours < halfDayHours && approvedHalfDayLeave) {
       status = 'HALF_DAY';
     }
     // Upgrade: if existing record is HALF_DAY but total hours now meets full-day threshold, promote to PRESENT.
@@ -1577,19 +1591,26 @@ export class AttendanceService {
           where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
           take: 1,
           include: { shift: { select: { shiftType: true, trackingIntervalMinutes: true } } },
-          orderBy: { startDate: 'desc' },
+          orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
         },
       },
     });
     const empWorkMode = gpsEmployee?.workMode;
     const empShiftType = gpsEmployee?.shiftAssignments?.[0]?.shift?.shiftType;
-    if (empWorkMode !== 'FIELD_SALES' && empShiftType !== 'FIELD') {
-      throw new BadRequestError('GPS tracking is only available for field sales employees');
+    const isFieldEligible = empWorkMode === 'FIELD_SALES' || empShiftType === 'FIELD';
+    if (!isFieldEligible) {
+      throw new BadRequestError(
+        `GPS tracking requires a FIELD shift assignment or FIELD_SALES work mode. ` +
+        `Current: workMode=${empWorkMode ?? 'none'}, shiftType=${empShiftType ?? 'none'}`
+      );
     }
 
-    // Consent check — employee must have acknowledged the GPS tracking consent
+    // Consent check — employee must have acknowledged the GPS tracking consent.
+    // Returns a structured code so native service and React frontend can show the consent dialog.
     if (!gpsEmployee?.locationTrackingConsented) {
-      throw new BadRequestError('GPS tracking consent is required before submitting location data. Please accept the consent in the app.');
+      const err = new BadRequestError('GPS tracking consent is required. Please accept the location tracking consent in the app.');
+      (err as any).code = 'GPS_CONSENT_REQUIRED';
+      throw err;
     }
 
     const orgId = gpsEmployee?.organizationId || '';

@@ -3063,11 +3063,16 @@ function PolicySettingsTab() {
   const { data: policiesData, isLoading, refetch } = useGetLeavePoliciesQuery();
   const [updatePolicy] = useUpdateLeavePolicyMutation();
   const [recalculate] = useRecalculatePolicyAllocationsMutation();
-  const { data: leaveTypesData } = useGetLeaveTypesQuery();
+  const { data: leaveTypesData, refetch: refetchLeaveTypes } = useGetLeaveTypesQuery();
+  const [updateLeaveType] = useUpdateLeaveTypeMutation();
 
   const policies: any[] = policiesData?.data ?? [];
   const allLeaveTypes: any[] = leaveTypesData?.data ?? [];
   const policy = policies.find((p: any) => p.isDefault) ?? policies[0];
+
+  // Per-leave-type rules state: { [leaveTypeId]: { noticeDays, allowSameDay } }
+  const [leaveRules, setLeaveRules] = useState<Record<string, { noticeDays: number; allowSameDay: boolean }>>({});
+  const [savingLeaveRule, setSavingLeaveRule] = useState<string | null>(null);
 
   // Leave types grouped by audience
   const NEW_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
@@ -3126,6 +3131,31 @@ function PolicySettingsTab() {
     if (policy && allLeaveTypes.length) deriveConfig();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [policy?.id, policy?.updatedAt, allLeaveTypes.length]);
+
+  // Sync per-leave rules from loaded leave types
+  useEffect(() => {
+    if (!allLeaveTypes.length) return;
+    const rules: Record<string, { noticeDays: number; allowSameDay: boolean }> = {};
+    allLeaveTypes.forEach((lt: any) => {
+      rules[lt.id] = { noticeDays: lt.noticeDays ?? 0, allowSameDay: lt.allowSameDay ?? false };
+    });
+    setLeaveRules(rules);
+  }, [allLeaveTypes.length]);
+
+  const handleSaveLeaveRule = async (lt: any) => {
+    const rule = leaveRules[lt.id];
+    if (!rule) return;
+    setSavingLeaveRule(lt.id);
+    try {
+      await updateLeaveType({ id: lt.id, data: { noticeDays: rule.noticeDays, allowSameDay: rule.allowSameDay } }).unwrap();
+      toast.success(`${lt.name} rules saved`);
+      refetchLeaveTypes();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to save');
+    } finally {
+      setSavingLeaveRule(null);
+    }
+  };
 
   const handleSave = async () => {
     if (!policy) return;
@@ -3361,6 +3391,66 @@ function PolicySettingsTab() {
           </p>
         </div>
       </div>
+
+      {/* Per-leave-type application rules */}
+      {allLeaveTypes.length > 0 && (
+        <div className="layer-card p-5 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">Application Rules per Leave Type</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">Configure notice period and same-day rules for each leave type</p>
+          </div>
+          <div className="space-y-2">
+            {allLeaveTypes.map((lt: any) => {
+              const rule = leaveRules[lt.id] ?? { noticeDays: lt.noticeDays ?? 0, allowSameDay: lt.allowSameDay ?? false };
+              const isDirty = rule.noticeDays !== (lt.noticeDays ?? 0) || rule.allowSameDay !== (lt.allowSameDay ?? false);
+              return (
+                <div key={lt.id} className="flex flex-wrap items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+                  <div className="flex-1 min-w-[120px]">
+                    <p className="text-sm font-medium text-gray-700">{lt.name}</p>
+                    <span className="text-[10px] font-mono bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded">{lt.code}</span>
+                    {lt.isPaid
+                      ? <span className="ml-1 text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">Paid</span>
+                      : <span className="ml-1 text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">Unpaid</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500 whitespace-nowrap">Notice Days</label>
+                    <input
+                      type="number" min={0} max={30}
+                      value={rule.noticeDays}
+                      onChange={(e) => setLeaveRules((r) => ({ ...r, [lt.id]: { ...rule, noticeDays: Number(e.target.value) } }))}
+                      className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-300"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500 whitespace-nowrap">Same-day</label>
+                    <button
+                      type="button"
+                      onClick={() => setLeaveRules((r) => ({ ...r, [lt.id]: { ...rule, allowSameDay: !rule.allowSameDay } }))}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${rule.allowSameDay ? 'bg-brand-600' : 'bg-gray-300'}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${rule.allowSameDay ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  {isDirty && (
+                    <button
+                      onClick={() => handleSaveLeaveRule(lt)}
+                      disabled={savingLeaveRule === lt.id}
+                      className="flex items-center gap-1 text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                    >
+                      {savingLeaveRule === lt.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                      Save
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-gray-400">
+            <strong>Notice Days = 0</strong> means employees can apply on the same day or last minute.
+            Enable <strong>Same-day</strong> for emergency leave types (SL, EL). Disable for planned leave (PL, CL).
+          </p>
+        </div>
+      )}
 
       {/* Notice Period info */}
       <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded-xl p-3 border border-amber-100">

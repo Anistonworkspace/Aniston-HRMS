@@ -264,9 +264,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                   >
                     <option value="">Select leave type...</option>
                     {leaveTypes
-                      .filter((lt: any) => !lt.isPaid || balances.some((b: any) => b.leaveType?.id === lt.id))
+                      .filter((lt: any) => !lt.isPaid || balances.some((b: any) => (b.leaveType?.id ?? b.leaveTypeId) === lt.id))
                       .map((lt: any) => {
-                        const bal = balances.find((b: any) => b.leaveType?.id === lt.id);
+                        const bal = balances.find((b: any) => (b.leaveType?.id ?? b.leaveTypeId) === lt.id);
                         return (
                           <option key={lt.id} value={lt.id}>
                             {LEAVE_ICONS[lt.code] || '📋'} {lt.name}{bal ? ` — ${bal.remaining} days left` : lt.isPaid ? '' : ' — Unpaid (no limit)'}
