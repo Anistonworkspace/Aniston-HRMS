@@ -9,4 +9,6 @@ async function main() {
 
 main()
   .catch((e) => console.log('Holiday cleanup skipped:', e.message))
-  .finally(() => prisma.$disconnect());
+  .finally(() => prisma.$disconnect())
+  .then(() => process.exit(0))
+  .catch(() => process.exit(0));
