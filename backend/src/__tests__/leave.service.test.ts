@@ -413,7 +413,7 @@ describe('LeaveService', () => {
           leaveRequest: {
             update: vi.fn().mockResolvedValue(updatedRequest),
           },
-          leaveBalance: { findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() },
+          leaveBalance: { findUnique: vi.fn().mockResolvedValue(null), update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
           holiday: { findMany: vi.fn().mockResolvedValue([]) },
           attendanceRecord: { upsert: vi.fn() },
           user: { findUnique: vi.fn().mockResolvedValue({ role: 'MANAGER' }) },
@@ -463,7 +463,7 @@ describe('LeaveService', () => {
           leaveRequest: {
             update: vi.fn().mockRejectedValue(p2025Error),
           },
-          leaveBalance: { findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() },
+          leaveBalance: { findUnique: vi.fn().mockResolvedValue(null), update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
           holiday: { findMany: vi.fn().mockResolvedValue([]) },
           user: { findUnique: vi.fn().mockResolvedValue({ role: 'HR' }) },
           leaveApprovalDecision: { create: vi.fn() },
@@ -480,13 +480,13 @@ describe('LeaveService', () => {
   // ── handleLeaveAction — balance deduction atomicity ───────────────────────
 
   describe('handleLeaveAction — balance deduction atomicity', () => {
-    it('calls leaveBalance.update with used increment on APPROVED', async () => {
+    it('calls leaveBalance.updateMany with used increment on APPROVED', async () => {
       vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValueOnce(
         makeLeaveRequest({ status: 'PENDING' }) as any
       );
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({ role: 'HR' } as any);
 
-      const balanceUpdateMock = vi.fn().mockResolvedValue({});
+      const balanceUpdateManyMock = vi.fn().mockResolvedValue({ count: 1 });
       const leaveBalanceFindUnique = vi.fn().mockResolvedValue(makeBalance({ pending: 2 }));
 
       vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
@@ -494,7 +494,7 @@ describe('LeaveService', () => {
           leaveRequest: {
             update: vi.fn().mockResolvedValue(makeLeaveRequest({ status: 'APPROVED' })),
           },
-          leaveBalance: { findUnique: leaveBalanceFindUnique, update: balanceUpdateMock },
+          leaveBalance: { findUnique: leaveBalanceFindUnique, update: vi.fn(), updateMany: balanceUpdateManyMock },
           holiday: { findMany: vi.fn().mockResolvedValue([]) },
           attendanceRecord: { upsert: vi.fn().mockResolvedValue({}) },
           user: { findUnique: vi.fn().mockResolvedValue({ role: 'HR' }) },
@@ -505,7 +505,7 @@ describe('LeaveService', () => {
 
       await service.handleLeaveAction('req-001', 'APPROVED', 'hr-001', 'OK', ORG_ID);
 
-      expect(balanceUpdateMock).toHaveBeenCalledWith(
+      expect(balanceUpdateManyMock).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             used: expect.objectContaining({ increment: 2 }),
@@ -528,7 +528,7 @@ describe('LeaveService', () => {
           leaveRequest: {
             update: vi.fn().mockResolvedValue(makeLeaveRequest({ status: 'REJECTED' })),
           },
-          leaveBalance: { findUnique: leaveBalanceFindUnique, update: balanceUpdateMock },
+          leaveBalance: { findUnique: leaveBalanceFindUnique, update: balanceUpdateMock, updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
           holiday: { findMany: vi.fn().mockResolvedValue([]) },
           attendanceRecord: { deleteMany: vi.fn().mockResolvedValue({}) },
           user: { findUnique: vi.fn().mockResolvedValue({ role: 'HR' }) },
