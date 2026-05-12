@@ -34,6 +34,13 @@ export class AgentService {
     const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
     const today = getOrgToday(org?.timezone ?? 'Asia/Kolkata');
 
+    // Auto-restore agentPairedAt if null — agent has a valid JWT so it was previously paired.
+    // This handles the case where agentPairedAt was lost in a DB crash/restore.
+    await prisma.employee.updateMany({
+      where: { id: employeeId, agentPairedAt: null },
+      data: { agentPairedAt: new Date() },
+    });
+
     const records = activities.map(a => ({
       employeeId,
       organizationId,

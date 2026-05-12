@@ -6,9 +6,9 @@ export const activityEntrySchema = z.object({
   activeWindow: z.string().max(500).optional(),
   activeUrl: z.string().max(2000).optional(),
   category: z.enum(['PRODUCTIVE', 'NEUTRAL', 'UNPRODUCTIVE']).optional(),
-  // Cap individual entry at 1hr to reject obviously corrupt data
-  durationSeconds: z.number().int().min(0).max(3600).default(0),
-  idleSeconds: z.number().int().min(0).max(3600).default(0),
+  // Cap at 24h — idle/duration can exceed 1h when PC is left on overnight
+  durationSeconds: z.number().int().min(0).max(86400).default(0),
+  idleSeconds: z.number().int().min(0).max(86400).default(0),
   keystrokes: z.number().int().min(0).default(0),
   mouseClicks: z.number().int().min(0).default(0),
   mouseDistance: z.number().int().min(0).default(0),
