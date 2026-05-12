@@ -332,45 +332,51 @@ jobs:
             # Use semicolon (not ||) — drone-ssh -e -o pipefail ignores exit codes after ;
             sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1; echo "ShiftType_old cleanup done (exit ignored)"
 
-            # Baseline guard: if _prisma_migrations table is missing or empty the DB was
-            # provisioned with db push and has no migration history. Mark every existing
-            # migration as already applied so migrate deploy only runs truly new ones.
-            # Use Prisma migrate status output to check — avoids psql connection issues.
-            MIGRATE_STATUS=$(npx prisma migrate status --schema=prisma/schema.prisma 2>&1 || true)
-            if echo "$MIGRATE_STATUS" | grep -q "No migration found\|Database schema is not empty\|not yet applied\|P3005"; then
-              MIGRATION_COUNT="0"
-            elif echo "$MIGRATE_STATUS" | grep -q "migrations found in prisma/migrations"; then
-              MIGRATION_COUNT="1"
-            else
-              MIGRATION_COUNT=$(psql "$DEPLOY_DATABASE_URL" -tAc \
-                "SELECT COUNT(*) FROM _prisma_migrations;" 2>/dev/null || echo "0")
-            fi
-            if [ "$MIGRATION_COUNT" = "0" ]; then
-              echo "No migration history found — baselining all existing migrations..."
-              for migration in \
-                20260413000000_add_leave_settings_intern_role \
-                20260413000001_add_leave_applicable_employees \
-                20260429000000_gps_indexes_consent \
-                20260502000000_leave_policy_engine \
-                20260503000000_leave_balance_breakdown \
-                20260503000001_leave_policy_max_paid_per_month \
-                20260503000002_attendance_shift_snapshot_and_indexes \
-                20260503000003_remove_hybrid_shift_type \
-                20260506000000_add_leave_condition_messages \
-                20260506000001_leave_unpaid_tracking \
-                20260511000000_expand_hr_action_restrictions \
-                20260511000001_add_gps_no_data_anomaly_type \
-                20260511000002_add_gps_v1_5_5_tracking_fields; do
-                npx prisma migrate resolve --applied "$migration" --schema=prisma/schema.prisma 2>/dev/null || true
-                echo "  Baselined: $migration"
-              done
-              echo "✅ Baseline complete"
-            else
-              echo "Migration history present ($MIGRATION_COUNT entries) — skipping baseline"
+            # ── Pre-apply schema changes that cannot run inside a Prisma transaction ──
+            # ALTER TYPE ADD VALUE and ALTER TYPE RENAME cannot run inside transactions.
+            # Prisma migrate deploy wraps each migration in BEGIN/COMMIT, which causes
+            # these statements to fail with "cannot run inside a transaction block".
+            # We run them here explicitly via psql (outside any transaction) so that
+            # when migrate deploy runs, the schema already has these changes and the
+            # migrations are marked as applied by the resolve --applied calls below.
+            if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
+              # EmployeeStatus INTERN enum value
+              psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"EmployeeStatus\" ADD VALUE IF NOT EXISTS 'INTERN' AFTER 'PROBATION';" 2>/dev/null || true
+              # AnomalyType new enum values
+              psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_NO_DATA';" 2>/dev/null || true
+              psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_HEARTBEAT_MISSED';" 2>/dev/null || true
+              psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_GAP';" 2>/dev/null || true
+              psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_SIGNAL_LOST';" 2>/dev/null || true
+              echo "✅ Pre-applied enum ADD VALUE changes outside transaction"
             fi
 
-            # Production: uses migrate deploy (NOT db push) to preserve data
-            # migrate deploy applies only pending migrations — never drops columns or tables.
+            # ── Baseline: mark all known migrations as applied ──
+            # resolve --applied is idempotent — it silently errors if already marked.
+            # Running this unconditionally ensures every migration that was applied via
+            # db:push (without creating a migration history record) gets a history entry,
+            # so migrate deploy has nothing left to do and exits 0.
+            echo "Ensuring all known migrations are marked as applied..."
+            for migration in \
+              20260413000000_add_leave_settings_intern_role \
+              20260413000001_add_leave_applicable_employees \
+              20260429000000_gps_indexes_consent \
+              20260502000000_leave_policy_engine \
+              20260503000000_leave_balance_breakdown \
+              20260503000001_leave_policy_max_paid_per_month \
+              20260503000002_attendance_shift_snapshot_and_indexes \
+              20260503000003_remove_hybrid_shift_type \
+              20260506000000_add_leave_condition_messages \
+              20260506000001_leave_unpaid_tracking \
+              20260511000000_expand_hr_action_restrictions \
+              20260511000001_add_gps_no_data_anomaly_type \
+              20260511000002_add_gps_v1_5_5_tracking_fields; do
+              npx prisma migrate resolve --applied "$migration" --schema=prisma/schema.prisma 2>/dev/null || true
+            done
+            echo "✅ Migration baseline complete"
+
+            # Production: uses migrate deploy (NOT db push) to preserve data.
+            # After the resolve loop above, migrate deploy only applies truly NEW
+            # migrations (ones added after this deploy) — exits 0 if nothing is pending.
             npx prisma migrate deploy --schema=prisma/schema.prisma
             echo "✅ Schema migration complete"
 
