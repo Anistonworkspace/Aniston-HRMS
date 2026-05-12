@@ -332,8 +332,16 @@ jobs:
             # Baseline guard: if _prisma_migrations table is missing or empty the DB was
             # provisioned with db push and has no migration history. Mark every existing
             # migration as already applied so migrate deploy only runs truly new ones.
-            MIGRATION_COUNT=$(psql "$DEPLOY_DATABASE_URL" -tAc \
-              "SELECT COUNT(*) FROM _prisma_migrations;" 2>/dev/null || echo "0")
+            # Use Prisma migrate status output to check — avoids psql connection issues.
+            MIGRATE_STATUS=$(npx prisma migrate status --schema=prisma/schema.prisma 2>&1 || true)
+            if echo "$MIGRATE_STATUS" | grep -q "No migration found\|Database schema is not empty\|not yet applied\|P3005"; then
+              MIGRATION_COUNT="0"
+            elif echo "$MIGRATE_STATUS" | grep -q "migrations found in prisma/migrations"; then
+              MIGRATION_COUNT="1"
+            else
+              MIGRATION_COUNT=$(psql "$DEPLOY_DATABASE_URL" -tAc \
+                "SELECT COUNT(*) FROM _prisma_migrations;" 2>/dev/null || echo "0")
+            fi
             if [ "$MIGRATION_COUNT" = "0" ]; then
               echo "No migration history found — baselining all existing migrations..."
               for migration in \
