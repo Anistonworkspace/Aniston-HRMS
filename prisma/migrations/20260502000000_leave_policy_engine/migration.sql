@@ -44,25 +44,33 @@ CREATE INDEX IF NOT EXISTS "LeaveAllocationLog_employeeId_year_idx"
 CREATE INDEX IF NOT EXISTS "LeaveAllocationLog_organizationId_idx"
   ON "LeaveAllocationLog"("organizationId");
 
-ALTER TABLE "LeaveAllocationLog"
-  ADD CONSTRAINT "LeaveAllocationLog_employeeId_fkey"
-  FOREIGN KEY ("employeeId") REFERENCES "Employee"("id")
-  ON DELETE RESTRICT ON UPDATE CASCADE;
-
-ALTER TABLE "LeaveAllocationLog"
-  ADD CONSTRAINT "LeaveAllocationLog_leaveTypeId_fkey"
-  FOREIGN KEY ("leaveTypeId") REFERENCES "LeaveType"("id")
-  ON DELETE RESTRICT ON UPDATE CASCADE;
-
-ALTER TABLE "LeaveAllocationLog"
-  ADD CONSTRAINT "LeaveAllocationLog_organizationId_fkey"
-  FOREIGN KEY ("organizationId") REFERENCES "Organization"("id")
-  ON DELETE RESTRICT ON UPDATE CASCADE;
-
-ALTER TABLE "LeaveAllocationLog"
-  ADD CONSTRAINT "LeaveAllocationLog_policyId_fkey"
-  FOREIGN KEY ("policyId") REFERENCES "LeavePolicy"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'LeaveAllocationLog_employeeId_fkey') THEN
+    ALTER TABLE "LeaveAllocationLog"
+      ADD CONSTRAINT "LeaveAllocationLog_employeeId_fkey"
+      FOREIGN KEY ("employeeId") REFERENCES "Employee"("id")
+      ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'LeaveAllocationLog_leaveTypeId_fkey') THEN
+    ALTER TABLE "LeaveAllocationLog"
+      ADD CONSTRAINT "LeaveAllocationLog_leaveTypeId_fkey"
+      FOREIGN KEY ("leaveTypeId") REFERENCES "LeaveType"("id")
+      ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'LeaveAllocationLog_organizationId_fkey') THEN
+    ALTER TABLE "LeaveAllocationLog"
+      ADD CONSTRAINT "LeaveAllocationLog_organizationId_fkey"
+      FOREIGN KEY ("organizationId") REFERENCES "Organization"("id")
+      ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'LeaveAllocationLog_policyId_fkey') THEN
+    ALTER TABLE "LeaveAllocationLog"
+      ADD CONSTRAINT "LeaveAllocationLog_policyId_fkey"
+      FOREIGN KEY ("policyId") REFERENCES "LeavePolicy"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 -- 4. Safe data migration: deactivate duplicate probation leave types
 --    and point their historical requests to the canonical type.
