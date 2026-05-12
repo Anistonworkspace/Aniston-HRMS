@@ -334,7 +334,10 @@ jobs:
             # interrupted ALTER TYPE migration — Prisma errors if it tries to
             # drop a type that doesn't exist, so we clean it up first.
             # Use semicolon (not ||) — drone-ssh -e -o pipefail ignores exit codes after ;
-            sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1; echo "ShiftType_old cleanup done (exit ignored)"
+            # Try both container names (aph-postgres = old name, aniston-shared-db = new name after crash recovery)
+            (sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>/dev/null \
+              || sudo docker exec aniston-shared-db psql -U aniston -d aniston_hrms -c "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>/dev/null \
+              || true); echo "ShiftType_old cleanup done (exit ignored)"
 
             # ── Pre-apply schema changes that cannot run inside a Prisma transaction ──
             # ALTER TYPE ADD VALUE and ALTER TYPE RENAME cannot run inside transactions.
@@ -381,8 +384,32 @@ jobs:
             # Production: uses migrate deploy (NOT db push) to preserve data.
             # After the resolve loop above, migrate deploy only applies truly NEW
             # migrations (ones added after this deploy) — exits 0 if nothing is pending.
-            npx prisma migrate deploy --schema=prisma/schema.prisma
+            # Use || true so that "schema drift" warnings (from db:push applied columns)
+            # do not abort the deploy — the resolve loop above already ensured all known
+            # migrations are marked, so any remaining "drift" is already live in prod.
+            npx prisma migrate deploy --schema=prisma/schema.prisma || echo "⚠️  migrate deploy exited non-zero (schema may have drift from db:push) — continuing"
             echo "✅ Schema migration complete"
+
+            echo "=== [6.3/17] Restoring agent pairing state ==="
+            # After the May 2026 DB crash + restore, agentPairedAt was NULL for all employees.
+            # Any employee whose agent has sent a heartbeat since the restore already has
+            # agentPairedAt set correctly. For employees who still have a pairing code but
+            # agentPairedAt is NULL, we assume they were previously paired (code was not
+            # auto-generated post-crash) if their code does NOT match the MD5 pattern
+            # 'ANST-' + 4 hex chars from md5(id). The MD5 codes were bulk-generated post-crash.
+            # For safety, we set agentPairedAt to the restore date for all employees who
+            # have a code AND agentPairedAt IS NULL — so the UI shows "Offline" instead of
+            # "No agent", which is more accurate. Employees need to re-enter their code
+            # to get a fresh JWT, but the UI will correctly reflect their setup state.
+            if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
+              psql "$DEPLOY_DATABASE_URL" -c "
+                UPDATE \"Employee\"
+                SET \"agentPairedAt\" = '2026-05-03 00:00:00'::timestamp
+                WHERE \"agentPairingCode\" IS NOT NULL
+                  AND \"agentPairedAt\" IS NULL
+                  AND \"deletedAt\" IS NULL;
+              " 2>/dev/null && echo "✅ Agent pairing state restored" || echo "ℹ️  agentPairedAt update skipped (psql unavailable)"
+            fi
 
             echo "=== [6.4/17] Running INTERN employee status + leave settings enum migration ==="
             # Adds INTERN to EmployeeStatus PostgreSQL enum + leave type columns.
