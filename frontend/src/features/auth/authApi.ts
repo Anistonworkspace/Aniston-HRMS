@@ -1,18 +1,19 @@
 import { Capacitor } from '@capacitor/core';
 import { api } from '../../app/api';
 import type { ApiResponse, LoginRequest, LoginResponse, AuthUser } from '@aniston/shared';
+import { secureStorage } from '../../lib/secureStorage';
 
 // Helpers to persist the refresh token for native Capacitor builds.
 // On Android/iOS, httpOnly cookies can't be sent cross-origin (capacitor://localhost →
-// hr.anistonav.com), so we keep a copy in localStorage and send it in the request body.
-const NATIVE_TOKEN_KEY = 'nativeRefreshToken';
+// hr.anistonav.com), so we keep a copy in sessionStorage (via secureStorage) and
+// send it in the request body.
 function saveNativeToken(data: any) {
   if (!Capacitor.isNativePlatform()) return;
   const token = data?.data?.refreshToken;
-  if (token) localStorage.setItem(NATIVE_TOKEN_KEY, token);
+  if (token) secureStorage.setRefreshToken(token);
 }
 function clearNativeToken() {
-  if (Capacitor.isNativePlatform()) localStorage.removeItem(NATIVE_TOKEN_KEY);
+  secureStorage.removeRefreshToken();
 }
 
 export const authApi = api.injectEndpoints({

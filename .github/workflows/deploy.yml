@@ -22,9 +22,33 @@ on:
 jobs:
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # JOB 0 — Tag current live version before deploy (enables rollback)
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  pre-deploy-tag:
+    name: Tag Pre-Deploy State
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create pre-deploy tag
+        run: |
+          TAG="pre-deploy-$(date +%Y%m%d-%H%M%S)"
+          git config user.email "ci@anistonav.com"
+          git config user.name "CI Deploy Bot"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "PRE_DEPLOY_TAG=$TAG" >> $GITHUB_ENV
+          echo "Tagged current state as $TAG for rollback"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   # JOB 1 — Windows Desktop Agent (.exe) — always builds on every push
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build-agent:
+    needs: [pre-deploy-tag]
     name: Build Desktop Agent (.exe)
     runs-on: windows-latest
     continue-on-error: true
@@ -302,16 +326,15 @@ jobs:
             # drop a type that doesn't exist, so we clean it up first.
             sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c \
               "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1 || true
-            # Run prisma db push in a subshell so set -e (from script_stop:true)
-            # cannot escape on failure — the ||true at the end guarantees exit 0.
-            # --accept-data-loss: safe here, no rows are dropped (only adding columns/indexes).
-            (npx --no-install prisma db push --accept-data-loss 2>&1) || true
-            echo "✅ Schema sync complete (errors above are non-fatal if schema already matches)"
+            # Production: uses migrate deploy (NOT db push) to preserve data
+            # migrate deploy applies only pending migrations — never drops columns or tables.
+            npx prisma migrate deploy --schema=prisma/schema.prisma
+            echo "✅ Schema migration complete"
 
             echo "=== [6.4/17] Running INTERN employee status + leave settings enum migration ==="
             # Adds INTERN to EmployeeStatus PostgreSQL enum + leave type columns.
             # ALTER TYPE ADD VALUE cannot run inside a transaction — this explicit step ensures
-            # the enum exists in production even if prisma db push skips it due to a prior partial sync.
+            # the enum exists in production even if migrate deploy skips it due to a prior partial sync.
             if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
               psql "$DEPLOY_DATABASE_URL" \
                 -f "prisma/migrations/20260413000000_add_leave_settings_intern_role/migration.sql" \
@@ -349,7 +372,7 @@ jobs:
 
             echo "=== [6.7/17] Running leave policy maxPaidLeavesPerMonth + attendance shift snapshot migrations ==="
             # These are schema-only migrations (all guards use IF NOT EXISTS) and are also
-            # covered by the db push above — running them here ensures idempotent explicit tracking.
+            # covered by migrate deploy above — running them here ensures idempotent explicit tracking.
             if command -v psql &>/dev/null && [ -n "$DEPLOY_DATABASE_URL" ]; then
               psql "$DEPLOY_DATABASE_URL" \
                 -f "prisma/migrations/20260503000001_leave_policy_max_paid_per_month/migration.sql" \
@@ -450,7 +473,11 @@ jobs:
             npx tsx scripts/cleanup-holidays.ts || echo "Holiday cleanup skipped"
 
             echo "=== [10/17] Seeding database ==="
-            npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
+            if [ "$NODE_ENV" = "production" ] && [ "$ALLOW_PROD_SEED" != "true" ]; then
+              echo "Skipping seed in production (set ALLOW_PROD_SEED=true to override)"
+            else
+              npx tsx prisma/seed.ts
+            fi
 
             echo "=== [11/17] Building shared + backend ==="
             npm run build --workspace=shared
@@ -551,3 +578,58 @@ jobs:
             pm2 logs aniston-hrms --nostream --lines 15 2>/dev/null || true
             echo ""
             echo "=== Deploy complete! Bundle v${{ github.run_number }} live. ==="
+
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # JOB 3 — Automatic rollback if build-and-deploy fails
+  #   Restores the previous known-good commit on EC2 and restarts PM2.
+  #   Only runs when the deploy job actually fails (not if it's skipped).
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  rollback-on-failure:
+    name: Rollback on Deploy Failure
+    runs-on: ubuntu-latest
+    needs: [build-and-deploy, pre-deploy-tag]
+    if: failure() && needs.build-and-deploy.result == 'failure'
+
+    steps:
+      - name: Rollback EC2 to previous release
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          timeout: 120s
+          script: |
+            echo "=== ROLLBACK TRIGGERED — deploy job failed ==="
+            cd /home/ubuntu/Aniston-HRMS
+
+            # Find the most recent pre-deploy tag
+            PRE_TAG=$(git tag --list 'pre-deploy-*' --sort=-version:refname | head -1)
+            if [ -z "$PRE_TAG" ]; then
+              echo "ERROR: No pre-deploy tag found — cannot rollback automatically"
+              echo "Manual rollback: git reset --hard HEAD~1 && pm2 restart aniston-hrms"
+              exit 1
+            fi
+
+            echo "Rolling back to tag: $PRE_TAG"
+            git fetch origin --tags
+            git reset --hard "$PRE_TAG"
+
+            echo "Reinstalling dependencies at rolled-back state..."
+            npm ci --workspace=backend 2>/dev/null || npm ci
+            npm run build --workspace=shared 2>/dev/null || true
+            npm run build --workspace=backend 2>/dev/null || true
+
+            echo "Restarting PM2 with rolled-back code..."
+            pm2 restart aniston-hrms --update-env || pm2 reload aniston-hrms
+            pm2 save --force
+
+            sleep 5
+            STATUS=$(curl -sf http://localhost:4000/api/health 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('status','?'))" 2>/dev/null || echo "unknown")
+            echo "Backend status after rollback: $STATUS"
+
+            if [ "$STATUS" = "ok" ]; then
+              echo "✅ ROLLBACK SUCCESSFUL — previous version is live"
+            else
+              echo "⚠️  Rollback completed but health check uncertain — manual verification required"
+            fi

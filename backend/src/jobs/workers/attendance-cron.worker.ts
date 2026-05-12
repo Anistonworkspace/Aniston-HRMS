@@ -28,6 +28,16 @@ function getISTYesterday(): Date {
  */
 async function autoCloseStaleRecords() {
   const today = getISTToday();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // Idempotency lock: prevent duplicate auto-close if cron fires twice within same minute
+  const closeLockKey = `attendance:auto-close:ran:${todayStr}`;
+  const lockAcquired = await redis.set(closeLockKey, '1', 'EX', 3600 * 4, 'NX'); // 4h TTL
+  if (!lockAcquired) {
+    logger.info(`[Attendance Cron] auto-close already ran for ${todayStr} — skipping duplicate run`);
+    return { closed: 0, skippedDuplicate: true };
+  }
+
   logger.info('[Attendance Cron] Running auto-close stale records...');
 
   const staleRecords = await prisma.attendanceRecord.findMany({
@@ -142,7 +152,17 @@ async function autoCloseStaleRecords() {
  */
 async function autoMarkAbsent() {
   const yesterday = getISTYesterday();
-  logger.info(`[Attendance Cron] Running auto-mark absent for ${yesterday.toISOString().split('T')[0]}...`);
+  const dateStr = yesterday.toISOString().split('T')[0];
+
+  // Idempotency lock: prevent duplicate absent-marking if cron fires twice in rapid succession
+  const globalLockKey = `attendance:auto-absent:ran:${dateStr}`;
+  const lockAcquired = await redis.set(globalLockKey, '1', 'EX', 3600 * 6, 'NX'); // 6h TTL
+  if (!lockAcquired) {
+    logger.info(`[Attendance Cron] auto-mark-absent already ran for ${dateStr} — skipping duplicate run`);
+    return { markedAbsent: 0, skippedDuplicate: true };
+  }
+
+  logger.info(`[Attendance Cron] Running auto-mark absent for ${dateStr}...`);
 
   const organizations = await prisma.organization.findMany({ select: { id: true } });
   let totalMarked = 0;
@@ -637,19 +657,22 @@ async function shiftEndCheckoutReminder() {
   return { reminded };
 }
 
+const GPS_RETENTION_DAYS = parseInt(process.env.GPS_TRAIL_RETENTION_DAYS || '90', 10);
+
 /**
- * Purge GPS trail data older than 90 days.
+ * Purge GPS trail data older than GPS_RETENTION_DAYS (default: 90 days).
+ * Override via GPS_TRAIL_RETENTION_DAYS env variable.
  * Runs weekly on Sunday at 02:00 IST to keep DB lean.
  */
 async function purgeOldGPSTrailData() {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   const ist = new Date(utc + IST_OFFSET_MS);
-  const cutoffDate = new Date(ist.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(ist.getTime() - GPS_RETENTION_DAYS * 24 * 60 * 60 * 1000);
   const cutoffStr = `${cutoffDate.getUTCFullYear()}-${String(cutoffDate.getUTCMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getUTCDate()).padStart(2, '0')}T00:00:00.000Z`;
   const cutoff = new Date(cutoffStr);
 
-  logger.info(`[GPS Purge] Purging GPS trail data older than ${cutoff.toISOString().split('T')[0]}…`);
+  logger.info(`[GPS Purge] Purging GPS trail data older than ${cutoff.toISOString().split('T')[0]} (retention=${GPS_RETENTION_DAYS}d)…`);
 
   try {
     const trailResult = await prisma.gPSTrailPoint.deleteMany({

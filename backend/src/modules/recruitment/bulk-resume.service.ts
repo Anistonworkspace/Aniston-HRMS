@@ -5,6 +5,7 @@ import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js
 import { enqueueBulkResume } from '../../jobs/queues.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 import { logger } from '../../lib/logger.js';
+import { sanitizeErrorMessage } from '../../utils/sanitizeError.js';
 
 export class BulkResumeService {
   async uploadBulkResumes(
@@ -176,7 +177,7 @@ export class BulkResumeService {
       logger.error(`[BulkResume] Failed to score item ${itemId} (${item.fileName}): ${error.message}`);
       await prisma.bulkResumeItem.update({
         where: { id: itemId },
-        data: { status: 'FAILED', errorMessage: error.message?.slice(0, 500) || 'Processing failed' },
+        data: { status: 'FAILED', errorMessage: sanitizeErrorMessage(error.message || 'Processing failed') },
       });
       throw error;
     }

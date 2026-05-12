@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { prisma } from '../../lib/prisma.js';
@@ -7,6 +8,7 @@ import { BadRequestError } from '../../middleware/errorHandler.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { storageService } from '../../services/storage.service.js';
+import { sanitizeErrorMessage } from '../../utils/sanitizeError.js';
 import type { SendMessageInput, SendJobLinkInput, CreateContactInput, UpdateContactInput } from './whatsapp.validation.js';
 
 // =====================================================================
@@ -221,7 +223,7 @@ export class WhatsAppService {
           'Install via: apt-get install -y chromium-browser (Ubuntu/Debian) or apk add chromium (Alpine)'
         );
       }
-      throw new BadRequestError(`WhatsApp initialization failed: ${msg}`);
+      throw new BadRequestError(`WhatsApp initialization failed: ${sanitizeErrorMessage(msg)}`);
     }
   }
 
@@ -630,7 +632,7 @@ export class WhatsAppService {
 
       emitToOrg(organizationId, 'whatsapp:message:new', {
         chatId,
-        messageId: externalId || `sent-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        messageId: externalId || `sent-${Date.now()}-${crypto.randomBytes(16).toString('hex')}`,
         body: data.message,
         fromMe: true,
         timestamp: new Date().toISOString(),
@@ -673,7 +675,7 @@ export class WhatsAppService {
       } catch (logErr) {
         logger.warn('WhatsApp: failed to log failed message attempt:', logErr);
       }
-      throw new BadRequestError(`Failed to send: ${error.message}`);
+      throw new BadRequestError(`Failed to send: ${sanitizeErrorMessage(error.message || String(error))}`);
     }
   }
 
@@ -724,7 +726,7 @@ export class WhatsAppService {
 
       emitToOrg(organizationId, 'whatsapp:message:new', {
         chatId,
-        messageId: externalId || `sent-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        messageId: externalId || `sent-${Date.now()}-${crypto.randomBytes(16).toString('hex')}`,
         body: message,
         fromMe: true,
         timestamp: new Date().toISOString(),

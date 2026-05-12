@@ -1,4 +1,5 @@
 import { aiConfigService } from '../modules/ai-config/ai-config.service.js';
+import { logger } from '../lib/logger.js';
 
 export interface AiChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -22,7 +23,7 @@ export interface AiResponse {
  *
  * @example
  * const result = await aiService.prompt(orgId, 'You are HR.', 'Summarize this resume...');
- * if (result.success) console.log(result.data);
+ * if (result.success) logger.info(result.data);
  */
 export class AiService {
   /**
@@ -51,6 +52,7 @@ export class AiService {
     }
 
     try {
+      logger.debug(`[AiService] chat → provider=${config.provider} model=${config.modelName} orgId=${organizationId}`);
       const text = await this.callProvider(config.provider, config.apiKey, config.modelName, config.baseUrl, messages, maxTokens);
       return { success: true, data: text };
     } catch (err: any) {

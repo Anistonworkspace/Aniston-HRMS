@@ -42,6 +42,8 @@ const envSchema = z.object({
   ACTIVITY_RETENTION_DAYS: z.coerce.number().int().min(1).max(90).default(3),
   ACTIVITY_CLEANUP_ENABLED: z.string().default('true'),
   ACTIVITY_CLEANUP_CRON: z.string().default('0 3 * * *'), // 03:00 UTC daily
+  // GPS trail retention (default: 90 days; override to reduce storage on large deployments)
+  GPS_TRAIL_RETENTION_DAYS: z.string().optional().default('90'),
 });
 
 /** Detect suspiciously low-entropy secrets (repeated chars, all-numeric, common dev patterns) */

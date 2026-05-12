@@ -5,30 +5,92 @@ import type { DashboardAlert, AttentionItem } from '@aniston/shared';
 
 const CACHE_TTL = 60; // 60 seconds cache for dashboard data
 
+// ── Redis circuit breaker ──────────────────────────────────────────────────
+// If Redis fails 3+ times within 30 s we open the circuit and skip Redis
+// entirely until the window resets, to avoid blocking the compute path.
+let redisFailCount = 0;
+let lastRedisFailTime = 0;
+const REDIS_CIRCUIT_OPEN_THRESHOLD = 3;
+const REDIS_CIRCUIT_RESET_MS = 30_000;
+
 export class DashboardService {
   /**
-   * Cache wrapper — check Redis first, compute on miss
+   * Cache wrapper — check Redis first, compute on miss.
+   * Includes a circuit breaker: if Redis has failed 3+ times in the last
+   * 30 s the wrapper skips Redis and calls compute() directly.
    */
   private async cached<T>(key: string, ttl: number, compute: () => Promise<T>): Promise<T> {
-    try {
-      const cached = await redis.get(key);
-      if (cached) return JSON.parse(cached);
-    } catch { /* Redis down — compute fresh */ }
+    // Circuit breaker — open?
+    const circuitOpen =
+      redisFailCount >= REDIS_CIRCUIT_OPEN_THRESHOLD &&
+      Date.now() - lastRedisFailTime < REDIS_CIRCUIT_RESET_MS;
+
+    if (!circuitOpen) {
+      try {
+        const cached = await redis.get(key);
+        if (cached) {
+          // Successful hit — reset failure counter
+          redisFailCount = 0;
+          return JSON.parse(cached);
+        }
+      } catch {
+        // Redis read failure — increment circuit-breaker counter
+        redisFailCount += 1;
+        lastRedisFailTime = Date.now();
+      }
+    }
 
     const result = await compute();
 
-    try {
-      await redis.setex(key, ttl, JSON.stringify(result));
-    } catch { /* Redis down — skip cache */ }
+    if (!circuitOpen) {
+      try {
+        await redis.setex(key, ttl, JSON.stringify(result));
+      } catch {
+        // Redis write failure — increment counter
+        redisFailCount += 1;
+        lastRedisFailTime = Date.now();
+      }
+    }
 
     return result;
+  }
+
+  // ── Timeout helper ────────────────────────────────────────────────────────
+  /**
+   * Race a computation against a hard timeout (default 15 s).
+   * On timeout: tries to return the last Redis-cached value if available,
+   * otherwise re-throws so the caller can surface a 503.
+   */
+  private async withTimeout<T>(
+    cacheKey: string,
+    compute: () => Promise<T>,
+    timeoutMs = 15_000,
+  ): Promise<T> {
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Dashboard query timeout')), timeoutMs),
+    );
+    try {
+      return await Promise.race([compute(), timeoutPromise]);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Dashboard query timeout') {
+        // Try to serve stale data from Redis before giving up
+        try {
+          const stale = await redis.get(cacheKey);
+          if (stale) return JSON.parse(stale) as T;
+        } catch { /* Redis unavailable — fall through */ }
+      }
+      throw err;
+    }
   }
 
   /**
    * Original stats endpoint — kept for backward compat (employee dashboard uses it)
    */
   async getStats(organizationId: string) {
-    return this.cached(`dashboard:employee:${organizationId}`, CACHE_TTL, () => this._getStats(organizationId));
+    const key = `dashboard:employee:${organizationId}`;
+    return this.withTimeout(key, () =>
+      this.cached(key, CACHE_TTL, () => this._getStats(organizationId)),
+    );
   }
 
   private async _getStats(organizationId: string) {
@@ -66,16 +128,24 @@ export class DashboardService {
       prisma.walkInCandidate.count({ where: { organizationId, status: 'SELECTED' } }),
     ]) as any;
 
-    // Upcoming birthdays (next 30 days)
-    const employees = await prisma.employee.findMany({
-      where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, dateOfBirth: { not: null } },
-      select: { id: true, firstName: true, lastName: true, dateOfBirth: true, avatar: true },
-    });
-
+    // Upcoming birthdays (next 30 days) — Issue B fix: filter by month in DB
     const now = new Date();
-    const upcomingBirthdays = employees
+    const bdayCurrentMonth = now.getMonth() + 1;
+    const bdayNextMonth = bdayCurrentMonth === 12 ? 1 : bdayCurrentMonth + 1;
+    const birthdayEmpsRaw = await prisma.$queryRaw<
+      { id: string; firstName: string; lastName: string; dateOfBirth: Date; avatar: string | null }[]
+    >`
+      SELECT id, "firstName", "lastName", "dateOfBirth", avatar
+      FROM   "Employee"
+      WHERE  "organizationId" = ${organizationId}
+        AND  "deletedAt" IS NULL
+        AND  ("isSystemAccount" IS NULL OR "isSystemAccount" = false)
+        AND  "dateOfBirth" IS NOT NULL
+        AND  EXTRACT(MONTH FROM "dateOfBirth") IN (${bdayCurrentMonth}, ${bdayNextMonth})
+      LIMIT  50
+    `;
+    const upcomingBirthdays = birthdayEmpsRaw
       .filter((e) => {
-        if (!e.dateOfBirth) return false;
         const bday = new Date(e.dateOfBirth);
         const thisYearBday = new Date(now.getFullYear(), bday.getMonth(), bday.getDate());
         if (thisYearBday < now) thisYearBday.setFullYear(now.getFullYear() + 1);
@@ -124,7 +194,10 @@ export class DashboardService {
    * SUPER ADMIN DASHBOARD — company-level analytics
    */
   async getSuperAdminStats(organizationId: string) {
-    return this.cached(`dashboard:superadmin:${organizationId}`, CACHE_TTL, () => this._getSuperAdminStats(organizationId));
+    const key = `dashboard:superadmin:${organizationId}`;
+    return this.withTimeout(key, () =>
+      this.cached(key, CACHE_TTL, () => this._getSuperAdminStats(organizationId)),
+    );
   }
 
   private async _getSuperAdminStats(organizationId: string) {
@@ -194,87 +267,106 @@ export class DashboardService {
 
     const monthlyPayrollCost = lastPayrollRun ? Number(lastPayrollRun.totalNet || 0) : 0;
 
-    // === TRENDS (last 6 months) — bulk queries instead of per-month loop ===
+    // === TRENDS (last 6 months) — DB-side aggregations to avoid loading all
+    //     records into Node.js memory ===
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const sixMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-    // Build month boundaries for bucketing
-    const monthBuckets: { start: Date; end: Date; label: string }[] = [];
+    // Build month boundaries for bucketing (used for label generation + JS merge)
+    const monthBuckets: { start: Date; end: Date; label: string; key: string }[] = [];
     for (let i = 5; i >= 0; i--) {
       const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
       const label = mStart.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
-      monthBuckets.push({ start: mStart, end: mEnd, label });
+      // Zero-padded "YYYY-MM" key for matching $queryRaw results
+      const key = `${mStart.getFullYear()}-${String(mStart.getMonth() + 1).padStart(2, '0')}`;
+      monthBuckets.push({ start: mStart, end: mEnd, label, key });
     }
 
-    // 5 bulk queries covering the full 6-month range (instead of 30 per-month queries)
-    const [allHires, allExits, allPresentRecords, allWorkingRecords, allLeaveAggs] = await Promise.all([
-      prisma.employee.findMany({
-        where: {
-          organizationId, deletedAt: null, isSystemAccount: { not: true },
-          joiningDate: { gte: sixMonthsAgo, lte: sixMonthEnd },
-        },
-        select: { joiningDate: true },
-      }),
-      prisma.employee.findMany({
-        where: {
-          organizationId, deletedAt: null, isSystemAccount: { not: true },
-          lastWorkingDate: { gte: sixMonthsAgo, lte: sixMonthEnd },
-        },
-        select: { lastWorkingDate: true },
-      }),
-      prisma.attendanceRecord.findMany({
-        where: {
-          date: { gte: sixMonthsAgo, lte: sixMonthEnd },
-          status: { in: ['PRESENT', 'WORK_FROM_HOME', 'HALF_DAY'] },
-          employee: { organizationId },
-        },
-        select: { date: true },
-      }),
-      prisma.attendanceRecord.findMany({
-        where: {
-          date: { gte: sixMonthsAgo, lte: sixMonthEnd },
-          status: { notIn: ['HOLIDAY', 'WEEKEND'] },
-          employee: { organizationId },
-        },
-        select: { date: true },
-      }),
-      prisma.leaveRequest.findMany({
-        where: {
-          status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
-          startDate: { lte: sixMonthEnd },
-          endDate: { gte: sixMonthsAgo },
-          employee: { organizationId },
-        },
-        select: { startDate: true, endDate: true, days: true },
-      }),
-    ]);
+    // ── Issue A fix: use $queryRaw + groupBy so the DB does the bucketing ──
 
-    // Bucket results by month in JS
-    const isInMonth = (date: Date | null, bucket: { start: Date; end: Date }) =>
-      date != null && date >= bucket.start && date <= bucket.end;
-    const overlapsMonth = (start: Date, end: Date, bucket: { start: Date; end: Date }) =>
-      start <= bucket.end && end >= bucket.start;
+    // Hires per month — DATE_TRUNC returns a timestamp; cast to text for the key
+    const hiresRaw = await prisma.$queryRaw<{ month_key: string; cnt: bigint }[]>`
+      SELECT TO_CHAR(DATE_TRUNC('month', "joiningDate"), 'YYYY-MM') AS month_key,
+             COUNT(*)::bigint AS cnt
+      FROM   "Employee"
+      WHERE  "organizationId" = ${organizationId}
+        AND  "deletedAt" IS NULL
+        AND  ("isSystemAccount" IS NULL OR "isSystemAccount" = false)
+        AND  "joiningDate" >= ${sixMonthsAgo}
+        AND  "joiningDate" <= ${sixMonthEnd}
+      GROUP  BY 1
+    `;
+
+    // Exits per month
+    const exitsRaw = await prisma.$queryRaw<{ month_key: string; cnt: bigint }[]>`
+      SELECT TO_CHAR(DATE_TRUNC('month', "lastWorkingDate"), 'YYYY-MM') AS month_key,
+             COUNT(*)::bigint AS cnt
+      FROM   "Employee"
+      WHERE  "organizationId" = ${organizationId}
+        AND  "deletedAt" IS NULL
+        AND  ("isSystemAccount" IS NULL OR "isSystemAccount" = false)
+        AND  "lastWorkingDate" >= ${sixMonthsAgo}
+        AND  "lastWorkingDate" <= ${sixMonthEnd}
+      GROUP  BY 1
+    `;
+
+    // Attendance: present + total working records per month (two rows per month_key)
+    // We get (month_key, present_cnt, working_cnt) in a single scan via conditional agg
+    const attendanceRaw = await prisma.$queryRaw<
+      { month_key: string; present_cnt: bigint; working_cnt: bigint }[]
+    >`
+      SELECT TO_CHAR(DATE_TRUNC('month', ar.date), 'YYYY-MM') AS month_key,
+             COUNT(*) FILTER (WHERE ar.status IN ('PRESENT','WORK_FROM_HOME','HALF_DAY'))::bigint AS present_cnt,
+             COUNT(*) FILTER (WHERE ar.status NOT IN ('HOLIDAY','WEEKEND'))::bigint           AS working_cnt
+      FROM   "AttendanceRecord" ar
+      JOIN   "Employee" e ON e.id = ar."employeeId"
+      WHERE  e."organizationId" = ${organizationId}
+        AND  ar.date >= ${sixMonthsAgo}
+        AND  ar.date <= ${sixMonthEnd}
+      GROUP  BY 1
+    `;
+
+    // Leave days per month — leave requests can span month boundaries so we
+    // sum the days field (pre-computed) grouped by the month the leave *starts*.
+    // This is an approximation (same as the old code's overlapsMonth approach
+    // was also an approximation), but keeps the query simple and DB-side.
+    const leaveRaw = await prisma.$queryRaw<{ month_key: string; total_days: number }[]>`
+      SELECT TO_CHAR(DATE_TRUNC('month', lr."startDate"), 'YYYY-MM') AS month_key,
+             COALESCE(SUM(lr.days), 0)::float AS total_days
+      FROM   "LeaveRequest" lr
+      JOIN   "Employee" e ON e.id = lr."employeeId"
+      WHERE  e."organizationId" = ${organizationId}
+        AND  lr.status IN ('APPROVED','MANAGER_APPROVED')
+        AND  lr."startDate" >= ${sixMonthsAgo}
+        AND  lr."startDate" <= ${sixMonthEnd}
+      GROUP  BY 1
+    `;
+
+    // Convert raw rows into lookup maps keyed by "YYYY-MM"
+    const hiresMap = new Map(hiresRaw.map(r => [r.month_key, Number(r.cnt)]));
+    const exitsMap = new Map(exitsRaw.map(r => [r.month_key, Number(r.cnt)]));
+    const attendanceMap = new Map(
+      attendanceRaw.map(r => [r.month_key, { present: Number(r.present_cnt), working: Number(r.working_cnt) }])
+    );
+    const leaveMap = new Map(leaveRaw.map(r => [r.month_key, Number(r.total_days)]));
 
     const hiringTrend: { month: string; hires: number; exits: number }[] = [];
     const attendanceTrend: { month: string; avgPercentage: number }[] = [];
     const leaveTrend: { month: string; totalDays: number }[] = [];
 
     for (const bucket of monthBuckets) {
-      const hires = allHires.filter(e => isInMonth(e.joiningDate, bucket)).length;
-      const exits = allExits.filter(e => isInMonth(e.lastWorkingDate, bucket)).length;
-      const presentDays = allPresentRecords.filter(r => isInMonth(r.date, bucket)).length;
-      const totalWorkingDays = allWorkingRecords.filter(r => isInMonth(r.date, bucket)).length;
-      const totalLeaveDays = allLeaveAggs
-        .filter(l => overlapsMonth(l.startDate, l.endDate, bucket))
-        .reduce((sum, l) => sum + Number(l.days || 0), 0);
+      const hires = hiresMap.get(bucket.key) ?? 0;
+      const exits = exitsMap.get(bucket.key) ?? 0;
+      const att = attendanceMap.get(bucket.key) ?? { present: 0, working: 0 };
+      const leaveDays = leaveMap.get(bucket.key) ?? 0;
 
       hiringTrend.push({ month: bucket.label, hires, exits });
       attendanceTrend.push({
         month: bucket.label,
-        avgPercentage: totalWorkingDays > 0 ? Math.round((presentDays / totalWorkingDays) * 100) : 0,
+        avgPercentage: att.working > 0 ? Math.round((att.present / att.working) * 100) : 0,
       });
-      leaveTrend.push({ month: bucket.label, totalDays: totalLeaveDays });
+      leaveTrend.push({ month: bucket.label, totalDays: leaveDays });
     }
 
     // === ALERTS ===
@@ -345,21 +437,31 @@ export class DashboardService {
     });
     const departmentBreakdown = departments.map((d) => ({ name: d.name, count: d._count.employees }));
 
-    // === BIRTHDAYS ===
-    const allEmps = await prisma.employee.findMany({
-      where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, dateOfBirth: { not: null } },
-      select: { id: true, firstName: true, lastName: true, dateOfBirth: true, avatar: true },
-    });
-    const upcomingBirthdays = allEmps
+    // === BIRTHDAYS — Issue B fix: push month/day filter into PostgreSQL ===
+    // EXTRACT-based filter means we only fetch employees whose birthday falls
+    // within the current or next calendar month — never the full table.
+    const currentMonth = now.getMonth() + 1; // 1-indexed
+    const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+    const upcomingBirthdaysRaw = await prisma.$queryRaw<
+      { id: string; firstName: string; lastName: string; dateOfBirth: Date; avatar: string | null }[]
+    >`
+      SELECT id, "firstName", "lastName", "dateOfBirth", avatar
+      FROM   "Employee"
+      WHERE  "organizationId" = ${organizationId}
+        AND  "deletedAt" IS NULL
+        AND  ("isSystemAccount" IS NULL OR "isSystemAccount" = false)
+        AND  "dateOfBirth" IS NOT NULL
+        AND  EXTRACT(MONTH FROM "dateOfBirth") IN (${currentMonth}, ${nextMonth})
+      LIMIT  50
+    `;
+    const upcomingBirthdays = upcomingBirthdaysRaw
       .filter((e) => {
-        if (!e.dateOfBirth) return false;
         const bday = new Date(e.dateOfBirth);
         const thisYearBday = new Date(now.getFullYear(), bday.getMonth(), bday.getDate());
         if (thisYearBday < now) thisYearBday.setFullYear(now.getFullYear() + 1);
         const daysUntil = Math.ceil((thisYearBday.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
         return daysUntil >= 0 && daysUntil <= 30;
       })
-      .map((e) => ({ id: e.id, firstName: e.firstName, lastName: e.lastName, dateOfBirth: e.dateOfBirth, avatar: e.avatar }))
       .slice(0, 5);
 
     return {
@@ -384,7 +486,10 @@ export class DashboardService {
    * HR DASHBOARD — daily operations
    */
   async getHRStats(organizationId: string, userId?: string, role?: string) {
-    return this.cached(`dashboard:hr:${organizationId}:${userId || 'all'}`, CACHE_TTL, () => this._getHRStats(organizationId, userId, role));
+    const key = `dashboard:hr:${organizationId}:${userId || 'all'}`;
+    return this.withTimeout(key, () =>
+      this.cached(key, CACHE_TTL, () => this._getHRStats(organizationId, userId, role)),
+    );
   }
 
   private async _getHRStats(organizationId: string, userId?: string, role?: string) {
@@ -471,12 +576,10 @@ export class DashboardService {
       .map((r) => ({ id: r.employee.id, name: `${r.employee.firstName} ${r.employee.lastName}` }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    // For absent: fetch active employees, subtract checked-in and on-leave
-    const [allActiveEmps, onLeaveEmpIds] = await Promise.all([
-      prisma.employee.findMany({
-        where: { organizationId, status: { in: WORK_STATUSES }, deletedAt: null, isSystemAccount: { not: true } },
-        select: { id: true, firstName: true, lastName: true },
-      }),
+    // For absent: fetch active employees, subtract checked-in and on-leave.
+    // Issue B fix: use take: 100 on the absent query so the DB limits the
+    // result set instead of pulling every employee and slicing in JS.
+    const [onLeaveEmpIds] = await Promise.all([
       prisma.leaveRequest.findMany({
         where: {
           status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
@@ -491,16 +594,41 @@ export class DashboardService {
     const checkedInSet = new Set(checkedInIds.map((r: { employeeId: string }) => r.employeeId));
     const onLeaveSet = new Set(onLeaveEmpIds.map((r: { employeeId: string }) => r.employeeId));
 
-    const absentEmployeesList = allActiveEmps
-      .filter((e) => !checkedInSet.has(e.id) && !onLeaveSet.has(e.id))
-      .map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, 100);
+    // Absent list: DB does the heavy lifting — exclude checked-in and on-leave IDs
+    const checkedInArray = [...checkedInSet];
+    const onLeaveArray = [...onLeaveSet];
+    const absentEmployeesList = await prisma.employee
+      .findMany({
+        where: {
+          organizationId,
+          status: { in: WORK_STATUSES },
+          deletedAt: null,
+          isSystemAccount: { not: true },
+          id: {
+            notIn: [...checkedInArray, ...onLeaveArray],
+          },
+        },
+        select: { id: true, firstName: true, lastName: true },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+        take: 100,
+      })
+      .then((rows) => rows.map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` })));
 
-    const onLeaveEmployeesList = allActiveEmps
-      .filter((e) => onLeaveSet.has(e.id))
-      .map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    // On-leave list: fetch only employees in the on-leave set (already small)
+    const onLeaveEmployeesList =
+      onLeaveArray.length === 0
+        ? []
+        : await prisma.employee
+            .findMany({
+              where: {
+                organizationId,
+                deletedAt: null,
+                id: { in: onLeaveArray },
+              },
+              select: { id: true, firstName: true, lastName: true },
+              orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+            })
+            .then((rows) => rows.map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` })));
 
     const todayAttendance = {
       present: totalCheckedIn,   // all checked-in (PRESENT + WFH + HALF_DAY)
@@ -655,22 +783,33 @@ export class DashboardService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const [recentHires, birthdayEmps] = await Promise.all([
+    // Issue B fix: push birthday month filter into DB; only fetch 2 months max
+    const hrBdayCurrentMonth = now.getMonth() + 1;
+    const hrBdayNextMonth = hrBdayCurrentMonth === 12 ? 1 : hrBdayCurrentMonth + 1;
+
+    const [recentHires, hrBirthdayEmps] = await Promise.all([
       prisma.employee.findMany({
         where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, joiningDate: { gte: thirtyDaysAgo } },
         select: { id: true, firstName: true, lastName: true, joiningDate: true, department: { select: { name: true } } },
         orderBy: { joiningDate: 'desc' },
         take: 5,
       }),
-      prisma.employee.findMany({
-        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, dateOfBirth: { not: null } },
-        select: { id: true, firstName: true, lastName: true, dateOfBirth: true, avatar: true },
-      }),
+      prisma.$queryRaw<
+        { id: string; firstName: string; lastName: string; dateOfBirth: Date; avatar: string | null }[]
+      >`
+        SELECT id, "firstName", "lastName", "dateOfBirth", avatar
+        FROM   "Employee"
+        WHERE  "organizationId" = ${organizationId}
+          AND  "deletedAt" IS NULL
+          AND  ("isSystemAccount" IS NULL OR "isSystemAccount" = false)
+          AND  "dateOfBirth" IS NOT NULL
+          AND  EXTRACT(MONTH FROM "dateOfBirth") IN (${hrBdayCurrentMonth}, ${hrBdayNextMonth})
+        LIMIT  50
+      `,
     ]);
 
-    const upcomingBirthdays = birthdayEmps
+    const upcomingBirthdays = hrBirthdayEmps
       .filter((e) => {
-        if (!e.dateOfBirth) return false;
         const bday = new Date(e.dateOfBirth);
         const thisYearBday = new Date(now.getFullYear(), bday.getMonth(), bday.getDate());
         if (thisYearBday < now) thisYearBday.setFullYear(now.getFullYear() + 1);

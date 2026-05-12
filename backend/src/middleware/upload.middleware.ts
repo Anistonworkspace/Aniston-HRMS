@@ -23,8 +23,10 @@
  *  createWalkInUpload(sessionId)        → walkin/{sessionId}/
  */
 
+import crypto from 'crypto';
 import multer from 'multer';
 import path from 'path';
+import type { Request, Response, NextFunction } from 'express';
 import { BadRequestError } from './errorHandler.js';
 import { storageService, StorageFolder, StoragePath } from '../services/storage.service.js';
 
@@ -98,16 +100,24 @@ const resumeFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilte
 
 /** Unique filename: {fieldname}-{timestamp}-{random}.{ext} */
 function uniqueFilename(_req: any, file: Express.Multer.File, cb: (err: any, name: string) => void) {
-  const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-  const ext = path.extname(file.originalname).toLowerCase();
-  cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+  try {
+    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(16).toString('hex')}`;
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+  } catch {
+    cb(new Error('File storage temporarily unavailable. Please try again.'), '');
+  }
 }
 
 /** Build a multer.diskStorage pointing at the given sub-path inside uploads/. */
 function diskStorageFor(...subPaths: string[]): multer.StorageEngine {
   return multer.diskStorage({
     destination: (_req, _file, cb) => {
-      cb(null, storageService.getAbsoluteDir(...subPaths));
+      try {
+        cb(null, storageService.getAbsoluteDir(...subPaths));
+      } catch {
+        cb(new Error('File storage temporarily unavailable. Please try again.'), '');
+      }
     },
     filename: uniqueFilename,
   });
@@ -250,7 +260,7 @@ export function createEmployeeKycUpload(employeeId: string) {
   const dir = storageService.getAbsoluteDir(kycPath);
 
   const kycFilename = (_req: any, file: Express.Multer.File, cb: (err: any, name: string) => void) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(16).toString('hex')}`;
     const ext = path.extname(file.originalname).toLowerCase();
     cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
   };
@@ -312,7 +322,7 @@ export function createWalkInUpload(sessionId: string) {
       destination: (_req, _file, cb) => cb(null, dir),
       filename: (_req, file, cb) => {
         const ext = path.extname(file.originalname).toLowerCase();
-        const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const unique = `${Date.now()}-${crypto.randomBytes(16).toString('hex')}`;
         cb(null, `${file.fieldname}-${unique}${ext}`);
       },
     }),
@@ -376,4 +386,38 @@ export const uploadAttendancePhoto = multer({
 /** Build the relative URL for a KYC file stored in DB. */
 export function getEmployeeKycUrl(employeeId: string, filename: string): string {
   return storageService.buildUrl(StoragePath.employeeKyc(employeeId), filename);
+}
+
+// ---------------------------------------------------------------------------
+// Upload error handler middleware
+// ---------------------------------------------------------------------------
+
+/**
+ * Express error-handling middleware that catches Multer errors and storage
+ * failures, converting them into clean JSON responses rather than letting
+ * raw OS / Multer errors propagate as opaque 500s.
+ *
+ * Usage: register AFTER any route that uses a multer middleware, or globally
+ * after all upload routes in app.ts.
+ */
+export function handleUploadError(err: any, req: Request, res: Response, next: NextFunction) {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'FILE_TOO_LARGE', message: 'File too large. Maximum size allowed.' },
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      error: { code: 'UPLOAD_ERROR', message: 'File upload failed. Please try again.' },
+    });
+  }
+  if (err && err.message === 'File storage temporarily unavailable. Please try again.') {
+    return res.status(503).json({
+      success: false,
+      error: { code: 'STORAGE_UNAVAILABLE', message: err.message },
+    });
+  }
+  next(err);
 }

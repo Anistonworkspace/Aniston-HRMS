@@ -290,6 +290,15 @@ npm run db:seed        # Seed with sample data
 npm run db:studio      # Open Prisma Studio GUI
 ```
 
+## Production Safety Rules
+- **NEVER** use `db:push` in production — always use `npx prisma migrate deploy`
+- **NEVER** commit `.env` files — use `.env.example` as template only
+- **NEVER** run `prisma/seed.ts` on production without `ALLOW_PROD_SEED=true` explicitly set
+- **NEVER** run scripts in `prisma/patch-*.ts` without testing on staging first
+- `git filter-repo --invert-paths --path .env --force` to purge secrets from history if needed
+- Generate JWT_SECRET: `openssl rand -hex 64`
+- Generate ENCRYPTION_KEY: `openssl rand -hex 32`
+
 ## CI/CD Pipeline (deploy.yml)
 Three parallel jobs:
 1. **Build Android APK** — Capacitor + AGP 8.7.3 + Gradle 8.9 + minSdk 23; uploads APK to EC2 at `downloads/apk-build/`

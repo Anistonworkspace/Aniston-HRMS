@@ -2,6 +2,7 @@ import { createApi, fetchBaseQuery, type BaseQueryFn } from '@reduxjs/toolkit/qu
 import { Capacitor } from '@capacitor/core';
 import toast from 'react-hot-toast';
 import type { RootState } from './store';
+import { secureStorage } from '../lib/secureStorage';
 
 // In native Capacitor (Android/iOS), relative URLs resolve to capacitor://localhost
 // which has no backend. Always use the full production URL on native platforms.
@@ -66,7 +67,7 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
       sessionRevokedLogoutFired = true;
       // Mark reason in Redux so LoginPage can show the right toast after redirect
       api.dispatch({ type: 'auth/setSessionEndReason', payload: 'SESSION_REVOKED' });
-      if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');
+      secureStorage.removeRefreshToken();
       api.dispatch({ type: 'auth/logout' });
       // Suppress the error result — component must not render an error while redirect is in flight
       return { data: undefined };
@@ -76,7 +77,7 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
       refreshPromise = (async () => {
         // On native, cookies can't be sent cross-origin — include the stored token in the body
         const storedNativeToken = Capacitor.isNativePlatform()
-          ? localStorage.getItem('nativeRefreshToken')
+          ? secureStorage.getRefreshToken()
           : null;
 
         const refreshResult = await baseQuery(
@@ -94,13 +95,13 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
             type: 'auth/setAccessToken',
             payload: data.data.accessToken,
           });
-          // Rotate stored native refresh token
+          // Rotate stored native refresh token (sessionStorage, cleared on app close)
           if (data.data.refreshToken && Capacitor.isNativePlatform()) {
-            localStorage.setItem('nativeRefreshToken', data.data.refreshToken);
+            secureStorage.setRefreshToken(data.data.refreshToken);
           }
           return true;
         } else {
-          if (Capacitor.isNativePlatform()) localStorage.removeItem('nativeRefreshToken');
+          secureStorage.removeRefreshToken();
           api.dispatch({ type: 'auth/logout' });
           return false;
         }

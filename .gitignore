@@ -21,10 +21,15 @@ dist/
 build/
 *.tsbuildinfo
 
-# Environment
+# Environment — NEVER commit real secrets
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
+.env.test
+# Never commit real secrets — use .env.example as template
+*.env
 
 # IDE
 .vscode/settings.json

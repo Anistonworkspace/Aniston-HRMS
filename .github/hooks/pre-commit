@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Aniston HRMS — Pre-commit hook
+# Blocks commits that contain .env files or bare secrets.
+#
+# INSTALL (run once per developer):
+#   cp .github/hooks/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+# =============================================================================
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Colour
+
+ERRORS=0
+
+# ---------------------------------------------------------------------------
+# 1. Block any .env file from being committed
+# ---------------------------------------------------------------------------
+ENV_FILES=$(git diff --cached --name-only | grep -E '(^|/)\.env(\.|$)')
+
+if [ -n "$ENV_FILES" ]; then
+  echo -e "${RED}ERROR: .env file(s) detected in this commit:${NC}"
+  echo "$ENV_FILES" | sed 's/^/  /'
+  echo ""
+  echo "Remove them from the staging area and try again:"
+  echo "  git reset HEAD .env"
+  echo ""
+  echo "If you need to update the template, edit .env.example instead."
+  ERRORS=$((ERRORS + 1))
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Block files that appear to contain real secret values
+# ---------------------------------------------------------------------------
+
+# Pattern list: each entry is a regex matched against the diff content
+SECRET_PATTERNS=(
+  'OPENAI_API_KEY=sk-'
+  'JWT_SECRET="[^"]\{10,\}"'
+  'JWT_REFRESH_SECRET="[^"]\{10,\}"'
+  'DATABASE_URL="postgresql://[^:]\+:[^@]\+@'
+  'ENCRYPTION_KEY="[0-9a-fA-F]\{32,\}"'
+  'SMTP_PASS="[^"]\{4,\}"'
+  'ANTHROPIC_API_KEY=sk-ant-'
+  'DEEPSEEK_API_KEY="[^"]\{10,\}"'
+  'GEMINI_API_KEY="[^"]\{10,\}"'
+  'sk-or-v1-'
+)
+
+STAGED_DIFF=$(git diff --cached)
+
+for PATTERN in "${SECRET_PATTERNS[@]}"; do
+  if echo "$STAGED_DIFF" | grep -qE "\+.*${PATTERN}"; then
+    if [ $ERRORS -eq 0 ]; then
+      echo -e "${RED}ERROR: Possible secret detected in staged changes:${NC}"
+    fi
+    echo -e "  ${YELLOW}Pattern matched:${NC} ${PATTERN}"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 3. Warn if .env.example contains a non-placeholder API key
+# ---------------------------------------------------------------------------
+if git diff --cached --name-only | grep -q '\.env\.example'; then
+  if git diff --cached -- .env.example | grep -qE '\+.*sk-(or-v1-|ant-|[a-zA-Z0-9]{32,})'; then
+    echo -e "${RED}ERROR: .env.example appears to contain a real API key (sk-... pattern).${NC}"
+    echo "  Replace it with a placeholder like: OPENAI_API_KEY=\"sk-...your-key-here\""
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Final verdict
+# ---------------------------------------------------------------------------
+if [ $ERRORS -gt 0 ]; then
+  echo ""
+  echo -e "${RED}Commit blocked. Fix the issue(s) above and try again.${NC}"
+  echo "If this is a false positive, you can skip this hook (NOT recommended):"
+  echo "  git commit --no-verify"
+  exit 1
+fi
+
+exit 0

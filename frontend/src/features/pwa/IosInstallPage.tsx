@@ -430,19 +430,6 @@ export default function IosInstallPage() {
           </p>
         </motion.div>
 
-        {/* App Store coming soon */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.7 }}
-          className="mt-4 bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center"
-        >
-          <p className="text-xs font-semibold text-gray-600">Native iOS App — Coming Soon</p>
-          <p className="text-xs text-gray-400 mt-1">
-            When the App Store version launches, you will receive a notification and can switch to it for an even better experience.
-          </p>
-        </motion.div>
-
         {/* Help line */}
         <p className="text-center text-xs text-gray-400 mt-8">
           Having trouble? Contact HR at{' '}

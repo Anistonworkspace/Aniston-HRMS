@@ -99,6 +99,16 @@ export function initSocketServer(httpServer: HttpServer) {
         return;
       }
 
+      // DPDP Act 2023 compliance: notify the employee that screen monitoring has been initiated.
+      // The employee's browser/app receives 'stream:monitoring-notice' and should display a visible banner.
+      // This is a notice (not a blocking consent request) consistent with employment agreements where
+      // monitoring is a disclosed condition of using company equipment/systems.
+      io!.to(`user:${data.employeeUserId}`).emit('stream:monitoring-notice', {
+        message: 'Your screen is being monitored by an administrator as per company policy.',
+        adminUserId: userId,
+        startedAt: new Date().toISOString(),
+      });
+
       io!.to(`agent:${data.employeeUserId}`).emit('stream:start', {
         adminSocketId: socket.id,
         adminUserId: userId,

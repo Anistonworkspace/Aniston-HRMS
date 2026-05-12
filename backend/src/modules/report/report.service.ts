@@ -1,11 +1,15 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { decrypt } from '../../utils/encryption.js';
+import { logger } from '../../lib/logger.js';
 import type { AttendanceSummaryQuery, LeaveSummaryQuery, AttendanceDetailQuery, LeaveDetailQuery } from './report.validation.js';
+
+/** Hard cap on the number of rows any single export query may return. */
+const MAX_EXPORT_ROWS = 50000;
 
 export class ReportService {
   async getEmployeesForExcel(organizationId: string) {
-    return prisma.employee.findMany({
+    const employees = await prisma.employee.findMany({
       where: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
       select: {
         employeeCode: true,
@@ -18,7 +22,14 @@ export class ReportService {
         designation: { select: { name: true } },
       },
       orderBy: { employeeCode: 'asc' },
+      take: MAX_EXPORT_ROWS,
     });
+
+    if (employees.length >= MAX_EXPORT_ROWS) {
+      logger.warn(`[Report] Employee directory export truncated at ${MAX_EXPORT_ROWS} rows for org ${organizationId}`);
+    }
+
+    return employees;
   }
 
   async getHeadcount(organizationId: string) {
@@ -144,6 +155,12 @@ export class ReportService {
     const start = query.startDate ? new Date(query.startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
     const end = query.endDate ? new Date(query.endDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
+    // Reject excessively wide date ranges to prevent memory/timeout issues.
+    const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysDiff > 365) {
+      throw new BadRequestError('Date range cannot exceed 365 days for exports.');
+    }
+
     const records = await prisma.attendanceRecord.findMany({
       where: {
         employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
@@ -153,7 +170,12 @@ export class ReportService {
         employee: { select: { firstName: true, lastName: true, employeeCode: true } },
       },
       orderBy: [{ date: 'asc' }, { employee: { firstName: 'asc' } }],
+      take: MAX_EXPORT_ROWS,
     });
+
+    if (records.length >= MAX_EXPORT_ROWS) {
+      logger.warn(`[Report] Export truncated at ${MAX_EXPORT_ROWS} rows for org ${organizationId}`);
+    }
 
     let pendingRegMap = new Map<string, { reason: string }>();
 

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { Decimal } from '@prisma/client/runtime/library.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
@@ -5,6 +6,7 @@ import { createAuditLog } from '../../utils/auditLogger.js';
 import { aiService } from '../../services/ai.service.js';
 import { logger } from '../../lib/logger.js';
 import { decrypt } from '../../utils/encryption.js';
+import { redis } from '../../lib/redis.js';
 import type { SalaryComponent, StatutoryConfig, SalaryStructureInput } from './payroll.validation.js';
 
 // ────────────────────────────────────────────────────────────────────
@@ -691,6 +693,36 @@ export class PayrollService {
     if (!run) throw new NotFoundError('Payroll run');
     if (run.status !== 'DRAFT') throw new BadRequestError('Payroll can only be processed from DRAFT status');
 
+    // P1-07: Distributed lock — prevent concurrent processing of the same payroll run
+    const lockKey = `payroll:processing:lock:${runId}`;
+    const lockValue = crypto.randomUUID();
+    const lockTtl = 300; // 5 minutes max lock time (matches Prisma transaction timeout)
+
+    const acquired = await redis.set(lockKey, lockValue, 'EX', lockTtl, 'NX');
+    if (!acquired) {
+      throw new BadRequestError('Payroll run is already being processed. Please wait and try again.');
+    }
+
+    // Lua script: only delete the key if we still own it (atomic compare-and-delete)
+    const releaseLockScript = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+
+    try {
+      return await this._processPayrollWithLock(runId, organizationId, run);
+    } finally {
+      await redis.eval(releaseLockScript, 1, lockKey, lockValue).catch((err) => {
+        logger.warn(`[Payroll] Failed to release distributed lock for run ${runId}:`, err);
+      });
+    }
+  }
+
+  /** Internal: core payroll processing — called only after the distributed lock is held. */
+  private async _processPayrollWithLock(runId: string, organizationId: string, run: any) {
     // Fetch org-level payroll defaults (PT state, tax regime, working days)
     const org = await prisma.organization.findUnique({
       where: { id: organizationId },

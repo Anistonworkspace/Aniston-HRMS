@@ -22,6 +22,7 @@ import { swaggerSpec } from './config/swagger.js';
 import swaggerUi from 'swagger-ui-express';
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.middleware.js';
+import { handleUploadError } from './middleware/upload.middleware.js';
 import { requestIdMiddleware, requestLogger } from './middleware/requestLogger.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -73,6 +74,10 @@ import { crashReportRouter } from './modules/crash-report/crash-report.routes.js
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
+import {
+  emailQueue, notificationQueue, payrollQueue, attendanceCronQueue,
+  leaveCarryForwardQueue, backupQueue, documentOcrQueue,
+} from './jobs/queues.js';
 import { storageService } from './services/storage.service.js';
 
 const app = express();
@@ -145,11 +150,20 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false, // Allow embedding uploads in other origins
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow CDN-style file access
 }));
+const allowedOrigins = [
+  env.FRONTEND_URL,
+  // Capacitor Android APK (androidScheme:'https') serves from https://localhost — needed in all envs
+  'https://localhost',
+  ...(env.NODE_ENV !== 'production' ? [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+    'https://localhost',
+  ] : []),
+].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: env.NODE_ENV === 'development'
-    ? [env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174']
-    // Capacitor Android APK (androidScheme:'https') serves from https://localhost
-    : [env.FRONTEND_URL, 'https://hr.anistonav.com', 'https://localhost'].filter(Boolean),
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Accept', 'Accept-Language', 'Content-Length', 'X-Native-App'],
@@ -194,11 +208,20 @@ app.use('/api/attendance/clock-out', rateLimiter({ windowMs: 30 * 1000, max: 5, 
 app.use('/api', rateLimiter({ windowMs: 60 * 1000, max: 100, keyPrefix: 'rl:api' }));
 
 // API Documentation
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+// In development, docs are served openly.
+// In production, both the UI and the OpenAPI JSON spec require a valid JWT so
+// that API internals are not exposed to unauthenticated clients.
+const swaggerUiOptions = {
   customSiteTitle: 'Aniston HRMS API Docs',
   customCss: '.swagger-ui .topbar { display: none }',
-}));
-app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
+};
+if (env.NODE_ENV !== 'production') {
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
+  app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
+} else {
+  app.use('/api/docs', authenticate, swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
+  app.get('/api/docs.json', authenticate, (_req, res) => res.json(swaggerSpec));
+}
 
 // Health check
 app.get('/api/health', async (_req, res) => {
@@ -220,6 +243,35 @@ app.get('/api/health', async (_req, res) => {
   // Email worker health
   const emailWorker = await getEmailWorkerHealth();
 
+  // BullMQ queue stats — fail gracefully so Redis outage doesn't break health check
+  const queueStats: Record<string, { waiting: number; active: number; failed: number }> = {};
+  try {
+    const [emailCounts, notifCounts, payrollCounts, attendanceCounts, leaveCounts, backupCounts, ocrCounts] =
+      await Promise.all([
+        emailQueue.getJobCounts('waiting', 'active', 'failed'),
+        notificationQueue.getJobCounts('waiting', 'active', 'failed'),
+        payrollQueue.getJobCounts('waiting', 'active', 'failed'),
+        attendanceCronQueue.getJobCounts('waiting', 'active', 'failed'),
+        leaveCarryForwardQueue.getJobCounts('waiting', 'active', 'failed'),
+        backupQueue.getJobCounts('waiting', 'active', 'failed'),
+        documentOcrQueue.getJobCounts('waiting', 'active', 'failed'),
+      ]);
+    queueStats.email = emailCounts as any;
+    queueStats.notification = notifCounts as any;
+    queueStats.payroll = payrollCounts as any;
+    queueStats.attendanceCron = attendanceCounts as any;
+    queueStats.leaveCarryForward = leaveCounts as any;
+    queueStats.backup = backupCounts as any;
+    queueStats.documentOcr = ocrCounts as any;
+  } catch {
+    /* non-blocking — queue stats are informational */
+  }
+
+  // Memory usage
+  const mem = process.memoryUsage();
+  const memUsedMb = Math.round(mem.heapUsed / 1024 / 1024);
+  const memTotalMb = Math.round(mem.heapTotal / 1024 / 1024);
+
   const overallStatus = dbStatus === 'ok' && redisStatus === 'ok' ? 'ok' : 'degraded';
 
   res.status(overallStatus === 'ok' ? 200 : 503).json({
@@ -233,6 +285,12 @@ app.get('/api/health', async (_req, res) => {
         database: dbStatus,
         redis: redisStatus,
         emailWorker: emailWorker.status,
+      },
+      queues: queueStats,
+      memory: {
+        heapUsedMb: memUsedMb,
+        heapTotalMb: memTotalMb,
+        usedPercent: Math.round((memUsedMb / memTotalMb) * 100),
       },
       emailQueue: {
         waiting: emailWorker.waiting,
@@ -413,6 +471,11 @@ app.use((_req, res) => {
     error: { code: 'NOT_FOUND', message: 'Route not found' },
   });
 });
+
+// Upload/Multer error handler — must come before the global errorHandler so
+// that file-size and storage errors are converted to clean JSON responses (400/503)
+// rather than leaking raw OS or Multer error messages as 500s.
+app.use(handleUploadError);
 
 // Error handler
 app.use(errorHandler);

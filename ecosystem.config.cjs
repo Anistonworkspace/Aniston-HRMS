@@ -10,15 +10,14 @@ module.exports = {
       script: 'backend/dist/server.js',
       cwd: '/home/ubuntu/Aniston-HRMS',
       interpreter: 'node',
-      node_args: '--experimental-vm-modules',
       instances: 1,
       exec_mode: 'fork',
       env_production: {
         NODE_ENV: 'production',
         PORT: 4000,
       },
-      // Graceful reload — waits for this many ms before forcing kill
-      kill_timeout: 5000,
+      // Graceful reload — waits for this many ms before forcing kill (matches graceful shutdown timeout)
+      kill_timeout: 10000,
       // Wait for app to send ready signal before considering it up
       wait_ready: true,
       listen_timeout: 10000,

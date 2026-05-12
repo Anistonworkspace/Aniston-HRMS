@@ -69,6 +69,7 @@ jobs:
           VITE_API_URL: /api
 
       - name: Sync test database schema
+        # CI test DB only — production uses migrate deploy
         run: npx prisma db push --force-reset
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test

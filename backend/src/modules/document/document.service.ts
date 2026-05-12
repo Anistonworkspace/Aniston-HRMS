@@ -12,17 +12,14 @@ import type { CreateDocumentInput, DocumentQuery } from './document.validation.j
 
 export class DocumentService {
   async list(query: DocumentQuery, organizationId: string) {
+    if (!organizationId) throw new BadRequestError('organizationId required');
     const { page, limit, employeeId, type, status } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = { deletedAt: null };
+    const where: any = { deletedAt: null, employee: { organizationId } };
     if (employeeId) where.employeeId = employeeId;
     if (type) where.type = type;
     if (status) where.status = status;
-    // Scope to org via employee relation
-    if (!employeeId) {
-      where.employee = { organizationId };
-    }
 
     const [documents, total] = await Promise.all([
       prisma.document.findMany({
@@ -46,17 +43,15 @@ export class DocumentService {
     };
   }
 
-  async getById(id: string, organizationId?: string) {
-    const doc = await prisma.document.findUnique({
-      where: { id },
+  async getById(id: string, organizationId: string) {
+    if (!organizationId) throw new BadRequestError('organizationId required');
+    const doc = await prisma.document.findFirst({
+      where: { id, employee: { organizationId } },
       include: {
         employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, organizationId: true } },
       },
     });
     if (!doc) throw new NotFoundError('Document');
-    if (organizationId && doc.employee?.organizationId !== organizationId) {
-      throw new NotFoundError('Document');
-    }
     return doc;
   }
 
@@ -143,10 +138,9 @@ export class DocumentService {
   }
 
   async verify(id: string, status: string, verifierId: string, rejectionReason?: string, organizationId?: string) {
+    if (!organizationId) throw new BadRequestError('organizationId required');
     const doc = await prisma.document.findFirst({
-      where: organizationId
-        ? { id, employee: { organizationId } }
-        : { id },
+      where: { id, employee: { organizationId } },
     });
     if (!doc) throw new NotFoundError('Document');
 
@@ -179,10 +173,9 @@ export class DocumentService {
   }
 
   async remove(id: string, userId?: string, organizationId?: string, userRole?: string) {
+    if (!organizationId) throw new BadRequestError('organizationId required');
     const doc = await prisma.document.findFirst({
-      where: organizationId
-        ? { id, employee: { organizationId } }
-        : { id },
+      where: { id, employee: { organizationId } },
     });
     if (!doc) throw new NotFoundError('Document');
 
@@ -363,10 +356,11 @@ export class DocumentService {
     });
     if (!ocrData) return [];
 
-    const doc = await prisma.document.findFirst({ where: { id: documentId, ...(organizationId ? { employee: { organizationId } } : {}) } });
+    if (!organizationId) throw new BadRequestError('organizationId required');
+    const doc = await prisma.document.findFirst({ where: { id: documentId, employee: { organizationId } } });
     if (!doc) return [];
 
-    const employee = await prisma.employee.findFirst({ where: { id: employeeId, ...(organizationId ? { organizationId } : {}) } }) as any;
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } }) as any;
     if (!employee) return [];
 
     const updates: Record<string, any> = {};

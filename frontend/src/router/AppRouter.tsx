@@ -43,7 +43,6 @@ const IosInstallPage = lazy(() => import('../features/pwa/IosInstallPage'));
 const ShareTargetPage = lazy(() => import('../features/pwa/ShareTargetPage'));
 const OpenFilePage = lazy(() => import('../features/pwa/OpenFilePage'));
 const RosterPage = lazy(() => import('../features/roster/RosterPage'));
-const HiringPassedPage = lazy(() => import('../features/hiring/HiringPassedPage'));
 const InterviewAssignmentsPage = lazy(() => import('../features/interviews/InterviewAssignmentsPage'));
 const AssetManagementPage = lazy(() => import('../features/assets/AssetManagementPage'));
 const MyAssetsPage = lazy(() => import('../features/assets/MyAssetsPage'));
@@ -66,6 +65,8 @@ const NewOnboardingFlow = lazy(() => import('../features/onboarding/NewOnboardin
 const MfaRequiredPage = lazy(() => import('../features/auth/MfaRequiredPage'));
 const BulkEmailPage = lazy(() => import('../features/bulk-email/BulkEmailPage'));
 const PrivacyPolicyPage = lazy(() => import('../features/privacy/PrivacyPolicyPage'));
+const InternPortalPage = lazy(() => import('../features/intern/InternPortalPage'));
+const TaskIntegrationPage = lazy(() => import('../features/task-integration/TaskIntegrationPage'));
 
 function PageLoader() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -221,7 +222,7 @@ export default function AppRouter() {
             <Route path="/settings" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary></ProtectedRoute>} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/roster" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><RosterPage /></ProtectedRoute>} />
-            <Route path="/hiring-passed" element={<HiringPassedPage />} />
+            <Route path="/hiring-passed" element={<Navigate to="/recruitment?tab=hiring-passed" replace />} />
             <Route path="/interview-assignments" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER']}><InterviewAssignmentsPage /></ProtectedRoute>} />
             <Route path="/assets" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN']}><AssetManagementPage /></ProtectedRoute>} />
             <Route path="/my-assets" element={<MyAssetsPage />} />
@@ -235,6 +236,8 @@ export default function AppRouter() {
             <Route path="/exit-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitManagementPage /></ProtectedRoute>} />
             <Route path="/exit-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitDetailPage /></ProtectedRoute>} />
             <Route path="/my-exit" element={<MyExitPage />} />
+            <Route path="/intern-portal" element={<ProtectedRoute allowedRoles={['INTERN']}><InternPortalPage /></ProtectedRoute>} />
+            <Route path="/task-integration" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><TaskIntegrationPage /></ProtectedRoute>} />
             <Route path="/more" element={<ProfilePage />} />
           </Route>
 

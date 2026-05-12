@@ -782,7 +782,15 @@ export class LeaveService {
 
       if (balance) {
         if (autoApprove) {
-          await tx.leaveBalance.update({ where: { id: balance.id }, data: { used: { increment: paidDays } } });
+          // Optimistic lock: only increment used if balance still has sufficient days.
+          // Prevents negative balance when two auto-approve paths race concurrently.
+          const autoApproveResult = await tx.leaveBalance.updateMany({
+            where: { id: balance.id, balance: { gte: paidDays } },
+            data: { used: { increment: paidDays } },
+          });
+          if (autoApproveResult.count === 0) {
+            throw new BadRequestError('Insufficient leave balance or balance changed — please try again');
+          }
           await markAttendance(leaveRequest.leaveType?.name || leaveType.name);
         } else {
           await tx.leaveBalance.update({ where: { id: balance.id }, data: { pending: { increment: paidDays } } });
@@ -1521,7 +1529,14 @@ export class LeaveService {
 
       if (balance) {
         if (autoApprove) {
-          await tx.leaveBalance.update({ where: { id: balance.id }, data: { used: { increment: days } } });
+          // Optimistic lock: only increment used if balance still has sufficient days.
+          const submitAutoApproveResult = await tx.leaveBalance.updateMany({
+            where: { id: balance.id, balance: { gte: days } },
+            data: { used: { increment: days } },
+          });
+          if (submitAutoApproveResult.count === 0) {
+            throw new BadRequestError('Insufficient leave balance or balance changed — please try again');
+          }
           // Create attendance records
           const orgHolidays = await tx.holiday.findMany({
             where: { organizationId: employee.organizationId, date: { gte: startDate, lte: endDate }, type: { in: ['PUBLIC', 'CUSTOM'] } },
@@ -1923,10 +1938,15 @@ export class LeaveService {
         if (balance) {
           const days = Number(req.days);
           const safePending = Math.min(Number(balance.pending), days);
-          await tx.leaveBalance.update({
-            where: { id: balance.id },
+          // Optimistic lock: only update if balance still has sufficient days.
+          // Prevents negative balance from concurrent conditional-leave approvals.
+          const balanceUpdateResult = await tx.leaveBalance.updateMany({
+            where: { id: balance.id, balance: { gte: days } },
             data: { used: { increment: days }, pending: { decrement: safePending } },
           });
+          if (balanceUpdateResult.count === 0) {
+            throw new BadRequestError('Insufficient leave balance or balance changed — please try again');
+          }
         }
 
         // Create ON_LEAVE attendance records
@@ -2301,12 +2321,16 @@ export class LeaveService {
 
       if (balance) {
         if (finalStatus === 'APPROVED') {
-          // Guard: only decrement pending if it is actually ≥ requested days (prevents negative balance)
+          // Optimistic lock: only decrement pending/increment used if balance still sufficient.
+          // Prevents negative balance from concurrent approvals racing on the same record.
           const safePendingDecrement = Math.min(Number(balance.pending), Number(request.days));
-          await tx.leaveBalance.update({
-            where: { id: balance.id },
+          const balanceUpdateResult = await tx.leaveBalance.updateMany({
+            where: { id: balance.id, balance: { gte: Number(request.days) } },
             data: { used: { increment: Number(request.days) }, pending: { decrement: safePendingDecrement } },
           });
+          if (balanceUpdateResult.count === 0) {
+            throw new BadRequestError('Insufficient leave balance or balance changed — please try again');
+          }
 
           // Create ON_LEAVE attendance records — use org working days (not hardcoded Sunday)
           const leaveStart = new Date(request.startDate);

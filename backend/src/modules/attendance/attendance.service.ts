@@ -210,6 +210,14 @@ export class AttendanceService {
 
     const currentShiftType = shift?.shiftType || 'OFFICE';
 
+    // DPDP Act 2023: FIELD_SALES clock-in requires prior GPS tracking consent
+    if ((currentShiftType === 'FIELD' || employee.workMode === 'FIELD_SALES') && !employee.locationTrackingConsented) {
+      throw new BadRequestError(
+        'GPS tracking consent is required before clocking in for field attendance. ' +
+        'Please accept the GPS consent in the app settings.'
+      );
+    }
+
     // WFH shift employees skip all geofence enforcement
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const isWfhShift = (shiftAssignment?.shift as any)?.isWfhShift === true;

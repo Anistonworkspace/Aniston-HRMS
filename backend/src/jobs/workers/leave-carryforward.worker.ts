@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { bullmqConnection } from '../queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
+import { redis } from '../../lib/redis.js';
 
 /**
  * New-year leave balance provisioning.
@@ -172,10 +173,15 @@ export function startLeaveCarryForwardWorker() {
     'leave-carry-forward',
     async (job: Job) => {
       switch (job.name) {
-        case 'year-end-carry-forward': {
+        case 'year-end-carry-forward':
+        case 'carry-forward-catchup': {
           const year = job.data?.targetYear ?? new Date().getFullYear();
           const provision = await provisionNewYearBalances(year);
           const carryForward = await processYearEndCarryForward(job.data?.targetYear);
+          // Mark that carry-forward ran for this year so the startup catch-up won't re-queue it
+          const yearKey = `leave:carryforward:ran:${year}`;
+          await redis.setex(yearKey, 60 * 60 * 24 * 365, '1');
+          logger.info(`[Leave CF] Redis flag set: ${yearKey}`);
           return { ...provision, ...carryForward };
         }
         case 'provision-balances':

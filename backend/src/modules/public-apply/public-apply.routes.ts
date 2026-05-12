@@ -2,14 +2,24 @@ import { Router } from 'express';
 import { publicApplyController } from './public-apply.controller.js';
 import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
 import { uploadResume } from '../../middleware/upload.middleware.js';
+import { rateLimiter } from '../../middleware/rateLimiter.js';
 
 const router = Router();
+
+// Rate limiter for public job application submissions:
+// max 3 applications per IP per hour — prevents bot spam and AI MCQ cost abuse.
+const applyRateLimiter = rateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  keyPrefix: 'rl:public-apply',
+  failClosed: false, // fail open so Redis outage doesn't block legitimate applicants
+});
 
 // Public endpoints (no auth)
 router.get('/form/:token', (req, res, next) =>
   publicApplyController.getJobForm(req, res, next)
 );
-router.post('/form/:token/apply', uploadResume.single('resume'), (req, res, next) =>
+router.post('/form/:token/apply', applyRateLimiter, uploadResume.single('resume'), (req, res, next) =>
   publicApplyController.submitApplication(req, res, next)
 );
 router.get('/track/:uid', (req, res, next) =>
