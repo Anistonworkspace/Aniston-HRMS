@@ -11,6 +11,7 @@ import type { ActivityEntry, ScreenshotMetadata } from './agent.validation.js';
 
 const PAIR_PREFIX = 'agent-pair:';
 const LIVE_VIEW_PREFIX = 'agent-live:';
+const SCREENSHOT_INTERVAL_PREFIX = 'agent-screenshot-interval:';
 const PAIR_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** Safely parse JSON from Redis — returns null on failure instead of crashing */
@@ -142,7 +143,6 @@ export class AgentService {
   }
 
   async getConfig(employeeId: string, organizationId?: string) {
-    // Get employee's current shift assignment to determine tracking config
     const org = organizationId
       ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } })
       : null;
@@ -157,15 +157,18 @@ export class AgentService {
       include: { shift: true },
     });
 
-    // Check if live mode is enabled by admin
     const liveData = await redis.get(`${LIVE_VIEW_PREFIX}${employeeId}`);
     const liveMode = safeJsonParse(liveData);
+
+    // Per-employee screenshot interval (set by admin), default 600s (10min)
+    const storedInterval = await redis.get(`${SCREENSHOT_INTERVAL_PREFIX}${employeeId}`);
+    const defaultScreenshotInterval = storedInterval ? parseInt(storedInterval, 10) : 600;
 
     return {
       enabled: true,
       shiftType: assignment?.shift?.shiftType || 'OFFICE',
       trackingIntervalSeconds: 30,
-      screenshotIntervalSeconds: liveMode?.enabled ? (liveMode.intervalSeconds || 30) : 600, // 10min default, or live interval
+      screenshotIntervalSeconds: liveMode?.enabled ? (liveMode.intervalSeconds || 30) : defaultScreenshotInterval,
       syncIntervalMinutes: 5,
       idleThresholdSeconds: 300,
       screenshotsEnabled: true,
@@ -214,6 +217,39 @@ export class AgentService {
 
     const data = await redis.get(`${LIVE_VIEW_PREFIX}${employeeId}`);
     return safeJsonParse(data) || { enabled: false, intervalSeconds: 600 };
+  }
+
+  async setScreenshotInterval(employeeId: string, organizationId: string, intervalSeconds: number, userId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    // Store with 90-day TTL (outlasts typical config change cycles)
+    await redis.set(`${SCREENSHOT_INTERVAL_PREFIX}${employeeId}`, String(intervalSeconds), 'EX', 7776000);
+
+    // Notify agent to pick up new config
+    const user = await prisma.user.findFirst({
+      where: { employee: { id: employeeId } },
+      select: { id: true },
+    });
+    if (user) {
+      emitToUser(user.id, 'agent:config-update', { screenshotIntervalSeconds: intervalSeconds });
+    }
+
+    await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'UPDATE', newValue: { screenshotIntervalSeconds: intervalSeconds } });
+    return { employeeId, intervalSeconds };
+  }
+
+  async getScreenshotInterval(employeeId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+    const stored = await redis.get(`${SCREENSHOT_INTERVAL_PREFIX}${employeeId}`);
+    return { intervalSeconds: stored ? parseInt(stored, 10) : 600 };
   }
 
   async getActivityLogs(employeeId: string, date: string, organizationId: string) {
@@ -300,6 +336,43 @@ export class AgentService {
       where: { employeeId, date: queryDate, organizationId },
       orderBy: { timestamp: 'asc' },
     });
+  }
+
+  async deleteActivityByDate(employeeId: string, date: string, organizationId: string, userId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const queryDate = new Date(date + 'T00:00:00.000Z');
+    if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
+
+    // Delete screenshots first (collect URLs for file deletion)
+    const screenshots = await prisma.agentScreenshot.findMany({
+      where: { employeeId, date: queryDate, organizationId },
+      select: { id: true, imageUrl: true },
+    });
+
+    const { count: logsDeleted } = await prisma.activityLog.deleteMany({
+      where: { employeeId, date: queryDate, organizationId },
+    });
+    const { count: screenshotsDeleted } = await prisma.agentScreenshot.deleteMany({
+      where: { employeeId, date: queryDate, organizationId },
+    });
+
+    // Delete screenshot files (best-effort, non-blocking)
+    for (const s of screenshots) {
+      if (s.imageUrl) {
+        try {
+          const { storageService } = await import('../../services/storage.service.js');
+          await storageService.deleteFile(s.imageUrl);
+        } catch {}
+      }
+    }
+
+    await createAuditLog({ userId, organizationId, entity: 'ActivityLog', entityId: employeeId, action: 'DELETE', newValue: { date, logsDeleted, screenshotsDeleted } });
+    return { date, logsDeleted, screenshotsDeleted };
   }
 
   async getAgentStatus(employeeId: string, organizationId: string) {

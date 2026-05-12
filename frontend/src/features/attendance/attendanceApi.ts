@@ -276,6 +276,21 @@ export const attendanceApi = api.injectEndpoints({
       ],
     }),
 
+    setAgentScreenshotInterval: builder.mutation<{ success: boolean; data: { employeeId: string; intervalSeconds: number } }, { employeeId: string; intervalSeconds: number }>({
+      query: (body) => ({ url: '/agent/screenshot-interval', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    getAgentScreenshotInterval: builder.query<{ success: boolean; data: { intervalSeconds: number } }, string>({
+      query: (employeeId) => `/agent/screenshot-interval/${employeeId}`,
+      providesTags: (_, __, employeeId) => [{ type: 'Attendance' as const, id: `ScreenshotInterval-${employeeId}` }],
+    }),
+
+    deleteAgentActivityByDate: builder.mutation<{ success: boolean; data: { date: string; logsDeleted: number; screenshotsDeleted: number } }, { employeeId: string; date: string }>({
+      query: ({ employeeId, date }) => ({ url: `/agent/activity/${employeeId}/${date}`, method: 'DELETE' }),
+      invalidatesTags: ['Attendance'],
+    }),
+
     // Pending regularizations (HR view)
     getPendingRegularizations: builder.query<any, void>({
       query: () => '/attendance/regularizations/pending',
@@ -486,6 +501,9 @@ export const {
   useGenerateAgentPairCodeMutation,
   useSetAgentLiveModeMutation,
   useGetAgentLiveModeQuery,
+  useSetAgentScreenshotIntervalMutation,
+  useGetAgentScreenshotIntervalQuery,
+  useDeleteAgentActivityByDateMutation,
   useGetPendingRegularizationsQuery,
   useGetRegularizationsQuery,
   useHandleRegularizationMutation,

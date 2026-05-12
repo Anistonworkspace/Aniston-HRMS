@@ -209,6 +209,44 @@ export class AgentController {
       res.send(buffer);
     } catch (err) { next(err); }
   }
+
+  async setScreenshotInterval(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, intervalSeconds } = req.body;
+      if (!employeeId || !intervalSeconds) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'employeeId and intervalSeconds required' } });
+        return;
+      }
+      const validIntervals = [60, 300, 600, 900, 1800, 3600];
+      if (!validIntervals.includes(Number(intervalSeconds))) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'intervalSeconds must be one of: 60, 300, 600, 900, 1800, 3600' } });
+        return;
+      }
+      const result = await agentService.setScreenshotInterval(employeeId, req.user!.organizationId, Number(intervalSeconds), req.user!.userId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getScreenshotInterval(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await agentService.getScreenshotInterval(req.params.employeeId, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async deleteActivityByDate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, date } = req.params;
+      dateParamSchema.parse(date);
+      const result = await agentService.deleteActivityByDate(
+        employeeId,
+        date,
+        req.user!.organizationId,
+        req.user!.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const agentController = new AgentController();

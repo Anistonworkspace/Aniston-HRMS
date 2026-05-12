@@ -83,4 +83,11 @@ router.get(
   (req, res, next) => agentController.getScreenshots(req, res, next)
 );
 
+// Admin: set screenshot interval for an employee
+router.post('/screenshot-interval', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.setScreenshotInterval(req, res, next));
+router.get('/screenshot-interval/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.getScreenshotInterval(req, res, next));
+
+// Admin: delete all activity data for a specific date
+router.delete('/activity/:employeeId/:date', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.deleteActivityByDate(req, res, next));
+
 export { router as agentRouter };

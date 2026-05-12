@@ -12,6 +12,7 @@ import {
   useGetActivityBulkSummaryQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
   useSetAgentLiveModeMutation, useGetAgentLiveModeQuery, useGetEmployeeAgentStatusQuery,
   useLazyDownloadActivityExcelQuery,
+  useGetAgentScreenshotIntervalQuery, useSetAgentScreenshotIntervalMutation, useDeleteAgentActivityByDateMutation,
 } from '../attendance/attendanceApi';
 import { useGetAgentSetupListQuery } from '../settings/settingsApi';
 import { getInitials, cn } from '../../lib/utils';
@@ -38,7 +39,7 @@ function fmtMinutes(mins: number) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Page root
 // ─────────────────────────────────────────────────────────────────────────────
-const RETENTION_DAYS = 3; // must match ACTIVITY_RETENTION_DAYS env var
+const RETENTION_DAYS = 30; // must match ACTIVITY_RETENTION_DAYS env var
 
 /** Returns true if a YYYY-MM-DD date string is older than the retention window */
 function isExpired(dateStr: string): boolean {
@@ -437,6 +438,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
                 Export Excel
               </button>
             )}
+            <DeleteDateDataButton employeeId={employee.id} date={date} hasData={hasData} />
           </div>
         </div>
 
@@ -462,6 +464,9 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
           ))}
         </div>
       </div>
+
+      {/* Screenshot interval + data management */}
+      <ScreenshotIntervalControl employeeId={employee.id} />
 
       {/* ── Retention Expired State ── */}
       {dateExpired && (
@@ -1274,6 +1279,89 @@ function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; e
         )}
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screenshot Interval Control
+// ─────────────────────────────────────────────────────────────────────────────
+function ScreenshotIntervalControl({ employeeId }: { employeeId: string }) {
+  const { data: intervalRes } = useGetAgentScreenshotIntervalQuery(employeeId);
+  const [setInterval, { isLoading }] = useSetAgentScreenshotIntervalMutation();
+  const current = intervalRes?.data?.intervalSeconds ?? 600;
+
+  const options = [
+    { value: 60, label: '1 min' },
+    { value: 300, label: '5 min' },
+    { value: 600, label: '10 min' },
+    { value: 900, label: '15 min' },
+    { value: 1800, label: '30 min' },
+    { value: 3600, label: '60 min' },
+  ];
+
+  const handleChange = async (val: number) => {
+    try {
+      await setInterval({ employeeId, intervalSeconds: val }).unwrap();
+      toast.success(`Screenshot interval set to ${options.find(o => o.value === val)?.label}`);
+    } catch {
+      toast.error('Failed to update screenshot interval');
+    }
+  };
+
+  return (
+    <div className="layer-card p-3 flex items-center gap-3">
+      <Camera size={14} className="text-brand-500 flex-shrink-0" />
+      <span className="text-xs font-medium text-gray-700">Screenshot interval:</span>
+      <select value={current} onChange={e => handleChange(Number(e.target.value))} disabled={isLoading}
+        className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-300 disabled:opacity-50">
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <span className="text-[10px] text-gray-400">Current: {options.find(o => o.value === current)?.label ?? `${current}s`}</span>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delete Date Data Button
+// ─────────────────────────────────────────────────────────────────────────────
+function DeleteDateDataButton({ employeeId, date, hasData }: { employeeId: string; date: string; hasData: boolean }) {
+  const [deleteData, { isLoading }] = useDeleteAgentActivityByDateMutation();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!hasData) return null;
+
+  const handleDelete = async () => {
+    try {
+      const result = await deleteData({ employeeId, date }).unwrap();
+      toast.success(`Deleted ${result.data.logsDeleted} logs and ${result.data.screenshotsDeleted} screenshots for ${date}`);
+      setConfirming(false);
+    } catch {
+      toast.error('Failed to delete data');
+      setConfirming(false);
+    }
+  };
+
+  if (confirming) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] text-red-600 font-medium">Delete all data for {date}?</span>
+        <button onClick={handleDelete} disabled={isLoading}
+          className="px-2.5 py-1 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
+          {isLoading ? 'Deleting…' : 'Confirm'}
+        </button>
+        <button onClick={() => setConfirming(false)}
+          className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button onClick={() => setConfirming(true)}
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+      <X size={12} /> Delete Date Data
+    </button>
   );
 }
 
