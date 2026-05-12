@@ -502,7 +502,7 @@ jobs:
             # cleanup-employees.ts is intentionally NOT called here.
             # It only deletes demo@anistonav.com and must be run manually on the server:
             #   npx tsx scripts/cleanup-employees.ts
-            (npx tsx scripts/cleanup-holidays.ts) || echo "Holiday cleanup skipped (non-fatal)"
+            npx tsx scripts/cleanup-holidays.ts; echo "Holiday cleanup done (exit ignored)"
 
             echo "=== [10/17] Seeding database ==="
             # Always skip seed on production deploy — seed only runs manually when ALLOW_PROD_SEED=true
