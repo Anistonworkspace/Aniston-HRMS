@@ -328,6 +328,36 @@ jobs:
             # drop a type that doesn't exist, so we clean it up first.
             sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c \
               "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1 || true
+
+            # Baseline guard: if _prisma_migrations table is missing or empty the DB was
+            # provisioned with db push and has no migration history. Mark every existing
+            # migration as already applied so migrate deploy only runs truly new ones.
+            MIGRATION_COUNT=$(psql "$DEPLOY_DATABASE_URL" -tAc \
+              "SELECT COUNT(*) FROM _prisma_migrations;" 2>/dev/null || echo "0")
+            if [ "$MIGRATION_COUNT" = "0" ]; then
+              echo "No migration history found — baselining all existing migrations..."
+              for migration in \
+                20260413000000_add_leave_settings_intern_role \
+                20260413000001_add_leave_applicable_employees \
+                20260429000000_gps_indexes_consent \
+                20260502000000_leave_policy_engine \
+                20260503000000_leave_balance_breakdown \
+                20260503000001_leave_policy_max_paid_per_month \
+                20260503000002_attendance_shift_snapshot_and_indexes \
+                20260503000003_remove_hybrid_shift_type \
+                20260506000000_add_leave_condition_messages \
+                20260506000001_leave_unpaid_tracking \
+                20260511000000_expand_hr_action_restrictions \
+                20260511000001_add_gps_no_data_anomaly_type \
+                20260511000002_add_gps_v1_5_5_tracking_fields; do
+                npx prisma migrate resolve --applied "$migration" --schema=prisma/schema.prisma 2>/dev/null || true
+                echo "  Baselined: $migration"
+              done
+              echo "✅ Baseline complete"
+            else
+              echo "Migration history present ($MIGRATION_COUNT entries) — skipping baseline"
+            fi
+
             # Production: uses migrate deploy (NOT db push) to preserve data
             # migrate deploy applies only pending migrations — never drops columns or tables.
             npx prisma migrate deploy --schema=prisma/schema.prisma
