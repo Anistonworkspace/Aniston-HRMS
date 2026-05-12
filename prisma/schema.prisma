@@ -2857,6 +2857,7 @@ model EmployeeInvitation {
   designationId     String?          // Pre-assign designation
   managerId         String?          // Pre-assign reporting manager
   officeLocationId  String?          // Pre-assign office/location
+  shiftId           String?          // Pre-assign shift — auto-creates ShiftAssignment on acceptance
   workMode          String?          // Pre-assign work mode
   employmentType    String?          // FULL_TIME, PART_TIME, CONTRACT, INTERN
   experienceLevel   String?          // INTERN, FRESHER, EXPERIENCED — drives required KYC documents

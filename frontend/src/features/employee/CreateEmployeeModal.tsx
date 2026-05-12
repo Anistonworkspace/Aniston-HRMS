@@ -16,6 +16,7 @@ import {
   useDeleteDepartmentMutation,
   useDeleteDesignationMutation,
 } from './employeeDepsApi';
+import { useGetShiftsQuery } from '../workforce/workforceApi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import toast from 'react-hot-toast';
 
@@ -26,7 +27,10 @@ interface Props {
 
 const WORK_MODES = [
   { value: 'OFFICE', label: 'Office', hint: 'Geofence-based check-in/out from the assigned office location' },
+  { value: 'HYBRID', label: 'Hybrid', hint: 'Mix of office and work-from-home; WFH days require an approved home location' },
   { value: 'FIELD_SALES', label: 'Field Sales', hint: 'Live GPS tracking per shift interval — no geofence required' },
+  { value: 'PROJECT_SITE', label: 'Project Site', hint: 'Manual photo check-in at project site with GPS coordinates' },
+  { value: 'REMOTE', label: 'Remote', hint: 'Fully remote — manual attendance with optional home geofence' },
 ];
 
 const EMPLOYMENT_TYPES = [
@@ -59,6 +63,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
   const { data: desigRes, refetch: refetchDesigs } = useGetDesignationsQuery();
   const { data: locRes } = useGetOfficeLocationsQuery();
   const { data: mgrRes } = useGetManagersQuery();
+  const { data: shiftsRes } = useGetShiftsQuery();
   const { data: docTemplatesRes } = useGetDocumentTemplatesQuery();
   const [createDept] = useCreateDepartmentMutation();
   const [createDesig] = useCreateDesignationMutation();
@@ -73,6 +78,11 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
     label: `${e.firstName} ${e.lastName}`,
     sublabel: e.designation?.name,
   }));
+  const shifts = ((shiftsRes?.data || []) as any[]).map((s: any) => ({
+    value: s.id,
+    label: s.name,
+    sublabel: `${s.startTime}–${s.endTime}`,
+  }));
 
   // Form state
   const [email, setEmail] = useState('');
@@ -83,6 +93,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
   const [designationId, setDesignationId] = useState('');
   const [managerId, setManagerId] = useState('');
   const [officeLocationId, setOfficeLocationId] = useState('');
+  const [shiftId, setShiftId] = useState('');
   const [workMode, setWorkMode] = useState('OFFICE');
   const [joiningDate, setJoiningDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -134,7 +145,9 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
     if (!experienceLevel) e.experienceLevel = 'Experience level is required';
     if (!departmentId) e.departmentId = 'Department is required';
     if (!designationId) e.designationId = 'Designation is required';
+    if (!managerId) e.managerId = 'Reporting manager is required';
     if (!officeLocationId) e.officeLocationId = 'Office location is required';
+    if (!shiftId) e.shiftId = 'Shift is required';
     if (!workMode) e.workMode = 'Work mode is required';
     if (!joiningDate) e.joiningDate = 'Proposed joining date is required';
     setErrors(e);
@@ -151,8 +164,9 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
         employmentType,
         departmentId,
         designationId,
-        managerId: managerId || undefined,
+        managerId,
         officeLocationId,
+        shiftId,
         workMode,
         proposedJoiningDate: joiningDate,
         notes: notes.trim() || undefined,
@@ -220,7 +234,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
   const handleClose = () => {
     setEmail(''); setMobile(''); setEmploymentType('FULL_TIME');
     setExperienceLevel(''); setDepartmentId(''); setDesignationId(''); setManagerId('');
-    setOfficeLocationId(''); setWorkMode('OFFICE'); setJoiningDate(''); setNotes('');
+    setOfficeLocationId(''); setShiftId(''); setWorkMode('OFFICE'); setJoiningDate(''); setNotes('');
     setErrors({}); setSuccess(null); setQuickCreate(null); setQuickName('');
     setExperienceDocFields([]); setDocFieldsOpen(false); setNewDocLabel(''); setNewDocRequired(true);
     onClose();
@@ -302,13 +316,13 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                 {/* ── Contact ── */}
                 <section>
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                    <Mail size={12} /> Contact
+                    <Mail size={12} /> Contact <span className="text-[10px] font-normal text-gray-400 normal-case tracking-normal ml-1">(at least one required)</span>
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
                         Work Email
-                        <FieldHint text="Invite link sent here; used as login ID" />
+                        <FieldHint text="Invite link sent here; used as login ID. Provide email, mobile, or both." />
                       </label>
                       <input
                         type="email"
@@ -434,7 +448,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                     {/* Manager */}
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
-                        Reporting Manager
+                        Reporting Manager <span className="text-red-500">*</span>
                         <FieldHint text="Routes leave requests and attendance regularization approvals" />
                       </label>
                       <SearchableSelect
@@ -442,7 +456,9 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                         value={managerId}
                         onChange={setManagerId}
                         placeholder="Select manager..."
+                        error={errors.managerId}
                       />
+                      {errors.managerId && <p className="text-xs text-red-500 mt-1">{errors.managerId}</p>}
                     </div>
                   </div>
                 </section>
@@ -452,7 +468,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                     <MapPin size={12} /> Work Setup
                   </h3>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     {/* Work Mode */}
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
@@ -477,6 +493,22 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                       {errors.workMode && <p className="text-xs text-red-500 mt-1">{errors.workMode}</p>}
                     </div>
 
+                    {/* Shift */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        Shift <span className="text-red-500">*</span>
+                        <FieldHint text="Sets working hours and grace period for this employee — auto-assigned on invite acceptance" />
+                      </label>
+                      <SearchableSelect
+                        options={shifts}
+                        value={shiftId}
+                        onChange={setShiftId}
+                        placeholder="Select shift..."
+                        error={errors.shiftId}
+                      />
+                      {errors.shiftId && <p className="text-xs text-red-500 mt-1">{errors.shiftId}</p>}
+                    </div>
+
                     {/* Office Location */}
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
@@ -490,6 +522,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                         placeholder="Select location..."
                         error={errors.officeLocationId}
                       />
+                      {errors.officeLocationId && <p className="text-xs text-red-500 mt-1">{errors.officeLocationId}</p>}
                     </div>
 
                     {/* Joining Date */}

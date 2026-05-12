@@ -18,11 +18,14 @@ export const createInvitationSchema = z.object({
   // designationId: REQUIRED — job title used on offer letters, payslips, and org chart
   designationId: z.string().uuid('Select a valid designation'),
 
-  // managerId: optional — sets direct reporting line; routes leave/regularization approvals
-  managerId: z.string().uuid().optional(),
+  // managerId: REQUIRED — sets direct reporting line; routes leave/regularization approvals
+  managerId: z.string().uuid('Select a valid reporting manager'),
 
   // officeLocationId: REQUIRED — determines geofence boundary for OFFICE attendance check-in
   officeLocationId: z.string().uuid('Select a valid office location'),
+
+  // shiftId: REQUIRED — auto-creates a ShiftAssignment when the employee accepts the invitation
+  shiftId: z.string().uuid('Select a valid shift'),
 
   // workMode: REQUIRED — determines attendance mode:
   //   OFFICE → geofence auto check-in, FIELD_SALES → GPS trail every 60s,

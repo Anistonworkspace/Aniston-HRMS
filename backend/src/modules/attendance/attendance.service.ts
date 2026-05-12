@@ -2113,22 +2113,25 @@ export class AttendanceService {
       );
     }
 
-    // If a previous REJECTED request exists for this record, remove it so the unique constraint allows a fresh submission
-    await prisma.attendanceRegularization.deleteMany({
-      where: { attendanceId, status: 'REJECTED' },
-    });
-
-    const reg = await prisma.attendanceRegularization.create({
-      data: {
-        attendanceId,
-        employeeId,
-        reason,
-        requestedCheckIn: requestedCheckIn ? new Date(requestedCheckIn) : null,
-        requestedCheckOut: requestedCheckOut ? new Date(requestedCheckOut) : null,
-        originalCheckIn: record.checkIn,
-        originalCheckOut: record.checkOut,
-        status: 'PENDING',
-      },
+    // Delete any previous REJECTED record atomically, then create the new one.
+    // Wrapped in $transaction so the unique constraint on attendanceId never fires
+    // between the delete and the insert (race-safe).
+    const reg = await prisma.$transaction(async (tx) => {
+      await tx.attendanceRegularization.deleteMany({
+        where: { attendanceId, status: 'REJECTED' },
+      });
+      return tx.attendanceRegularization.create({
+        data: {
+          attendanceId,
+          employeeId,
+          reason,
+          requestedCheckIn: requestedCheckIn ? new Date(requestedCheckIn) : null,
+          requestedCheckOut: requestedCheckOut ? new Date(requestedCheckOut) : null,
+          originalCheckIn: record.checkIn,
+          originalCheckOut: record.checkOut,
+          status: 'PENDING',
+        },
+      });
     });
 
     // Auto-approve if check-in is within shift grace period

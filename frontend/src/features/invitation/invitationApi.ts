@@ -14,6 +14,7 @@ export interface CreateInvitationInput {
   designationId?: string;
   managerId?: string;
   officeLocationId?: string;
+  shiftId?: string;
   workMode?: string;
   employmentType?: string;
   proposedJoiningDate?: string;

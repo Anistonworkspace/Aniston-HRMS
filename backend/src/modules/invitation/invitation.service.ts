@@ -29,7 +29,7 @@ export class InvitationService {
    * Create a new employee invitation and send the invite email.
    */
   async createInvitation(input: CreateInvitationInput, organizationId: string, invitedBy: string) {
-    const { email, mobileNumber, departmentId, designationId, managerId, officeLocationId, workMode, employmentType, proposedJoiningDate, experienceLevel, experienceDocFields, notes, sendWelcomeEmail } = input;
+    const { email, mobileNumber, departmentId, designationId, managerId, officeLocationId, shiftId, workMode, employmentType, proposedJoiningDate, experienceLevel, experienceDocFields, notes, sendWelcomeEmail } = input;
 
     // Check for existing pending invitation
     if (email) {
@@ -93,6 +93,7 @@ export class InvitationService {
         designationId: designationId || null,
         managerId: managerId || null,
         officeLocationId: officeLocationId || null,
+        shiftId: shiftId || null,
         workMode: workMode || null,
         employmentType: employmentType || null,
         proposedJoiningDate: proposedJoiningDate ? new Date(proposedJoiningDate) : null,
@@ -364,6 +365,19 @@ export class InvitationService {
           },
         });
 
+        // Auto-create shift assignment if HR pre-assigned a shift on the invite
+        if ((invitation as any).shiftId) {
+          await tx.shiftAssignment.create({
+            data: {
+              employeeId: employee.id,
+              shiftId: (invitation as any).shiftId,
+              organizationId: invitation.organizationId,
+              startDate: invitation.proposedJoiningDate || new Date(),
+              assignedBy: invitation.invitedBy,
+            },
+          });
+        }
+
         const claimed = await tx.employeeInvitation.updateMany({
           where: { id: invitation.id, status: 'PENDING' },
           data: { status: 'ACCEPTED', acceptedAt: new Date(), employeeId: employee.id },
@@ -414,6 +428,19 @@ export class InvitationService {
             officeLocationId: invitation.officeLocationId || undefined,
           },
         });
+
+        // Auto-create shift assignment if HR pre-assigned a shift on the invite
+        if ((invitation as any).shiftId) {
+          await tx.shiftAssignment.create({
+            data: {
+              employeeId: employee.id,
+              shiftId: (invitation as any).shiftId,
+              organizationId: invitation.organizationId,
+              startDate: invitation.proposedJoiningDate || new Date(),
+              assignedBy: invitation.invitedBy,
+            },
+          });
+        }
 
         const claimed = await tx.employeeInvitation.updateMany({
           where: { id: invitation.id, status: 'PENDING' },
