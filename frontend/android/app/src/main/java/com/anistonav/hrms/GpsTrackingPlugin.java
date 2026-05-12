@@ -78,6 +78,14 @@ public class GpsTrackingPlugin extends Plugin {
         GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_PLUGIN_CRED_SNAPSHOT_AT, GpsDiagnostics.nowIso());
         GpsDiagnostics.markCheckedIn(ctx);
 
+        // ── Permission gate — verify FGS eligibility before attempting service start ──
+        GpsPermissionGuard.CheckResult perm = GpsPermissionGuard.check(ctx, "plugin");
+        if (!perm.canStart) {
+            Log.e(TAG, "GPS start blocked by permission guard: " + perm.blockReason);
+            call.reject("GPS permission check failed: " + perm.blockReason);
+            return;
+        }
+
         // Build service intent with all extras (service will also call saveToPrefs()
         // but having extras in the intent ensures a clean fresh start)
         Intent intent = new Intent(ctx, GpsTrackingService.class);
@@ -95,6 +103,9 @@ public class GpsTrackingPlugin extends Plugin {
                 ctx.startService(intent);
             }
             call.resolve();
+        } catch (SecurityException e) {
+            Log.e(TAG, "startForegroundService SecurityException", e);
+            call.reject("GPS start failed (SecurityException): " + e.getMessage());
         } catch (Exception e) {
             Log.e(TAG, "Failed to start GPS service", e);
             call.reject("Failed to start GPS tracking: " + e.getMessage());

@@ -557,10 +557,11 @@ interface MapSectionProps {
   gpsVisits?: any[];
   selectedDate: string;
   geofenceViolation?: boolean;
+  workMode?: string;
 }
 
-export default function MapSection({ checkInLoc, geofenceCoords, geofence, shiftType, gpsTrail, gpsVisits = [], selectedDate, geofenceViolation }: MapSectionProps) {
-  if (shiftType === 'FIELD') {
+export default function MapSection({ checkInLoc, geofenceCoords, geofence, shiftType, gpsTrail, gpsVisits = [], selectedDate, geofenceViolation, workMode }: MapSectionProps) {
+  if (shiftType === 'FIELD' || workMode === 'FIELD_SALES') {
     return (
       <>
         <GpsTrailSection gpsTrail={gpsTrail} gpsVisits={gpsVisits} selectedDate={selectedDate} />

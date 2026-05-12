@@ -100,7 +100,19 @@ public class GpsRestartReceiver extends BroadcastReceiver {
             return;
         }
 
-        // ── Step 5: Build and start service intent ────────────────────────────────
+        // ── Step 5: Permission gate — must pass before starting FGS ──────────────
+        // Background receivers (alarm/boot) can hit Android 14+ SecurityException when
+        // starting a type=location FGS without FOREGROUND_SERVICE_LOCATION permission
+        // or when the app lacks a valid foreground exemption.
+        GpsPermissionGuard.CheckResult perm = GpsPermissionGuard.check(context, "receiver");
+        if (!perm.canStart) {
+            Log.w(TAG, "Permission gate blocked restart: " + perm.blockReason);
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT,
+                "blocked_permission:" + perm.blockReason);
+            return;
+        }
+
+        // ── Step 6: Build and start service intent ────────────────────────────────
         // No extras in intent — GpsTrackingService.restoreFromPrefs() reads from GpsSessionStore.
         Log.i(TAG, "Restarting GPS service for employee: " + session.employeeId);
         Intent serviceIntent = new Intent(context, GpsTrackingService.class);
@@ -117,6 +129,12 @@ public class GpsRestartReceiver extends BroadcastReceiver {
             GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT, "started");
             Log.i(TAG, "startForegroundService dispatched successfully");
 
+        } catch (SecurityException e) {
+            Log.e(TAG, "startForegroundService SecurityException: " + e.getMessage());
+            String reason = e.getMessage() != null ? e.getMessage() : "SecurityException";
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_LAST_RESTART_RESULT,  "failed_security:" + reason);
+            GpsDiagnostics.recordEvent(context, GpsDiagnostics.KEY_RESTART_EXCEPTION,    reason);
+            GpsDiagnostics.recordError(context, "restart_security_exception: " + reason);
         } catch (Exception e) {
             Log.e(TAG, "Failed to restart GPS service: " + e.getMessage());
             String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();

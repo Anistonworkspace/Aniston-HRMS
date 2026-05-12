@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { useAppDispatch, useAppSelector } from '../../app/store';
 import { setAccessToken, setHydrated } from './authSlice';
+import { secureStorage } from '../../lib/secureStorage';
 
 // On native Capacitor, VITE_API_URL resolves to '/api' at build time, which maps to
 // capacitor://localhost/api — there is no backend there. Always use the production URL.
@@ -27,7 +28,7 @@ export default function AuthHydrator({ children }: { children: React.ReactNode }
     attempted.current = true;
 
     const isNative = Capacitor.isNativePlatform();
-    const storedRefreshToken = isNative ? localStorage.getItem('nativeRefreshToken') : null;
+    const storedRefreshToken = isNative ? secureStorage.getRefreshToken() : null;
 
     // On native with no stored token, skip the call — user must log in
     if (isNative && !storedRefreshToken) {
@@ -47,7 +48,7 @@ export default function AuthHydrator({ children }: { children: React.ReactNode }
       .then(async (res) => {
         if (!res.ok) {
           // Stored token is expired or invalid — clear it
-          if (isNative) localStorage.removeItem('nativeRefreshToken');
+          if (isNative) secureStorage.removeRefreshToken();
           dispatch(setHydrated());
           return;
         }
@@ -59,7 +60,7 @@ export default function AuthHydrator({ children }: { children: React.ReactNode }
         }
         // Rotate stored refresh token with the newly issued one
         if (newRefreshToken && isNative) {
-          localStorage.setItem('nativeRefreshToken', newRefreshToken);
+          secureStorage.setRefreshToken(newRefreshToken);
         }
         dispatch(setHydrated());
       })

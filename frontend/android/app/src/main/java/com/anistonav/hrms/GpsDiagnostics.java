@@ -91,6 +91,25 @@ public class GpsDiagnostics {
     public static final String KEY_TOKEN_RETRY_ATTEMPTED_AT     = "tokenRetryAttemptedAt";
     public static final String KEY_GPS_CONSENT_REQUIRED         = "gpsConsentRequired";
 
+    // ── FGS start / permission gate ───────────────────────────────────────────
+    public static final String KEY_LAST_FGS_START_ATTEMPT_AT        = "lastFgsStartAttemptAt";
+    public static final String KEY_LAST_FGS_START_RESULT            = "lastFgsStartResult";
+    public static final String KEY_LAST_FGS_START_EXCEPTION         = "lastFgsStartException";
+    public static final String KEY_FGS_START_BLOCKED                = "fgsStartBlocked";
+    public static final String KEY_FGS_START_BLOCKED_REASON         = "fgsStartBlockedReason";
+    public static final String KEY_FINE_LOCATION_GRANTED            = "fineLocationGranted";
+    public static final String KEY_COARSE_LOCATION_GRANTED          = "coarseLocationGranted";
+    public static final String KEY_BACKGROUND_LOCATION_GRANTED      = "backgroundLocationGranted";
+    public static final String KEY_NOTIFICATION_PERMISSION_GRANTED  = "notificationPermissionGranted";
+    public static final String KEY_FGS_LOCATION_PERMISSION          = "foregroundServiceLocationPermission";
+    public static final String KEY_LOCATION_ENABLED                 = "locationEnabled";
+    public static final String KEY_PERMISSION_GATE_RESULT           = "permissionGateResult";
+
+    // ── Trail POST diagnostics ─────────────────────────────────────────────────
+    public static final String KEY_LAST_TRAIL_POST_RESULT       = "lastTrailPostResult";
+    public static final String KEY_LAST_TRAIL_POST_STATUS_CODE  = "lastTrailPostStatusCode";
+    public static final String KEY_LAST_TRAIL_POST_ACCEPTED     = "lastTrailPostAccepted";
+
     // ── Device info ───────────────────────────────────────────────────────────
     public static final String KEY_MANUFACTURER                 = "manufacturer";
     public static final String KEY_BRAND                        = "brand";
@@ -265,6 +284,30 @@ public class GpsDiagnostics {
             obj.put(KEY_LAST_HTTP_RESPONSE_AT,        p.getString(KEY_LAST_HTTP_RESPONSE_AT,        ""));
             obj.put(KEY_LAST_HTTP_REQUEST_URL,        p.getString(KEY_LAST_HTTP_REQUEST_URL,        ""));
             obj.put(KEY_LAST_ERROR_MESSAGE,           p.getString(KEY_LAST_ERROR_MESSAGE,           ""));
+            obj.put(KEY_CONSECUTIVE_403_COUNT,        p.getString(KEY_CONSECUTIVE_403_COUNT,        "0"));
+            obj.put(KEY_LAST_403_AT,                  p.getString(KEY_LAST_403_AT,                  ""));
+            obj.put(KEY_TOKEN_RETRY_SOURCE,           p.getString(KEY_TOKEN_RETRY_SOURCE,           ""));
+            obj.put(KEY_TOKEN_RETRY_ATTEMPTED_AT,     p.getString(KEY_TOKEN_RETRY_ATTEMPTED_AT,     ""));
+            obj.put(KEY_GPS_CONSENT_REQUIRED,         p.getString(KEY_GPS_CONSENT_REQUIRED,         "false"));
+
+            // FGS start / permission gate
+            obj.put(KEY_LAST_FGS_START_ATTEMPT_AT,       p.getString(KEY_LAST_FGS_START_ATTEMPT_AT,       ""));
+            obj.put(KEY_LAST_FGS_START_RESULT,           p.getString(KEY_LAST_FGS_START_RESULT,           ""));
+            obj.put(KEY_LAST_FGS_START_EXCEPTION,        p.getString(KEY_LAST_FGS_START_EXCEPTION,        ""));
+            obj.put(KEY_FGS_START_BLOCKED,               p.getString(KEY_FGS_START_BLOCKED,               "false"));
+            obj.put(KEY_FGS_START_BLOCKED_REASON,        p.getString(KEY_FGS_START_BLOCKED_REASON,        ""));
+            obj.put(KEY_FINE_LOCATION_GRANTED,           p.getString(KEY_FINE_LOCATION_GRANTED,           ""));
+            obj.put(KEY_COARSE_LOCATION_GRANTED,         p.getString(KEY_COARSE_LOCATION_GRANTED,         ""));
+            obj.put(KEY_BACKGROUND_LOCATION_GRANTED,     p.getString(KEY_BACKGROUND_LOCATION_GRANTED,     ""));
+            obj.put(KEY_NOTIFICATION_PERMISSION_GRANTED, p.getString(KEY_NOTIFICATION_PERMISSION_GRANTED, ""));
+            obj.put(KEY_FGS_LOCATION_PERMISSION,         p.getString(KEY_FGS_LOCATION_PERMISSION,         ""));
+            obj.put(KEY_LOCATION_ENABLED,                p.getString(KEY_LOCATION_ENABLED,                ""));
+            obj.put(KEY_PERMISSION_GATE_RESULT,          p.getString(KEY_PERMISSION_GATE_RESULT,          ""));
+
+            // Trail POST diagnostics
+            obj.put(KEY_LAST_TRAIL_POST_RESULT,      p.getString(KEY_LAST_TRAIL_POST_RESULT,      ""));
+            obj.put(KEY_LAST_TRAIL_POST_STATUS_CODE, p.getString(KEY_LAST_TRAIL_POST_STATUS_CODE, ""));
+            obj.put(KEY_LAST_TRAIL_POST_ACCEPTED,    p.getString(KEY_LAST_TRAIL_POST_ACCEPTED,    ""));
 
             // Device
             obj.put(KEY_MANUFACTURER,                 p.getString(KEY_MANUFACTURER,                 ""));
@@ -293,6 +336,11 @@ public class GpsDiagnostics {
             obj.put(KEY_LAST_ALARM_TYPE,              p.getString(KEY_LAST_ALARM_TYPE,              ""));
             obj.put(KEY_LAST_ALARM_SCHEDULE_RESULT,   p.getString(KEY_LAST_ALARM_SCHEDULE_RESULT,   ""));
             obj.put(KEY_LAST_ALARM_SCHEDULE_ERROR,    p.getString(KEY_LAST_ALARM_SCHEDULE_ERROR,    ""));
+
+            // Boot / DirectBoot / unlock chain
+            obj.put(KEY_DIRECT_BOOT_LOCKED,                p.getString(KEY_DIRECT_BOOT_LOCKED,                "false"));
+            obj.put(KEY_USER_UNLOCKED_RECEIVER_REGISTERED, p.getString(KEY_USER_UNLOCKED_RECEIVER_REGISTERED, ""));
+            obj.put(KEY_RESTART_DEFERRED_UNTIL_UNLOCK,     p.getString(KEY_RESTART_DEFERRED_UNTIL_UNLOCK,     "false"));
 
             // Per-component credential snapshot
             obj.put(KEY_ATTENDANCE_ID_PRESENT,        p.getString(KEY_ATTENDANCE_ID_PRESENT,        ""));

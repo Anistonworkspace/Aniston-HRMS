@@ -69,6 +69,15 @@ public class GpsWatchdogWorker extends Worker {
             return Result.success();
         }
 
+        // ── Permission gate — block if Android 14+ FOREGROUND_SERVICE_LOCATION missing ──
+        GpsPermissionGuard.CheckResult perm = GpsPermissionGuard.check(ctx, "watchdog");
+        if (!perm.canStart) {
+            Log.w(TAG, "Watchdog permission gate blocked restart: " + perm.blockReason);
+            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT,
+                "blocked_permission:" + perm.blockReason);
+            return Result.success();
+        }
+
         // ── Restart service — credentials confirmed via GpsSessionStore ────────
         GpsSessionStore.Session session = GpsSessionStore.getSession(ctx);
         Log.w(TAG, "GPS service not running but session found — restarting for: " + session.employeeId);
@@ -83,6 +92,12 @@ public class GpsWatchdogWorker extends Worker {
                 ctx.startService(serviceIntent);
             }
             GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT, "restarted_service");
+        } catch (SecurityException e) {
+            Log.e(TAG, "Watchdog startForegroundService SecurityException: " + e.getMessage());
+            String reason = e.getMessage() != null ? e.getMessage() : "SecurityException";
+            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_LAST_WATCHDOG_RESULT, "failed_security:" + reason);
+            GpsDiagnostics.recordEvent(ctx, GpsDiagnostics.KEY_WATCHDOG_EXCEPTION,   reason);
+            return Result.success(); // don't retry a security exception — it won't resolve
         } catch (Exception e) {
             Log.e(TAG, "Watchdog failed to restart GPS service: " + e.getMessage());
             String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();

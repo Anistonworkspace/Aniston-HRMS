@@ -784,8 +784,10 @@ export class LeaveService {
         if (autoApprove) {
           // Optimistic lock: only increment used if balance still has sufficient days.
           // Prevents negative balance when two auto-approve paths race concurrently.
+          // `balance` is not a filterable Prisma column — use used <= allocated+carriedForward-N instead.
+          const maxUsedAllowed = Number(balance.allocated) + Number(balance.carriedForward) - paidDays;
           const autoApproveResult = await tx.leaveBalance.updateMany({
-            where: { id: balance.id, balance: { gte: paidDays } },
+            where: { id: balance.id, used: { lte: maxUsedAllowed } },
             data: { used: { increment: paidDays } },
           });
           if (autoApproveResult.count === 0) {
@@ -1530,8 +1532,9 @@ export class LeaveService {
       if (balance) {
         if (autoApprove) {
           // Optimistic lock: only increment used if balance still has sufficient days.
+          const submitMaxUsed = Number(balance.allocated) + Number(balance.carriedForward) - days;
           const submitAutoApproveResult = await tx.leaveBalance.updateMany({
-            where: { id: balance.id, balance: { gte: days } },
+            where: { id: balance.id, used: { lte: submitMaxUsed } },
             data: { used: { increment: days } },
           });
           if (submitAutoApproveResult.count === 0) {
@@ -1940,8 +1943,9 @@ export class LeaveService {
           const safePending = Math.min(Number(balance.pending), days);
           // Optimistic lock: only update if balance still has sufficient days.
           // Prevents negative balance from concurrent conditional-leave approvals.
+          const approveMaxUsed = Number(balance.allocated) + Number(balance.carriedForward) - days;
           const balanceUpdateResult = await tx.leaveBalance.updateMany({
-            where: { id: balance.id, balance: { gte: days } },
+            where: { id: balance.id, used: { lte: approveMaxUsed } },
             data: { used: { increment: days }, pending: { decrement: safePending } },
           });
           if (balanceUpdateResult.count === 0) {
@@ -2324,8 +2328,9 @@ export class LeaveService {
           // Optimistic lock: only decrement pending/increment used if balance still sufficient.
           // Prevents negative balance from concurrent approvals racing on the same record.
           const safePendingDecrement = Math.min(Number(balance.pending), Number(request.days));
+          const managerMaxUsed = Number(balance.allocated) + Number(balance.carriedForward) - Number(request.days);
           const balanceUpdateResult = await tx.leaveBalance.updateMany({
-            where: { id: balance.id, balance: { gte: Number(request.days) } },
+            where: { id: balance.id, used: { lte: managerMaxUsed } },
             data: { used: { increment: Number(request.days) }, pending: { decrement: safePendingDecrement } },
           });
           if (balanceUpdateResult.count === 0) {

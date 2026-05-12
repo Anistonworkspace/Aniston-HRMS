@@ -139,6 +139,16 @@ public class GpsTrackingService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // ── Permission gate — must pass before we attempt startForeground().
+        // On Android 14+, calling startForeground(type=location) without FOREGROUND_SERVICE_LOCATION
+        // or without a valid foreground exemption throws SecurityException and crashes the app.
+        GpsPermissionGuard.CheckResult perm = GpsPermissionGuard.check(getApplicationContext(), "service");
+        if (!perm.canStart) {
+            Log.e(TAG, "onStartCommand blocked by permission guard: " + perm.blockReason);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         // ── CRITICAL: Call startForeground() IMMEDIATELY on every path that keeps
         // the service alive. Android 12+ gives only ~10s from startForegroundService()
         // to startForeground() before the system throws ForegroundServiceDidNotStartInTimeException.
@@ -410,6 +420,7 @@ public class GpsTrackingService extends Service {
                 for (JSONObject p : compressed) arr.put(p);
                 JSONObject body = new JSONObject();
                 body.put("points", arr);
+                body.put("source", "realtime");
 
                 String trailUrl = backendUrl + "/api/attendance/gps-trail";
                 GpsDiagnostics.recordEvent(GpsTrackingService.this,
@@ -418,6 +429,8 @@ public class GpsTrackingService extends Service {
                     GpsDiagnostics.KEY_LAST_HTTP_REQUEST_URL, trailUrl);
 
                 postJson(trailUrl, body.toString());
+                GpsDiagnostics.recordEvent(GpsTrackingService.this,
+                    GpsDiagnostics.KEY_LAST_TRAIL_POST_RESULT, "success");
 
                 lastGpsPointAt = GpsDiagnostics.nowIso();
                 GpsDiagnostics.recordEvent(GpsTrackingService.this,
@@ -428,6 +441,8 @@ public class GpsTrackingService extends Service {
             } catch (Exception e) {
                 Log.w(TAG, "postGpsPoint batch failed: " + e.getMessage());
                 GpsDiagnostics.recordError(GpsTrackingService.this, e.getMessage());
+                GpsDiagnostics.recordEvent(GpsTrackingService.this,
+                    GpsDiagnostics.KEY_LAST_TRAIL_POST_RESULT, "failed:" + e.getMessage());
                 // Re-queue failed points
                 synchronized (pendingBatch) {
                     for (int i = batchToSend.size() - 1; i >= 0; i--) {
@@ -631,14 +646,31 @@ public class GpsTrackingService extends Service {
     }
 
     private void startForegroundNow(String title, String text) {
-        Notification n = buildNotification(title, text);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, n,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
-        } else {
-            startForeground(NOTIFICATION_ID, n);
+        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_FGS_START_ATTEMPT_AT, GpsDiagnostics.nowIso());
+        try {
+            Notification n = buildNotification(title, text);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, n,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            } else {
+                startForeground(NOTIFICATION_ID, n);
+            }
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_FOREGROUND_NOTIFICATION_VISIBLE, "true");
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_FGS_START_RESULT,           "success");
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_FGS_START_BLOCKED,               "false");
+        } catch (SecurityException e) {
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_FGS_START_RESULT,    "failed_security_exception");
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_FGS_START_EXCEPTION, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_FGS_START_BLOCKED,        "true");
+            Log.e(TAG, "startForeground SecurityException — stopping service: " + e.getMessage());
+            stopSelf();
+        } catch (Exception e) {
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_FGS_START_RESULT,    "failed_exception");
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_FGS_START_EXCEPTION, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_FGS_START_BLOCKED,        "true");
+            Log.e(TAG, "startForeground unexpected exception — stopping service: " + e.getMessage());
+            stopSelf();
         }
-        GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_FOREGROUND_NOTIFICATION_VISIBLE, "true");
     }
 
     private void updateNotification(String title, String text) {
@@ -719,6 +751,7 @@ public class GpsTrackingService extends Service {
                     for (JSONObject p : remaining) arr.put(p);
                     JSONObject body = new JSONObject();
                     body.put("points", arr);
+                    body.put("source", "offline_sync");
                     postJson(backendUrl + "/api/attendance/gps-trail", body.toString());
                 } catch (Exception e) {
                     Log.w(TAG, "Final batch flush failed: " + e.getMessage());

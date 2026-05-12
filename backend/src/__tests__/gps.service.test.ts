@@ -184,7 +184,7 @@ describe('AttendanceService.storeGPSTrail — validation', () => {
 
     await expect(
       service.storeGPSTrail(EMP_ID, { points: [makePoint(0)] })
-    ).rejects.toThrow(/field sales/i);
+    ).rejects.toThrow(/FIELD shift assignment or FIELD_SALES work mode/i);
   });
 
   it('rejects when employee has not given consent', async () => {

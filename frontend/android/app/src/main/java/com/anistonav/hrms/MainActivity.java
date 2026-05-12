@@ -60,12 +60,24 @@ public class MainActivity extends BridgeActivity {
         // Use GpsSessionStore for canonical session check — same source as watchdog + receiver
         if (!GpsSessionStore.hasValidSession(this)) return;
 
+        // App is in foreground (onResume), so this should always pass — but we check anyway
+        // to record diagnostics and avoid any SecurityException on edge cases.
+        GpsPermissionGuard.CheckResult perm = GpsPermissionGuard.check(getApplicationContext(), "resume");
+        if (!perm.canStart) {
+            android.util.Log.w("MainActivity", "tryAutoRestartGps blocked by permission guard: " + perm.blockReason);
+            return;
+        }
+
         // No extras needed — GpsTrackingService.restoreFromPrefs() reads from GpsSessionStore
         Intent svc = new Intent(this, GpsTrackingService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(svc);
-        } else {
-            startService(svc);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(svc);
+            } else {
+                startService(svc);
+            }
+        } catch (Exception e) {
+            android.util.Log.e("MainActivity", "tryAutoRestartGps startForegroundService failed: " + e.getMessage());
         }
 
         // Notify the React/JS side that GPS was auto-restarted so it can refresh the
