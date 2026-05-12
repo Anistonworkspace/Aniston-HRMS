@@ -321,7 +321,8 @@ jobs:
 
             echo "=== [5/17] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false
-            npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
+            sudo rm -rf node_modules || true
+            npm ci || (echo "Retrying npm ci..." && sudo rm -rf node_modules && npm ci)
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
             echo "=== [6/17] Syncing database schema ==="
