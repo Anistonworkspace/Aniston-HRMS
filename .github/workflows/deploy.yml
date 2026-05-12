@@ -230,6 +230,7 @@ jobs:
           envs: DEPLOY_DATABASE_URL,DEPLOY_JWT_SECRET,DEPLOY_JWT_REFRESH_SECRET,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD,DEPLOY_OPENAI_KEY,DEPLOY_STORAGE_ENDPOINT,DEPLOY_STORAGE_ACCESS_KEY,DEPLOY_STORAGE_SECRET_KEY,DEPLOY_MAPBOX_TOKEN,DEPLOY_TEAMS_CLIENT_ID,DEPLOY_TEAMS_CLIENT_SECRET,DEPLOY_TEAMS_TENANT_ID
           script_stop: true
           timeout: 300s
+          command_timeout: 30m
           script: |
             cd /home/ubuntu/Aniston-HRMS
 
@@ -269,12 +270,13 @@ jobs:
             sudo docker compose up -d postgres redis 2>/dev/null \
               || sudo docker-compose up -d postgres redis 2>/dev/null \
               || echo "⚠️  Docker start failed — postgres/redis may already be running natively"
-            # Wait up to 30s for postgres to accept connections
+            # Wait up to 30s for postgres — try docker container first, then native port
             echo "Waiting for PostgreSQL to become ready..."
             for i in $(seq 1 10); do
               sleep 3
               if sudo docker compose exec -T postgres pg_isready -U postgres 2>/dev/null \
-                 || sudo docker-compose exec -T postgres pg_isready -U postgres 2>/dev/null; then
+                 || sudo docker-compose exec -T postgres pg_isready -U postgres 2>/dev/null \
+                 || pg_isready -h localhost -p 5432 2>/dev/null; then
                 echo "✅ PostgreSQL ready after $((i*3))s"
                 break
               fi
@@ -326,8 +328,8 @@ jobs:
             # Drop ShiftType_old if it exists as a leftover from a previously
             # interrupted ALTER TYPE migration — Prisma errors if it tries to
             # drop a type that doesn't exist, so we clean it up first.
-            sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c \
-              "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1 || true
+            # Use semicolon (not ||) — drone-ssh -e -o pipefail ignores exit codes after ;
+            sudo docker exec aph-postgres psql -U aniston -d aniston_hrms -c "DROP TYPE IF EXISTS \"ShiftType_old\";" 2>&1; echo "ShiftType_old cleanup done (exit ignored)"
 
             # Baseline guard: if _prisma_migrations table is missing or empty the DB was
             # provisioned with db push and has no migration history. Mark every existing
