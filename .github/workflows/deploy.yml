@@ -505,10 +505,12 @@ jobs:
             npx tsx scripts/cleanup-holidays.ts || echo "Holiday cleanup skipped"
 
             echo "=== [10/17] Seeding database ==="
-            if [ "$NODE_ENV" = "production" ] && [ "$ALLOW_PROD_SEED" != "true" ]; then
-              echo "Skipping seed in production (set ALLOW_PROD_SEED=true to override)"
-            else
+            # Always skip seed on production deploy — seed only runs manually when ALLOW_PROD_SEED=true
+            # is set directly on the server. Auto-seeding production risks overwriting real data.
+            if [ "${ALLOW_PROD_SEED}" = "true" ]; then
               npx tsx prisma/seed.ts
+            else
+              echo "Skipping seed in production (run manually with ALLOW_PROD_SEED=true to override)"
             fi
 
             echo "=== [11/17] Building shared + backend ==="
