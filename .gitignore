@@ -1,9 +1,10 @@
 # Dependencies
 node_modules/
 
-# Claude logs and worktrees
+# Claude logs, worktrees and runtime lock files
 .claude/logs/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Local VS Code overrides
 *.local.json
