@@ -236,9 +236,6 @@ jobs:
           script: |
             cd /home/ubuntu/Aniston-HRMS
 
-            echo "=== [1/16] Pre-deployment backup ==="
-            bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed but continuing..."
-
             echo "=== [2/16] Installing system dependencies ==="
             # apt-get update can fail with exit 100 when mirror is mid-sync —
             # allow it to fail and proceed with cached package lists instead.
@@ -320,6 +317,11 @@ jobs:
               echo "TEAMS_TENANT_ID=$DEPLOY_TEAMS_TENANT_ID"
             } > .env
             echo "✅ .env written ($(wc -l < .env) lines)"
+
+            echo "=== [4.5/17] Pre-deployment database backup ==="
+            # Backup AFTER .env is written so DATABASE_URL is available.
+            # Pass it explicitly so backup-db.sh can parse the real credentials.
+            DATABASE_URL="$DEPLOY_DATABASE_URL" bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed but continuing..."
 
             echo "=== [5/17] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false
