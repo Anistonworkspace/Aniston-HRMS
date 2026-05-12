@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Upload, RotateCcw, Check, X, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
+import { Camera, Upload, RotateCcw, Check, X, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-type Mode = 'idle' | 'camera' | 'processing' | 'preview';
+type Mode = 'idle' | 'camera' | 'preview';
 
 interface Props {
   onPhotoReady: (file: File) => void;
@@ -14,72 +14,16 @@ interface Props {
   className?: string;
 }
 
-async function applyWhiteBackground(blob: Blob): Promise<File> {
-  // Dynamically import to keep the heavy model out of the initial bundle
-  const { removeBackground } = await import('@imgly/background-removal');
-
-  // 60-second timeout — model download can hang on slow mobile connections
-  const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
-    Promise.race([
-      promise,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Background removal timed out')), ms)
-      ),
-    ]);
-
-  // removeBackground returns a PNG blob with transparent background
-  const noBgBlob = await withTimeout(
-    removeBackground(blob, {
-      model: 'small' as any,
-      output: { format: 'image/png', quality: 0.95 },
-    }),
-    60_000,
-  );
-
-  // Composite onto white canvas and export as JPEG
-  const img = new Image();
-  const objUrl = URL.createObjectURL(noBgBlob);
-  await new Promise<void>((res, rej) => {
-    img.onload = () => res();
-    img.onerror = () => rej(new Error('Failed to load processed image'));
-    img.src = objUrl;
-  });
-  URL.revokeObjectURL(objUrl);
-
-  const canvas = document.createElement('canvas');
-  // Target ~600×600 for a passport photo — resize if larger
-  const MAX = 600;
-  const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
-  canvas.width = Math.round(img.naturalWidth * scale);
-  canvas.height = Math.round(img.naturalHeight * scale);
-
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-  return new Promise<File>((res, rej) => {
-    canvas.toBlob(
-      (b) => b ? res(new File([b], 'passport_photo.jpg', { type: 'image/jpeg' })) : rej(new Error('Canvas export failed')),
-      'image/jpeg',
-      0.92,
-    );
-  });
-}
-
 export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUploaded, uploadedFileName, className }: Props) {
   const [mode, setMode] = useState<Mode>('idle');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [processedFile, setProcessedFile] = useState<File | null>(null);
-  const [processingStep, setProcessingStep] = useState('');
-  const [processingError, setProcessingError] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Stop camera stream on unmount
   useEffect(() => {
     return () => stopCamera();
   }, []);
@@ -87,6 +31,14 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
+  };
+
+  const showPreview = (file: File) => {
+    const url = URL.createObjectURL(file);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(url);
+    setPhotoFile(file);
+    setMode('preview');
   };
 
   const startCamera = async () => {
@@ -106,7 +58,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
       const msg = err?.name === 'NotAllowedError'
         ? 'Camera permission denied. Please allow camera access in your browser settings, then try again.'
         : err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError'
-        ? 'Camera not available in this browser. Please open this app in Safari (iPhone) or Chrome (Android), or use the Upload Photo option instead.'
+        ? 'Camera not available. Please use the Upload Photo option instead.'
         : err?.name === 'NotReadableError' || err?.name === 'TrackStartError'
         ? 'Camera is in use by another app. Close other apps using the camera and try again.'
         : 'Could not start camera. Use the Upload Photo option instead.';
@@ -114,7 +66,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
     }
   };
 
-  const capturePhoto = useCallback(async () => {
+  const capturePhoto = useCallback(() => {
     if (!videoRef.current) return;
     const video = videoRef.current;
     if (!video.videoWidth || !video.videoHeight) {
@@ -125,59 +77,18 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')!.drawImage(video, 0, 0);
-
-    canvas.toBlob(async (blob) => {
+    canvas.toBlob((blob) => {
       if (!blob) {
         toast.error('Failed to capture photo. Please try again or use the Upload option.');
         return;
       }
       stopCamera();
-      await processImage(blob);
+      const file = new File([blob], 'photo.jpg', { type: 'image/jpeg' });
+      showPreview(file);
     }, 'image/jpeg', 0.95);
   }, []);
 
-  const processImage = async (blob: Blob) => {
-    setMode('processing');
-    setProcessingError(null);
-    try {
-      setProcessingStep('Detecting subject…');
-      const file = await applyWhiteBackground(blob);
-      setProcessingStep('Applying white background…');
-      // Small delay so user sees the final step message
-      await new Promise(r => setTimeout(r, 200));
-
-      const url = URL.createObjectURL(file);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(url);
-      setProcessedFile(file);
-      setMode('preview');
-    } catch (err: any) {
-      setProcessingError('Background removal failed. You can still use the photo as-is.');
-      // Fall back: use original blob as-is with white bg via canvas
-      try {
-        const img = new Image();
-        const tempUrl = URL.createObjectURL(blob);
-        await new Promise<void>((res) => { img.onload = () => res(); img.src = tempUrl; });
-        URL.revokeObjectURL(tempUrl);
-        const cv = document.createElement('canvas');
-        cv.width = img.naturalWidth; cv.height = img.naturalHeight;
-        const ctx = cv.getContext('2d')!;
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-        ctx.drawImage(img, 0, 0);
-        cv.toBlob((b) => {
-          if (!b) return;
-          const f = new File([b], 'passport_photo.jpg', { type: 'image/jpeg' });
-          const u = URL.createObjectURL(f);
-          if (previewUrl) URL.revokeObjectURL(previewUrl);
-          setPreviewUrl(u);
-          setProcessedFile(f);
-          setMode('preview');
-        }, 'image/jpeg', 0.92);
-      } catch { setMode('idle'); }
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
@@ -185,20 +96,19 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
       toast.error('Photo must be under 10 MB. Please choose a smaller image.');
       return;
     }
-    await processImage(file);
+    showPreview(file);
   };
 
   const handleConfirm = () => {
-    if (processedFile) {
-      onPhotoReady(processedFile);
+    if (photoFile) {
+      onPhotoReady(photoFile);
       setMode('idle');
     }
   };
 
   const handleRetake = () => {
     if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
-    setProcessedFile(null);
-    setProcessingError(null);
+    setPhotoFile(null);
     setMode('idle');
   };
 
@@ -208,7 +118,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
     setCameraError(null);
   };
 
-  // Uploaded state: show done card
+  // Uploaded state — show done card
   if (isUploaded && mode === 'idle') {
     return (
       <div className={cn('rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4 flex items-center gap-4', className)}>
@@ -220,13 +130,12 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
           <p className="text-xs text-emerald-600 mt-0.5 truncate">{uploadedFileName || 'Pending HR review'}</p>
         </div>
         <button
-          onClick={() => { fileRef.current?.click(); }}
+          onClick={() => fileRef.current?.click()}
           className="text-xs bg-white border border-emerald-300 text-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors"
         >
           Replace
         </button>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden"
-          onChange={handleFileUpload} />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
       </div>
     );
   }
@@ -249,7 +158,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
               </div>
               <div className="text-center">
                 <p className="text-sm font-semibold text-gray-700">Take Photo</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">Use your camera · BG removed</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">Use your camera</p>
               </div>
             </button>
 
@@ -259,7 +168,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
               </div>
               <div className="text-center">
                 <p className="text-sm font-semibold text-gray-700">Upload Photo</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">JPG / PNG · BG removed</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">JPG / PNG / HEIC</p>
               </div>
               <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" className="hidden"
                 onChange={handleFileUpload} />
@@ -278,10 +187,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
                   <p className="text-sm font-medium text-red-800">{cameraError}</p>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    onClick={handleCancelCamera}
-                    className="flex-1 btn-secondary text-xs py-2"
-                  >
+                  <button onClick={handleCancelCamera} className="flex-1 btn-secondary text-xs py-2">
                     Go back
                   </button>
                   <label className="flex-[2] btn-primary text-xs py-2 flex items-center justify-center gap-1.5 cursor-pointer">
@@ -290,11 +196,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
                       className="hidden"
-                      onChange={(e) => {
-                        stopCamera();
-                        setCameraError(null);
-                        handleFileUpload(e);
-                      }}
+                      onChange={(e) => { stopCamera(); setCameraError(null); handleFileUpload(e); }}
                     />
                   </label>
                 </div>
@@ -302,7 +204,6 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
             ) : (
               <>
                 <div className="relative rounded-xl overflow-hidden bg-black aspect-square">
-                  {/* Oval face guide overlay */}
                   <video
                     ref={videoRef}
                     autoPlay
@@ -332,50 +233,16 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
           </motion.div>
         )}
 
-        {/* PROCESSING — AI bg removal */}
-        {mode === 'processing' && (
-          <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center py-10 gap-4">
-            <div className="relative">
-              <div className="w-16 h-16 rounded-full bg-brand-50 flex items-center justify-center">
-                <Sparkles size={28} className="text-brand-500" />
-              </div>
-              <Loader2 size={20} className="animate-spin text-brand-400 absolute -top-1 -right-1" />
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-semibold text-gray-700">Removing background…</p>
-              <p className="text-xs text-gray-400 mt-1">{processingStep}</p>
-              <p className="text-[11px] text-gray-400 mt-2">This may take a few seconds the first time</p>
-            </div>
-          </motion.div>
-        )}
-
-        {/* PREVIEW — result with white background */}
+        {/* PREVIEW */}
         {mode === 'preview' && previewUrl && (
           <motion.div key="preview" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
             className="space-y-3">
-            {processingError && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 flex items-center gap-2">
-                <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
-                <p className="text-xs text-amber-700">{processingError}</p>
-              </div>
-            )}
-
             <div className="flex flex-col items-center gap-2">
-              {/* Result photo */}
-              <div className="relative">
-                <div className="w-40 h-48 rounded-xl overflow-hidden shadow-md border-4 border-white ring-1 ring-gray-200">
-                  <img src={previewUrl} alt="Passport photo preview" className="w-full h-full object-cover" />
-                </div>
-                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
-                  White background
-                </div>
+              <div className="w-40 h-48 rounded-xl overflow-hidden shadow-md border-4 border-white ring-1 ring-gray-200">
+                <img src={previewUrl} alt="Photo preview" className="w-full h-full object-cover" />
               </div>
-              <p className="text-xs text-gray-500 text-center mt-3">
-                {processingError ? 'Using original with white background' : 'Background removed and replaced with white'}
-              </p>
+              <p className="text-xs text-gray-500 text-center mt-1">Review your photo before uploading</p>
             </div>
-
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={handleRetake}
                 className="flex-1 btn-secondary flex items-center justify-center gap-1.5 text-sm py-2.5">
