@@ -260,6 +260,9 @@ jobs:
             echo "=== ROLLBACK TRIGGERED — deploy job failed ==="
             cd /home/ubuntu/Aniston-HRMS
 
+            # Fetch tags from GitHub FIRST so local repo has them
+            git fetch origin --tags
+
             # Find the most recent pre-deploy tag
             PRE_TAG=$(git tag --list 'pre-deploy-*' --sort=-version:refname | head -1)
             if [ -z "$PRE_TAG" ]; then
@@ -269,7 +272,6 @@ jobs:
             fi
 
             echo "Rolling back to tag: $PRE_TAG"
-            git fetch origin --tags
             git reset --hard "$PRE_TAG"
 
             echo "Reinstalling dependencies at rolled-back state..."
