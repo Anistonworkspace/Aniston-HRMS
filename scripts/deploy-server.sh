@@ -54,13 +54,25 @@ if [ -z "${DEPLOY_JWT_SECRET:-}" ];         then echo "Missing JWT_SECRET secret
 if [ -z "${DEPLOY_JWT_REFRESH_SECRET:-}" ]; then echo "Missing JWT_REFRESH_SECRET";     exit 1; fi
 if [ -z "${DEPLOY_ENCRYPTION_KEY:-}" ];     then echo "Missing ENCRYPTION_KEY secret";  exit 1; fi
 if [ -z "${DEPLOY_REDIS_PASSWORD:-}" ];     then echo "Missing REDIS_PASSWORD secret";  exit 1; fi
+
+# ── DB migration guard ─────────────────────────────────────────────────────────
+# Production DB was migrated from aniston_hrms → aniston_hrms_new.
+# If the GitHub secret still points to the old name, transparently redirect it.
+# Update the DATABASE_URL GitHub secret to aniston_hrms_new to remove this guard.
+RESOLVED_DATABASE_URL="${DEPLOY_DATABASE_URL}"
+if echo "${RESOLVED_DATABASE_URL}" | grep -q '/aniston_hrms?'; then
+  RESOLVED_DATABASE_URL="${RESOLVED_DATABASE_URL//\/aniston_hrms?/\/aniston_hrms_new?}"
+  echo "INFO: DATABASE_URL redirected from aniston_hrms → aniston_hrms_new (update the GitHub secret to remove this step)"
+fi
+# ──────────────────────────────────────────────────────────────────────────────
+
 {
   echo "NODE_ENV=production"
   echo "PORT=4000"
   echo "FRONTEND_URL=https://hr.anistonav.com"
   echo "API_URL=https://hr.anistonav.com"
   echo "AI_SERVICE_URL=http://localhost:8000"
-  echo "DATABASE_URL=$DEPLOY_DATABASE_URL"
+  echo "DATABASE_URL=$RESOLVED_DATABASE_URL"
   echo "REDIS_PASSWORD=$DEPLOY_REDIS_PASSWORD"
   echo "REDIS_URL=redis://:$DEPLOY_REDIS_PASSWORD@127.0.0.1:6379"
   echo "JWT_SECRET=$DEPLOY_JWT_SECRET"
@@ -84,7 +96,7 @@ if [ -z "${DEPLOY_REDIS_PASSWORD:-}" ];     then echo "Missing REDIS_PASSWORD se
 echo ".env written ($(wc -l < .env) lines)"
 
 echo "=== [4.5/17] Pre-deployment database backup ==="
-DATABASE_URL="$DEPLOY_DATABASE_URL" bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed — continuing"
+DATABASE_URL="$RESOLVED_DATABASE_URL" bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed — continuing"
 
 echo "=== [5/17] Installing Node.js dependencies ==="
 export SCARF_ANALYTICS=false
@@ -97,12 +109,12 @@ echo "=== [6/17] Syncing database schema ==="
   || sudo docker exec aniston-shared-db psql -U aniston -d aniston_hrms -c 'DROP TYPE IF EXISTS "ShiftType_old";' 2>/dev/null \
   || true); echo "ShiftType_old cleanup done"
 
-if command -v psql &>/dev/null && [ -n "${DEPLOY_DATABASE_URL:-}" ]; then
-  psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"EmployeeStatus\" ADD VALUE IF NOT EXISTS 'INTERN' AFTER 'PROBATION';" 2>/dev/null || true
-  psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_NO_DATA';" 2>/dev/null || true
-  psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_HEARTBEAT_MISSED';" 2>/dev/null || true
-  psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_GAP';" 2>/dev/null || true
-  psql "$DEPLOY_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_SIGNAL_LOST';" 2>/dev/null || true
+if command -v psql &>/dev/null && [ -n "${RESOLVED_DATABASE_URL:-}" ]; then
+  psql "$RESOLVED_DATABASE_URL" -c "ALTER TYPE \"EmployeeStatus\" ADD VALUE IF NOT EXISTS 'INTERN' AFTER 'PROBATION';" 2>/dev/null || true
+  psql "$RESOLVED_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_NO_DATA';" 2>/dev/null || true
+  psql "$RESOLVED_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_HEARTBEAT_MISSED';" 2>/dev/null || true
+  psql "$RESOLVED_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_GAP';" 2>/dev/null || true
+  psql "$RESOLVED_DATABASE_URL" -c "ALTER TYPE \"AnomalyType\" ADD VALUE IF NOT EXISTS 'GPS_SIGNAL_LOST';" 2>/dev/null || true
   echo "Pre-applied enum ADD VALUE changes"
 fi
 
@@ -129,12 +141,12 @@ npx prisma migrate deploy --schema=prisma/schema.prisma || echo "migrate deploy 
 echo "Schema migration complete"
 
 echo "=== [6.3/17] Restoring agent pairing state ==="
-if command -v psql &>/dev/null && [ -n "${DEPLOY_DATABASE_URL:-}" ]; then
-  psql "$DEPLOY_DATABASE_URL" -c "UPDATE \"Employee\" SET \"agentPairedAt\" = '2026-05-03 00:00:00'::timestamp WHERE \"agentPairingCode\" IS NOT NULL AND \"agentPairedAt\" IS NULL AND \"deletedAt\" IS NULL;" 2>/dev/null && echo "Agent pairing state restored" || echo "agentPairedAt update skipped"
+if command -v psql &>/dev/null && [ -n "${RESOLVED_DATABASE_URL:-}" ]; then
+  psql "$RESOLVED_DATABASE_URL" -c "UPDATE \"Employee\" SET \"agentPairedAt\" = '2026-05-03 00:00:00'::timestamp WHERE \"agentPairingCode\" IS NOT NULL AND \"agentPairedAt\" IS NULL AND \"deletedAt\" IS NULL;" 2>/dev/null && echo "Agent pairing state restored" || echo "agentPairedAt update skipped"
 fi
 
 echo "=== [6.4–6.9/17] Running idempotent SQL migrations ==="
-if command -v psql &>/dev/null && [ -n "${DEPLOY_DATABASE_URL:-}" ]; then
+if command -v psql &>/dev/null && [ -n "${RESOLVED_DATABASE_URL:-}" ]; then
   for f in \
     prisma/migrations/20260413000000_add_leave_settings_intern_role/migration.sql \
     prisma/migrations/20260413000001_add_leave_applicable_employees/migration.sql \
@@ -144,7 +156,7 @@ if command -v psql &>/dev/null && [ -n "${DEPLOY_DATABASE_URL:-}" ]; then
     prisma/migrations/20260503000002_attendance_shift_snapshot_and_indexes/migration.sql \
     prisma/migrations/20260506000000_add_leave_condition_messages/migration.sql \
     prisma/migrations/20260506000001_leave_unpaid_tracking/migration.sql; do
-    psql "$DEPLOY_DATABASE_URL" -f "$f" 2>/dev/null || true
+    psql "$RESOLVED_DATABASE_URL" -f "$f" 2>/dev/null || true
   done
   echo "All idempotent SQL migrations applied"
 fi
