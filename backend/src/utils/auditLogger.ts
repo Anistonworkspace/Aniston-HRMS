@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { logger } from '../lib/logger.js';
 
 export interface AuditLogParams {
-  userId: string;
+  userId: string | null;
   organizationId: string;
   entity: string;      // e.g. 'Employee', 'LeaveRequest', 'PayrollRun'
   entityId: string;
@@ -17,7 +17,7 @@ export async function createAuditLog(params: AuditLogParams) {
   try {
     await prisma.auditLog.create({
       data: {
-        userId: params.userId,
+        userId: params.userId ?? null,
         organizationId: params.organizationId,
         entity: params.entity,
         entityId: params.entityId,

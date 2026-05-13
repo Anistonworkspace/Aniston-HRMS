@@ -837,6 +837,7 @@ model GPSTrailPoint {
   heading        Decimal? @db.Decimal(5, 2)
   batteryLevel   Int?
   timestamp      DateTime
+  source         String?  @default("realtime")
   visitLabel     String?
   isVisitStop    Boolean  @default(false)
   stopDuration   Int?
@@ -2205,7 +2206,7 @@ model Announcement {
 
 model AuditLog {
   id             String   @id @default(uuid())
-  userId         String
+  userId         String?
   entity         String
   entityId       String
   action         String
@@ -2215,7 +2216,7 @@ model AuditLog {
   organizationId String
   createdAt      DateTime @default(now())
 
-  user         User         @relation(fields: [userId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id])
 
   @@index([entity, entityId])

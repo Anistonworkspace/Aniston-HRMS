@@ -1632,6 +1632,7 @@ export class AttendanceService {
         workMode: true,
         organizationId: true,
         locationTrackingConsented: true,
+        userId: true,
         shiftAssignments: {
           where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
           take: 1,
@@ -1725,7 +1726,7 @@ export class AttendanceService {
     if (anomalies.length > 0) {
       try {
         await createAuditLog({
-          userId: employeeId,
+          userId: gpsEmployee?.userId ?? null,
           organizationId: orgId,
           entity: 'GPSTrailPoint',
           entityId: employeeId,
