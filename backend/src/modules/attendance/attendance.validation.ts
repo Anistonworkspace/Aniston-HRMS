@@ -25,6 +25,10 @@ export const clockOutSchema = z.object({
   notes: z.string().optional(),
   deviceType: z.enum(['mobile', 'desktop']).optional(),
   isPwa: z.boolean().optional(),
+  // When true: employee confirms early checkout (before shift end) with an optional reason.
+  // The server flags an anomaly instead of hard-blocking, so genuine early departures are allowed.
+  earlyCheckoutConfirmed: z.boolean().optional(),
+  earlyCheckoutReason: z.string().max(500).optional(),
 });
 
 export const gpsTrailBatchSchema = z.object({

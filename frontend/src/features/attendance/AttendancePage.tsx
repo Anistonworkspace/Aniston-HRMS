@@ -779,7 +779,7 @@ function AttendancePersonalView() {
   };
 
   const actionLockRef = useRef(false); // debounce guard for clock-in/out
-  const [shiftWarning, setShiftWarning] = useState<{ message: string; onConfirm: () => void } | null>(null);
+  const [shiftWarning, setShiftWarning] = useState<{ message: string; onConfirm: () => void; title?: string; confirmLabel?: string } | null>(null);
 
   // Live clock
   useEffect(() => {
@@ -793,6 +793,7 @@ function AttendancePersonalView() {
    * Every check-in/out click triggers a real OS permission check.
    */
   // Returns null when location is unavailable/denied — callers must abort on null.
+  // Uses watchPosition for up to 25 seconds to get the best GPS fix before proceeding.
   const getGPS = async (): Promise<{
     latitude: number; longitude: number; accuracy: number; gpsTimestamp: string;
   } | null> => {
@@ -810,24 +811,45 @@ function AttendancePersonalView() {
 
     setGpsAcquiring(true);
     try {
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 30000,
-          maximumAge: 0,
-        })
-      );
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        let best: GeolocationPosition | null = null;
+        let watchId: number;
+        // Resolve with best fix after 25 seconds, or sooner if accuracy ≤ 50m
+        const timer = setTimeout(() => {
+          navigator.geolocation.clearWatch(watchId);
+          if (best) resolve(best);
+          else reject(new GeolocationPositionError());
+        }, 25000);
+
+        watchId = navigator.geolocation.watchPosition(
+          (p) => {
+            if (!best || p.coords.accuracy < best.coords.accuracy) {
+              best = p;
+            }
+            // Accept immediately if accuracy is good enough (≤ 80m)
+            if (p.coords.accuracy <= 80) {
+              clearTimeout(timer);
+              navigator.geolocation.clearWatch(watchId);
+              resolve(p);
+            }
+          },
+          (err) => {
+            clearTimeout(timer);
+            navigator.geolocation.clearWatch(watchId);
+            reject(err);
+          },
+          { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+        );
+      });
       bestPosRef.current = pos;
       setGpsAccuracy(pos.coords.accuracy);
       setLocationStatus('granted');
       return toPayload(pos);
     } catch (err: any) {
       if (err?.code === 1) {
-        // Permission denied — move to blocked screen so user sees the enable-location instructions
         setLocationStatus('denied');
         toast.error('Location access denied. Please enable location to mark attendance.', { duration: 4000 });
       } else if (err?.code === 2) {
-        // Device GPS / Location Services is turned off
         setLocationStatus('gps_off');
         toast.error('Please turn on your device GPS/Location to mark attendance.', { duration: 4000 });
       } else if (err?.code === 3) {
@@ -835,7 +857,7 @@ function AttendancePersonalView() {
       } else {
         toast.error('Could not get your location. Please try again.');
       }
-      return null; // abort — do NOT proceed with clock-in/out
+      return null;
     } finally {
       setGpsAcquiring(false);
     }
@@ -915,6 +937,36 @@ function AttendancePersonalView() {
     doClockIn();
   };
 
+  const doClockOut = async (coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string }, earlyCheckoutConfirmed?: boolean) => {
+    const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+    try {
+      await clockOut({ ...(coords ?? {}), deviceType, ...(earlyCheckoutConfirmed ? { earlyCheckoutConfirmed: true } : {}) }).unwrap();
+      toast.success(t('attendance.checkedOut'));
+      if (isFieldShift && isNativeAndroid) {
+        stopNativeGpsService().catch((e: any) => console.warn('Native GPS service stop failed:', e?.message));
+      }
+    } catch (err: any) {
+      if (!navigator.onLine) {
+        enqueueAction('CLOCK_OUT', { ...coords, deviceType });
+        toast(t('attendance.checkoutQueued'), { icon: '📡' });
+        return;
+      }
+      const msg: string = err?.data?.error?.message || t('attendance.failedClockOut');
+      // EARLY_CHECKOUT: prefix signals the server is asking for confirmation, not hard-blocking
+      if (msg.startsWith('EARLY_CHECKOUT:')) {
+        const displayMsg = msg.replace('EARLY_CHECKOUT:', '').trim();
+        setShiftWarning({
+          title: 'Early Check-Out',
+          message: displayMsg,
+          confirmLabel: 'Check Out Anyway',
+          onConfirm: () => { setShiftWarning(null); doClockOut(coords, true); },
+        });
+      } else {
+        toast.error(msg);
+      }
+    }
+  };
+
   const handleClockOut = async () => {
     if (actionLockRef.current) return;
     actionLockRef.current = true;
@@ -931,26 +983,14 @@ function AttendancePersonalView() {
         } else {
           coords = await getGPS();
         }
-        if (coords === null) return; // FIELD shift: GPS is mandatory, block if unavailable
+        if (coords === null) return;
       } else {
         coords = await getGPS();
-        if (coords === null) return; // OFFICE shift: GPS is mandatory, block if unavailable
+        if (coords === null) return;
       }
-      const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-      await clockOut({ ...(coords ?? {}), deviceType }).unwrap();
-      toast.success(t('attendance.checkedOut'));
-      // FIELD shift: stop native background GPS service after successful clock-out
-      if (isFieldShift && isNativeAndroid) {
-        stopNativeGpsService().catch((e: any) => console.warn('Native GPS service stop failed:', e?.message));
-      }
-    } catch (err: any) {
-      if (!navigator.onLine && coords) {
-        const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-        enqueueAction('CLOCK_OUT', { ...coords, deviceType });
-        toast(t('attendance.checkoutQueued'), { icon: '📡' });
-        return;
-      }
-      toast.error(err?.data?.error?.message || t('attendance.failedClockOut'));
+      await doClockOut(coords);
+    } catch {
+      // GPS acquisition errors are handled inside getGPS()
     } finally {
       setTimeout(() => { actionLockRef.current = false; }, 2000);
     }
@@ -1168,7 +1208,7 @@ function AttendancePersonalView() {
               <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
                 <AlertTriangle size={20} className="text-amber-600" />
               </div>
-              <h3 className="text-base font-semibold text-gray-900">Outside Shift Hours</h3>
+              <h3 className="text-base font-semibold text-gray-900">{shiftWarning.title ?? 'Outside Shift Hours'}</h3>
             </div>
             <p className="text-sm text-gray-600 mb-5">{shiftWarning.message}</p>
             <div className="flex gap-3">
@@ -1182,7 +1222,7 @@ function AttendancePersonalView() {
                 onClick={shiftWarning.onConfirm}
                 className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold transition-colors"
               >
-                Clock In Anyway
+                {shiftWarning.confirmLabel ?? 'Clock In Anyway'}
               </button>
             </div>
           </div>

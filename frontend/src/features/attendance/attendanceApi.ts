@@ -110,7 +110,7 @@ export const attendanceApi = api.injectEndpoints({
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
-    clockOut: builder.mutation<any, { latitude?: number; longitude?: number; accuracy?: number; gpsTimestamp?: string; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean }>({
+    clockOut: builder.mutation<any, { latitude?: number; longitude?: number; accuracy?: number; gpsTimestamp?: string; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean; earlyCheckoutConfirmed?: boolean; earlyCheckoutReason?: string }>({
       query: (body) => ({
         url: '/attendance/clock-out',
         method: 'POST',

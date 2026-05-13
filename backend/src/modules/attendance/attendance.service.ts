@@ -90,10 +90,11 @@ export class AttendanceService {
     }
 
     // ===== GPS TIMESTAMP STALENESS CHECK =====
-    // GPS coordinates must be acquired within the last 60 seconds — truly live location only.
+    // GPS coordinates must be acquired within the last 120 seconds — live location only.
+    // 120s (was 60s) to handle slow network conditions on mobile without blocking legitimate check-ins.
     if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
-      const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
+      const GPS_MAX_AGE_MS = 120 * 1000; // 120 seconds
       const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
       if (gpsAgeMs < -FUTURE_TOLERANCE_MS) {
         throw new BadRequestError(
@@ -103,7 +104,7 @@ export class AttendanceService {
       if (gpsAgeMs > GPS_MAX_AGE_MS) {
         throw new BadRequestError(
           `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old. ` +
-          `Please allow your GPS to refresh and try again.`
+          `Please tap the location button again to refresh your GPS and try again.`
         );
       }
     }
@@ -290,10 +291,11 @@ export class AttendanceService {
     let geofenceStatus = 'NO_GEOFENCE';
 
     if (!effectiveWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude != null && data.longitude != null) {
-      // GPS accuracy check — reject if accuracy is too poor for reliable geofence decisions
-      if (data.accuracy && data.accuracy > 150) {
+      // GPS accuracy check — reject if accuracy is too poor for reliable geofence decisions.
+      // 300m threshold (was 150m) to accommodate Android devices with network-assisted GPS.
+      if (data.accuracy && data.accuracy > 300) {
         throw new BadRequestError(
-          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±150m or better). ` +
+          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±300m or better). ` +
           `Move to an open area away from buildings, wait 10–15 seconds for GPS to stabilize, then try again. ` +
           `Tip: briefly turning Wi-Fi off can help GPS lock faster.`
         );
@@ -575,10 +577,10 @@ export class AttendanceService {
     }
 
     // ===== GPS TIMESTAMP STALENESS CHECK (clock-out) =====
-    // GPS coordinates must be acquired within the last 60 seconds — truly live location only.
+    // GPS coordinates must be acquired within the last 120 seconds — live location only.
     if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
-      const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
+      const GPS_MAX_AGE_MS = 120 * 1000; // 120 seconds (was 60s)
       const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
       if (gpsAgeMs < -FUTURE_TOLERANCE_MS) {
         throw new BadRequestError(
@@ -588,7 +590,7 @@ export class AttendanceService {
       if (gpsAgeMs > GPS_MAX_AGE_MS) {
         throw new BadRequestError(
           `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old. ` +
-          `Please allow your GPS to refresh and try again.`
+          `Please tap the location button again to refresh your GPS and try again.`
         );
       }
     }
@@ -667,8 +669,13 @@ export class AttendanceService {
     // ===== MINIMUM CHECKOUT TIME ENFORCEMENT =====
     // FIELD shift employees can check out at any time — they finish their route whenever
     // the work is done, not at a fixed office end-time. Skip the entire block for them.
-    // OFFICE shift employees must reach shift end time (or have an approved half-day leave).
+    // OFFICE shift employees should reach shift end time (or have an approved half-day leave).
+    // Early checkout IS allowed when the employee confirms with earlyCheckoutConfirmed=true —
+    // the system flags an anomaly for HR visibility rather than hard-blocking.
     // This only applies to TODAY's checkout — overnight/previous-day checkouts are skipped.
+    let earlyCheckoutFlagged = false;
+    let earlyCheckoutMinutes = 0;
+
     const todayRecordForTimeCheck = clockOutShiftType === 'FIELD' ? null : await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
       select: { checkIn: true, checkOut: true },
@@ -714,8 +721,6 @@ export class AttendanceService {
 
         if (halfDayLeave) {
           // Half-day approved: minimum = max(shiftStart, actualCheckIn) + halfDayHours
-          // Using actual check-in time prevents early-leavers who clocked in late from
-          // checking out after only a fraction of the half-day hours.
           const [startH, startM] = (coShift.startTime as string).split(':').map(Number);
           const shiftStartMins = startH * 60 + startM;
           const checkInMins = todayRecordForTimeCheck?.checkIn
@@ -729,25 +734,34 @@ export class AttendanceService {
           const effectiveStartMins = Math.max(shiftStartMins, checkInMins);
           const halfDayMinMinutes = effectiveStartMins + Math.round(Number(coShift.halfDayHours ?? 4) * 60);
           if (currentISTMinutes < halfDayMinMinutes) {
-            throw new BadRequestError(
-              `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
-              `(you clocked in at ${fmt12h(checkInMins)} + ${coShift.halfDayHours ?? 4}h half-day).`
-            );
+            const minsShort = halfDayMinMinutes - currentISTMinutes;
+            if (!data.earlyCheckoutConfirmed) {
+              throw new BadRequestError(
+                `EARLY_CHECKOUT:Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
+                `(${minsShort} min remaining). Confirm early checkout to proceed.`
+              );
+            }
+            earlyCheckoutFlagged = true;
+            earlyCheckoutMinutes = minsShort;
           }
         } else {
-          // Full day: must reach shift end time
+          // Full day: should reach shift end time; allow early with confirmation
           if (currentISTMinutes < shiftEndMinutes) {
-            throw new BadRequestError(
-              `You cannot check out before ${fmt12h(shiftEndMinutes)}. ` +
-              `Your shift (${coShift.name}) ends at ${coShift.endTime}. ` +
-              `Apply for a half-day leave if you need to leave early.`
-            );
+            const minsShort = shiftEndMinutes - currentISTMinutes;
+            if (!data.earlyCheckoutConfirmed) {
+              throw new BadRequestError(
+                `EARLY_CHECKOUT:Your shift (${coShift.name}) ends at ${coShift.endTime} ` +
+                `(${minsShort} min remaining). Confirm early checkout to proceed, or apply for half-day leave.`
+              );
+            }
+            earlyCheckoutFlagged = true;
+            earlyCheckoutMinutes = minsShort;
           }
         }
       } else {
         // No shift assigned — use org default shift, then fall back to org policy
-        const coPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: orgId } });
         const orgDefaultShift = await prisma.shift.findFirst({ where: { organizationId: orgId, isDefault: true, isActive: true } });
+        const coPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: orgId } });
         const fallbackEndTime = orgDefaultShift?.endTime ?? '18:30';
         const fallbackStartTime = orgDefaultShift?.startTime ?? '09:00';
         const fallbackHalfDayHours = Number(orgDefaultShift?.halfDayHours ?? coPolicy?.halfDayMinHours ?? 4);
@@ -755,18 +769,28 @@ export class AttendanceService {
         const [fallbackStartH, fallbackStartM] = fallbackStartTime.split(':').map(Number);
         const defaultEndMinutes = fallbackEndH * 60 + fallbackEndM;
         if (!halfDayLeave && currentISTMinutes < defaultEndMinutes) {
-          throw new BadRequestError(
-            `You cannot check out before ${fmt12h(defaultEndMinutes)}. ` +
-            `Apply for a half-day leave if you need to leave early.`
-          );
+          const minsShort = defaultEndMinutes - currentISTMinutes;
+          if (!data.earlyCheckoutConfirmed) {
+            throw new BadRequestError(
+              `EARLY_CHECKOUT:Shift ends at ${fmt12h(defaultEndMinutes)} (${minsShort} min remaining). ` +
+              `Confirm early checkout to proceed, or apply for half-day leave.`
+            );
+          }
+          earlyCheckoutFlagged = true;
+          earlyCheckoutMinutes = minsShort;
         }
         if (halfDayLeave) {
           const halfDayMinMinutes = fallbackStartH * 60 + fallbackStartM + Math.round(fallbackHalfDayHours * 60);
           if (currentISTMinutes < halfDayMinMinutes) {
-            throw new BadRequestError(
-              `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)}. ` +
-              `Apply for a half-day leave if you need to leave early.`
-            );
+            const minsShort = halfDayMinMinutes - currentISTMinutes;
+            if (!data.earlyCheckoutConfirmed) {
+              throw new BadRequestError(
+                `EARLY_CHECKOUT:Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
+                `(${minsShort} min remaining). Confirm early checkout to proceed.`
+              );
+            }
+            earlyCheckoutFlagged = true;
+            earlyCheckoutMinutes = minsShort;
           }
         }
       }
@@ -938,7 +962,10 @@ export class AttendanceService {
     if (isPreviousDayClockOut) {
       notes = `${notes} [Clock-out for previous day's record]`.trim();
     }
-    if (isEarlyCheckout && earlyMinutes > 15) {
+    if (earlyCheckoutFlagged) {
+      const reason = data.earlyCheckoutReason ? ` — reason: ${data.earlyCheckoutReason}` : '';
+      notes = `${notes} [Early checkout confirmed: ${earlyCheckoutMinutes} min before shift end${reason}]`.trim();
+    } else if (isEarlyCheckout && earlyMinutes > 15) {
       notes = `${notes} [Early checkout by ${earlyMinutes} min]`.trim();
     }
     if (isLateClockout) {
@@ -989,6 +1016,24 @@ export class AttendanceService {
             type: 'UNAPPROVED_REMOTE',
             severity: 'LOW',
             description: 'Employee clocked out from outside office geofence (after 20:00 IST — remote checkout allowed)',
+            resolution: 'PENDING',
+          },
+        });
+      } catch { /* non-blocking */ }
+    }
+
+    // Log anomaly for confirmed early checkouts so HR can see them
+    if (earlyCheckoutFlagged) {
+      try {
+        await prisma.attendanceAnomaly.create({
+          data: {
+            attendanceId: record.id,
+            employeeId,
+            organizationId: empStatus!.organizationId,
+            date: today,
+            type: 'POLICY_BREACH',
+            severity: 'LOW',
+            description: `Employee checked out ${earlyCheckoutMinutes} min early (confirmed). ${data.earlyCheckoutReason ? 'Reason: ' + data.earlyCheckoutReason : 'No reason provided.'}`,
             resolution: 'PENDING',
           },
         });

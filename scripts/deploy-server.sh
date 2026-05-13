@@ -184,6 +184,9 @@ cd /home/ubuntu/Aniston-HRMS || true
 echo "=== [9/17] Cleanup scripts ==="
 npx tsx scripts/cleanup-holidays.ts; echo "Holiday cleanup done"
 
+echo "=== [9.5/17] Backfill missing ABSENT records for OFFICE employees ==="
+npx tsx scripts/backfill-absent-records.ts 2>&1 | tail -20 || echo "Backfill skipped (non-blocking)"
+
 echo "=== [10/17] Seeding database ==="
 if [ "${ALLOW_PROD_SEED:-}" = "true" ]; then
   npx tsx prisma/seed.ts
