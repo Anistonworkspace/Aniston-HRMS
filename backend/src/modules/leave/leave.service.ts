@@ -144,15 +144,23 @@ export class LeaveService {
     const userRole = employee.user?.role;
 
     // ── Policy-engine path ───────────────────────────────────────────────────
-    // Try to get a default policy. If one exists, use it to determine applicable
-    // leave types and their policy-driven allocation amounts.
-    // Falls back to legacy LeaveType.defaultBalance if no policy found.
+    // Try to get a default policy. If one exists AND has rules with the new
+    // policy-managed audience values, use it. Otherwise fall through to legacy path.
+    // Falls back to legacy LeaveType.defaultBalance if no policy found or has no rules.
     let defaultPolicy: any = null;
     try {
       defaultPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
     } catch { /* non-blocking — fall through to legacy path */ }
 
-    if (defaultPolicy) {
+    const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
+
+    // Only enter policy-engine path when the policy actually has rules with new audience values.
+    // An empty policy (0 rules, or all rules use legacy audiences) falls through to legacy path.
+    const hasPolicyRules = defaultPolicy?.rules?.some((r: any) =>
+      POLICY_MANAGED_AUDIENCES.includes(r.leaveType?.applicableTo),
+    ) ?? false;
+
+    if (defaultPolicy && hasPolicyRules) {
       const category = leavePolicyService.getEmployeeCategory(employee);
 
       // Determine which leave types this employee should have based on policy rules
@@ -171,11 +179,6 @@ export class LeaveService {
         },
       });
       const leaveTypeMap = new Map(allLeaveTypes.map(lt => [lt.id, lt]));
-
-      // Only leave types with a proper policy-managed audience produce current allocations.
-      // Types with legacy audience (ALL, PROBATION, ACTIVE, etc.) appear in the UI's "Legacy Types"
-      // collapsed section and must NOT create current balance rows or show as active quota.
-      const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
 
       const filteredRules = applicableRules.filter((r: any) => {
         const lt = leaveTypeMap.get(r.leaveTypeId);

@@ -31,16 +31,6 @@ export class ProfileEditRequestService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Block if profile is incomplete — employee must complete onboarding first
-    const profileStatus = await this.getProfileCompletion(employeeId);
-    const fieldsComplete = profileStatus.sections.personalDetails && profileStatus.sections.address &&
-      profileStatus.sections.emergencyContact && profileStatus.sections.bankDetails;
-    if (!fieldsComplete) {
-      throw new BadRequestError(
-        'Your profile is incomplete. Please complete your profile through the onboarding flow before submitting edit requests.'
-      );
-    }
-
     // Block if a PENDING or APPROVED (unapplied) request already exists for this category
     const existing = await prisma.profileEditRequest.findFirst({
       where: {
@@ -161,19 +151,6 @@ export class ProfileEditRequestService {
     });
     if (!request) throw new NotFoundError('Profile edit request');
     if (request.status !== 'PENDING') throw new BadRequestError('Request is no longer pending');
-
-    // Block HR from approving if employee profile is incomplete
-    if (status === 'APPROVED') {
-      const profileStatus = await this.getProfileCompletion(request.employeeId);
-      const fieldsComplete = profileStatus.sections.personalDetails && profileStatus.sections.address &&
-        profileStatus.sections.emergencyContact && profileStatus.sections.bankDetails;
-      if (!fieldsComplete) {
-        throw new BadRequestError(
-          `Cannot approve: ${request.employee.firstName} ${request.employee.lastName}'s profile is incomplete. ` +
-          'Ask them to complete their profile through the onboarding flow first.'
-        );
-      }
-    }
 
     const editWindowExpiresAt = status === 'APPROVED'
       ? new Date(Date.now() + 48 * 60 * 60 * 1000)

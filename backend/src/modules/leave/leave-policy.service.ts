@@ -69,43 +69,44 @@ export class LeavePolicyService {
    * On first call, creates an empty policy — HR configures allocations via Policy Settings.
    */
   async getOrCreateDefaultPolicy(organizationId: string) {
-    let policy = await prisma.leavePolicy.findFirst({
-      where: { organizationId, isDefault: true, isActive: true, deletedAt: null },
-      include: {
-        rules: {
-          include: {
-            leaveType: { select: { id: true, name: true, code: true, isPaid: true, isActive: true, applicableTo: true } },
-          },
+    const includeRules = {
+      rules: {
+        include: {
+          leaveType: { select: { id: true, name: true, code: true, isPaid: true, isActive: true, applicableTo: true } },
         },
       },
+    };
+
+    let policy = await prisma.leavePolicy.findFirst({
+      where: { organizationId, isDefault: true, isActive: true, deletedAt: null },
+      include: includeRules,
     });
 
     if (!policy) {
-      policy = await this._bootstrapDefaultPolicy(organizationId);
+      try {
+        policy = await prisma.leavePolicy.create({
+          data: {
+            name: 'Default Leave Policy',
+            description: 'Configure leave quotas from Leave Management → Policy Settings.',
+            organizationId,
+            isDefault: true,
+            isActive: true,
+            probationDurationMonths: 3,
+            internDurationMonths: 3,
+          },
+          include: includeRules,
+        });
+      } catch {
+        // Race condition: another request created it simultaneously — fetch it
+        policy = await prisma.leavePolicy.findFirst({
+          where: { organizationId, isDefault: true, isActive: true, deletedAt: null },
+          include: includeRules,
+        });
+        if (!policy) throw new Error('Failed to create or find default leave policy');
+      }
     }
 
     return policy;
-  }
-
-  private async _bootstrapDefaultPolicy(organizationId: string) {
-    return prisma.leavePolicy.create({
-      data: {
-        name: 'Default Leave Policy',
-        description: 'Configure leave quotas from Leave Management → Policy Settings.',
-        organizationId,
-        isDefault: true,
-        isActive: true,
-        probationDurationMonths: 3,
-        internDurationMonths: 3,
-      },
-      include: {
-        rules: {
-          include: {
-            leaveType: { select: { id: true, name: true, code: true, isPaid: true, isActive: true, applicableTo: true } },
-          },
-        },
-      },
-    });
   }
 
   // ── Allocation resolution ────────────────────────────────────────────────────
