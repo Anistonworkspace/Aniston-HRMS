@@ -234,7 +234,11 @@ jobs:
           script_stop: true
           timeout: 300s
           command_timeout: 30m
-          script: bash /home/ubuntu/Aniston-HRMS/scripts/deploy-server.sh
+          script: |
+            cd /home/ubuntu/Aniston-HRMS
+            git fetch origin main
+            git reset --hard origin/main
+            bash /home/ubuntu/Aniston-HRMS/scripts/deploy-server.sh
 
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
