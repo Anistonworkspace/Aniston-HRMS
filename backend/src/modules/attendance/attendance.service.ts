@@ -223,19 +223,25 @@ export class AttendanceService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const isWfhShift = (shiftAssignment?.shift as any)?.isWfhShift === true;
 
-    // Hybrid WFH: check if today is a designated WFH day on a hybrid shift
+    // HYBRID shift: always requires geofence — either home or office.
+    // isWfhShift is false for HYBRID; effectiveWfh stays false so geofence runs.
+    const isHybridShift = currentShiftType === 'HYBRID';
+
+    // Hybrid WFH days (for non-HYBRID shifts that have allowWfh=true on specific days)
     const todayDow = new Date().getDay(); // 0=Sun, 6=Sat
-    const isHybridWfhDay = !isWfhShift &&
+    const isHybridWfhDay = !isWfhShift && !isHybridShift &&
       (shift as any)?.allowWfh === true &&
       Array.isArray((shift as any)?.wfhDays) &&
       ((shift as any).wfhDays as number[]).includes(todayDow);
 
-    // Effective WFH: either full WFH shift or today is a WFH day in hybrid shift
+    // Effective WFH: full WFH shift or today is a WFH day. HYBRID is never full WFH.
     const effectiveWfh = isWfhShift || isHybridWfhDay;
 
     // ===== Location enforcement: OFFICE shift requires assigned location =====
     // FIELD shift employees are never blocked by location config — they work everywhere.
     const assignedLocation = shiftAssignment?.location || employee.officeLocation;
+    // HYBRID employees need either home geofence OR office geofence — block only if both are missing
+    const hasHomeGeofence = !!(employee as any).approvedHomeGeofence;
     if (!effectiveWfh && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
       // Alert HR so they can fix the configuration — non-blocking
       setImmediate(() => {
@@ -251,7 +257,7 @@ export class AttendanceService {
     // GPS coordinates are MANDATORY for every non-WFH OFFICE clock-in — no exceptions.
     // Use == null (not falsy) so lat=0/lng=0 (which are valid coordinates near the equator/meridian
     // but also the value sent when a device has no fix) are treated as missing — not as valid coords.
-    if (!effectiveWfh && currentShiftType === 'OFFICE' && (data.latitude == null || data.longitude == null)) {
+    if (!effectiveWfh && (currentShiftType === 'OFFICE' || isHybridShift) && (data.latitude == null || data.longitude == null)) {
       throw new BadRequestError(
         'Location is required to mark attendance. Please enable location services on your device and try again.'
       );
@@ -330,10 +336,57 @@ export class AttendanceService {
       }
     }
 
-    // ===== WFH HOME GEOFENCE ENFORCEMENT =====
-    // If employee is on a WFH day AND has an approved home geofence, they must be within it.
-    // This prevents WFH abuse — employee must actually be at their registered home location.
-    if (effectiveWfh && (employee as any).approvedHomeGeofence && data.latitude != null && data.longitude != null) {
+    // ===== HYBRID SHIFT: must be inside HOME geofence OR OFFICE geofence =====
+    if (isHybridShift && data.latitude != null && data.longitude != null) {
+      const homeGeofence = (employee as any).approvedHomeGeofence;
+      const officeGeofence = assignedLocation?.geofence;
+
+      // If neither geofence is configured, block clock-in and alert HR
+      if (!homeGeofence && !officeGeofence) {
+        setImmediate(() => {
+          this._alertHrNoOfficeLocation(employeeId, organizationId).catch((e: any) =>
+            logger.warn(`[Attendance] Hybrid no-location HR alert failed: ${e.message}`)
+          );
+        });
+        throw new BadRequestError(
+          'No home or office location assigned for your Hybrid shift. Please contact HR to assign your locations.'
+        );
+      }
+
+      let insideHome = false;
+      let insideOffice = false;
+
+      if (homeGeofence?.radiusMeters && homeGeofence?.coordinates) {
+        const coords = homeGeofence.coordinates as any;
+        if (coords?.lat && coords?.lng) {
+          const dist = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+          insideHome = dist <= homeGeofence.radiusMeters;
+        }
+      }
+
+      if (officeGeofence?.radiusMeters && officeGeofence?.coordinates) {
+        const coords = officeGeofence.coordinates as any;
+        if (coords?.lat && coords?.lng) {
+          const dist = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+          insideOffice = dist <= officeGeofence.radiusMeters;
+        }
+      }
+
+      // Must be inside at least one of the two locations
+      if (!insideHome && !insideOffice) {
+        const homeMsg = homeGeofence ? ` home (${Math.round(this.haversineDistance(data.latitude, data.longitude, (homeGeofence.coordinates as any)?.lat, (homeGeofence.coordinates as any)?.lng))}m away)` : '';
+        const officeMsg = officeGeofence ? ` office (${Math.round(this.haversineDistance(data.latitude, data.longitude, (officeGeofence.coordinates as any)?.lat, (officeGeofence.coordinates as any)?.lng))}m away)` : '';
+        throw new BadRequestError(
+          `You are outside both your assigned locations for Hybrid shift.` +
+          (homeMsg ? ` From${homeMsg}.` : '') +
+          (officeMsg ? ` From${officeMsg}.` : '') +
+          ` Please clock in from your home or office location.`
+        );
+      }
+    }
+
+    // ===== WFH HOME GEOFENCE ENFORCEMENT (non-HYBRID shifts with WFH days) =====
+    if (effectiveWfh && !isHybridShift && (employee as any).approvedHomeGeofence && data.latitude != null && data.longitude != null) {
       const homeGeofence = (employee as any).approvedHomeGeofence;
       if (homeGeofence?.radiusMeters && homeGeofence?.coordinates) {
         const coords = homeGeofence.coordinates as any;

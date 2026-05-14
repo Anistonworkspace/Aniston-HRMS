@@ -387,13 +387,16 @@ export class ShiftService {
           },
         });
 
-        // Always write both workMode AND officeLocationId so switching OFFICE→FIELD
-        // clears the old location, and FIELD→OFFICE sets the new one.
+        // Always write workMode. For HYBRID shifts, preserve officeLocationId if no locationId given
+        // (home approval passes the preserved office location explicitly).
+        // For OFFICE→FIELD transitions, clear officeLocationId.
         await tx.employee.update({
           where: { id: data.employeeId },
           data: {
             workMode: newWorkMode as any,
-            officeLocationId: data.locationId || null,
+            ...(newWorkMode !== 'HYBRID' || data.locationId
+              ? { officeLocationId: data.locationId || null }
+              : {}),
           },
         });
 
@@ -425,13 +428,15 @@ export class ShiftService {
         },
       });
 
-      // Always write both workMode AND officeLocationId — switching OFFICE→FIELD
-      // must clear the old location, FIELD→OFFICE must set the new one.
+      // Always write workMode. For HYBRID shifts, preserve officeLocationId if no locationId given.
+      // For OFFICE→FIELD transitions, clear officeLocationId.
       await tx.employee.update({
         where: { id: data.employeeId },
         data: {
           workMode: newWorkMode as any,
-          officeLocationId: data.locationId || null,
+          ...(newWorkMode !== 'HYBRID' || data.locationId
+            ? { officeLocationId: data.locationId || null }
+            : {}),
         },
       });
 
@@ -950,15 +955,26 @@ export class ShiftService {
         return { message: 'Home location approved and geofence created', geofenceId: geofence.id };
       });
 
-      // After transaction: assign employee to the org's HYBRID shift
+      // After transaction: assign employee to the org's HYBRID shift.
+      // Preserve the employee's existing officeLocationId so they can still clock in at office.
       const hybridShift = await prisma.shift.findFirst({
-        where: { organizationId, shiftType: 'HYBRID', deletedAt: null },
+        where: { organizationId, shiftType: 'HYBRID', isActive: true },
       });
       if (hybridShift) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
+        // Fetch current office location before it gets nulled by assignShift
+        const currentEmployee = await prisma.employee.findUnique({
+          where: { id: request.employeeId },
+          select: { officeLocationId: true },
+        });
         await this.assignShift(
-          { employeeId: request.employeeId, shiftId: hybridShift.id, startDate: today.toISOString().split('T')[0] },
+          {
+            employeeId: request.employeeId,
+            shiftId: hybridShift.id,
+            startDate: today.toISOString().split('T')[0],
+            locationId: currentEmployee?.officeLocationId || undefined,
+          },
           organizationId,
           reviewedBy,
         );

@@ -38,11 +38,18 @@ L.Icon.Default.mergeOptions({
 });
 
 type Tab = 'shifts' | 'locations' | 'assignments' | 'shift-requests';
+type ShiftFilter = string | null;
 
 export default function RosterPage() {
   const [tab, setTab] = useState<Tab>('shifts');
+  const [shiftFilter, setShiftFilter] = useState<ShiftFilter>(null);
   const { user } = useAppSelector((s) => s.auth);
   const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+
+  const goToAssignments = (shiftId?: string) => {
+    setShiftFilter(shiftId || null);
+    setTab('assignments');
+  };
 
   return (
     <div className="page-container">
@@ -62,7 +69,7 @@ export default function RosterPage() {
             { key: 'shift-requests' as Tab, label: 'Shift Requests', icon: Repeat },
           ] : []),
         ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button key={t.key} onClick={() => { setTab(t.key); if (t.key !== 'assignments') setShiftFilter(null); }}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               tab === t.key ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
             }`}>
@@ -71,9 +78,9 @@ export default function RosterPage() {
         ))}
       </div>
 
-      {tab === 'shifts' && <ShiftsPanel />}
+      {tab === 'shifts' && <ShiftsPanel onViewAssigned={goToAssignments} />}
       {tab === 'locations' && <LocationsPanel isAdmin={isAdmin} />}
-      {tab === 'assignments' && <AssignmentsPanel />}
+      {tab === 'assignments' && <AssignmentsPanel shiftFilter={shiftFilter} onClearFilter={() => setShiftFilter(null)} />}
       {tab === 'shift-requests' && isAdmin && <ShiftChangeRequestsTab />}
     </div>
   );
@@ -83,7 +90,7 @@ export default function RosterPage() {
 const SHIFT_DISPLAY: Record<string, { label: string; description: string; badgeClass: string; bgColor: string; textColor: string; borderColor: string }> = {
   OFFICE: { label: 'General Shift', description: 'Geofence-based attendance. Employees can only mark in/out within assigned office locations. HR is notified if marking outside geofence.', badgeClass: 'bg-blue-50 text-blue-600', bgColor: '#eff6ff', textColor: '#1d4ed8', borderColor: '#bfdbfe' },
   FIELD: { label: 'Live Tracking', description: 'GPS-based live location tracking. Ideal for field sales employees. Locations are recorded at regular intervals.', badgeClass: 'bg-green-50 text-green-600', bgColor: '#f0fdf4', textColor: '#15803d', borderColor: '#bbf7d0' },
-  HYBRID: { label: 'Hybrid (WFH)', description: 'Flexible hybrid shift. Employees can work from office or home. WFH days are configurable and shift change requests can target this shift.', badgeClass: 'bg-purple-50 text-purple-600', bgColor: '#faf5ff', textColor: '#7c3aed', borderColor: '#ddd6fe' },
+  HYBRID: { label: 'Hybrid (WFH)', description: 'Dual-location shift. Employees must clock in from either their approved home geofence or their assigned office geofence. GPS is required. Assigned via home location approval.', badgeClass: 'bg-purple-50 text-purple-600', bgColor: '#faf5ff', textColor: '#7c3aed', borderColor: '#ddd6fe' },
 };
 
 function getShiftDisplay(shiftType: string, shiftName?: string) {
@@ -92,7 +99,7 @@ function getShiftDisplay(shiftType: string, shiftName?: string) {
 }
 
 /* ===== SHIFTS PANEL ===== */
-function ShiftsPanel() {
+function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => void }) {
   const { data: res } = useGetShiftsQuery();
   const { data: orgSettingsRes } = useGetOrgLeaveSettingsQuery();
   const orgWorkingDays: string | undefined = orgSettingsRes?.data?.workingDays;
@@ -425,59 +432,18 @@ function ShiftsPanel() {
                       )}
                     </div>
 
-                    {/* WFH Shift */}
-                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Home className="h-4 w-4 text-indigo-600" />
-                          <div>
-                            <p className="text-sm font-semibold text-indigo-700">WFH Shift</p>
-                            <p className="text-xs text-gray-500">Employees on this shift work from home — no geofence or GPS required</p>
-                          </div>
+                    {/* Hybrid shift info — shown only for HYBRID type */}
+                    {(form.shiftType === 'HYBRID' || (isEditing && editShift?.shiftType === 'HYBRID')) && (
+                      <div className="rounded-xl border border-purple-200 bg-purple-50/40 p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Home className="h-4 w-4 text-purple-600" />
+                          <p className="text-sm font-semibold text-purple-700">Hybrid / WFH Shift</p>
                         </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={form.isWfhShift} onChange={e => setForm(f => ({ ...f, isWfhShift: e.target.checked }))} className="sr-only peer" />
-                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600" />
-                        </label>
-                      </div>
-                      {form.isWfhShift && (
-                        <p className="mt-2 text-xs text-indigo-600 bg-indigo-100 rounded-lg px-3 py-2">
-                          Attendance will be marked as Work From Home. Geofence and GPS tracking are disabled for this shift. Hybrid WFH days setting below is disabled (not applicable for a full WFH shift).
+                        <p className="text-xs text-purple-700 bg-purple-100 rounded-lg px-3 py-2">
+                          Employees assigned to this shift must clock in from <strong>either their approved home location or their assigned office location</strong>. Both geofences are enforced. GPS is required.
                         </p>
-                      )}
-                    </div>
-
-                    {/* Work From Home (hybrid days) — only shown when not a full WFH shift */}
-                    <div className={`bg-indigo-50 rounded-xl p-4 transition-opacity ${form.isWfhShift ? 'opacity-40 pointer-events-none select-none' : ''}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5"><Home size={13} /> Work From Home (WFH)</p>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={form.allowWfh} onChange={e => setForm({...form, allowWfh: e.target.checked, wfhDays: e.target.checked ? form.wfhDays : []})} className="sr-only peer" />
-                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
-                        </label>
                       </div>
-                      {form.allowWfh && (
-                        <div>
-                          <p className="text-[10px] text-indigo-600 mb-2">Select the days of the week that are designated WFH days for this shift.</p>
-                          <div className="flex gap-1.5 flex-wrap">
-                            {DAY_LABELS.map((day, i) => (
-                              <button key={i} type="button"
-                                onClick={() => {
-                                  const days = new Set(form.wfhDays);
-                                  days.has(i) ? days.delete(i) : days.add(i);
-                                  setForm({...form, wfhDays: Array.from(days)});
-                                }}
-                                className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
-                                  form.wfhDays.includes(i) ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-100'
-                                }`}>{day}</button>
-                            ))}
-                          </div>
-                          {form.wfhDays.length === 0 && (
-                            <p className="text-[10px] text-indigo-400 mt-1.5">No fixed WFH days selected — employees can request WFH on any work day.</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </div>
 
@@ -523,7 +489,10 @@ function ShiftsPanel() {
                 <span>Full day: <strong>{Number(s.fullDayHours)}h</strong></span>
                 <span>Half day: <strong>{Number(s.halfDayHours)}h</strong></span>
                 {s.trackingIntervalMinutes && <span>GPS: every <strong>{s.trackingIntervalMinutes >= 60 ? `${s.trackingIntervalMinutes / 60}h` : `${s.trackingIntervalMinutes}min`}</strong></span>}
-                <span className="ml-auto"><strong>{s._count?.assignments || 0}</strong> assigned</span>
+                <button onClick={() => onViewAssigned(s.id)}
+                  className="ml-auto text-[10px] bg-brand-50 hover:bg-brand-100 text-brand-600 px-2 py-0.5 rounded-full font-semibold transition-colors cursor-pointer">
+                  {s._count?.assignments || 0} assigned
+                </button>
               </div>
 
               {/* Attendance policy summary */}
@@ -858,7 +827,7 @@ function getShiftTypeLabel(shiftType: string, shiftName?: string) {
   return SHIFT_TYPE_LABELS[shiftType] || { label: shiftName || shiftType, color: 'text-purple-600' };
 }
 
-function AssignmentsPanel() {
+function AssignmentsPanel({ shiftFilter, onClearFilter }: { shiftFilter: ShiftFilter; onClearFilter: () => void }) {
   const user = useAppSelector(s => s.auth.user);
   const isHR = user?.role === 'HR';
   const { data: empRes } = useGetEmployeesQuery({ limit: 100 });
@@ -905,9 +874,14 @@ function AssignmentsPanel() {
   const [editing, setEditing] = useState<Record<string, boolean>>({});
 
   const filtered = employees.filter((e: any) => {
-    if (!search) return true;
-    return `${e.firstName} ${e.lastName} ${e.employeeCode}`.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = !search || `${e.firstName} ${e.lastName} ${e.employeeCode}`.toLowerCase().includes(search.toLowerCase());
+    if (!matchesSearch) return false;
+    if (!shiftFilter) return true;
+    const assignment = assignmentMap.get(e.id);
+    return assignment?.shiftId === shiftFilter;
   });
+
+  const activeShiftFilterName = shiftFilter ? shifts.find((s: any) => s.id === shiftFilter)?.name : null;
 
   const handleAssign = async (empId: string) => {
     const { shiftId, locationId } = pending[empId] || {};
@@ -922,7 +896,8 @@ function AssignmentsPanel() {
     try {
       await assignShift({
         employeeId: empId, shiftId,
-        locationId: (selectedShift?.shiftType === 'OFFICE' && locationId) ? locationId : undefined,
+        // For OFFICE: pass locationId. For HYBRID: pass if selected (office is optional). FIELD: no locationId.
+        locationId: locationId || undefined,
         startDate: new Date().toISOString().split('T')[0],
       }).unwrap();
       toast.success('Shift assigned successfully');
@@ -953,11 +928,19 @@ function AssignmentsPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="relative max-w-sm flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..."
-            className="input-glass w-full pl-10 text-sm" />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-1">
+          <div className="relative max-w-sm flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..."
+              className="input-glass w-full pl-10 text-sm" />
+          </div>
+          {activeShiftFilterName && (
+            <div className="flex items-center gap-1.5 bg-brand-50 border border-brand-200 text-brand-700 text-xs px-3 py-1.5 rounded-full font-medium">
+              <Users size={12} /> Filtered: {activeShiftFilterName}
+              <button onClick={onClearFilter} className="ml-1 text-brand-400 hover:text-brand-700"><X size={12} /></button>
+            </div>
+          )}
         </div>
         <button onClick={handleAutoAssign} disabled={autoAssigning}
           className="btn-primary text-sm flex items-center gap-1.5 whitespace-nowrap">
@@ -989,6 +972,7 @@ function AssignmentsPanel() {
               const selType = sel?.shiftType || '';
               const needsLocation = selType === 'OFFICE';
               const hasLocation = !!p.locationId;
+              // HYBRID: office location is optional (home geofence comes from home location request approval)
               const canAssign = p.shiftId && (!needsLocation || hasLocation);
 
               return (
@@ -1016,6 +1000,23 @@ function AssignmentsPanel() {
                       <td className="p-3">
                         {dbAssignment.shift?.shiftType === 'FIELD' ? (
                           <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking</span>
+                        ) : dbAssignment.shift?.shiftType === 'HYBRID' ? (
+                          <div className="space-y-1">
+                            {dbAssignment.location?.name ? (
+                              <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded flex items-center gap-1 w-fit">
+                                <MapPin size={9} /> Office: {dbAssignment.location.name} · {dbAssignment.location.geofence?.radiusMeters || 0}m
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-amber-500 bg-amber-50 px-2 py-0.5 rounded w-fit">No office location</span>
+                            )}
+                            {emp.approvedHomeGeofenceId ? (
+                              <span className="text-[10px] text-purple-600 bg-purple-50 px-2 py-0.5 rounded flex items-center gap-1 w-fit">
+                                <Home size={9} /> Home: geofence approved
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-red-400 bg-red-50 px-2 py-0.5 rounded w-fit">No home location</span>
+                            )}
+                          </div>
                         ) : dbAssignment.location?.name ? (
                           <span className="text-xs text-gray-600 flex items-center gap-1">
                             <MapPin size={10} className="text-brand-500" />
@@ -1066,6 +1067,27 @@ function AssignmentsPanel() {
                               {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.city || 'N/A'})</option>)}
                             </select>
                             {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Location required for geofencing</p>}
+                          </div>
+                        )}
+                        {selType === 'HYBRID' && (
+                          <div className="space-y-1.5">
+                            <div>
+                              <select value={p.locationId} onChange={e => setPending(prev => ({...prev, [emp.id]: { ...prev[emp.id], locationId: e.target.value }}))}
+                                className="input-glass text-xs py-1.5 w-44">
+                                <option value="">Office location (optional)</option>
+                                {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.city || 'N/A'})</option>)}
+                              </select>
+                              <p className="text-[10px] text-gray-400 mt-0.5">Office geofence for clock-in</p>
+                            </div>
+                            {emp.approvedHomeGeofenceId ? (
+                              <span className="text-[10px] text-purple-600 bg-purple-50 px-2 py-0.5 rounded flex items-center gap-1 w-fit">
+                                <Home size={9} /> Home geofence: approved
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-amber-500 bg-amber-50 px-2 py-0.5 rounded w-fit">
+                                Home geofence: pending request
+                              </span>
+                            )}
                           </div>
                         )}
                         {selType === 'FIELD' && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking · {(sel?.trackingIntervalMinutes || 60) >= 60 ? `${(sel?.trackingIntervalMinutes || 60) / 60}h` : `${sel?.trackingIntervalMinutes || 60}min`} interval</span>}
