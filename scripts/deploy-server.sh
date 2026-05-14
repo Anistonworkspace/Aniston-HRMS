@@ -221,42 +221,46 @@ else
 fi
 
 echo "=== [10.1/17] Ensuring system accounts are present ==="
-npx tsx - <<'ENSURE_ACCOUNTS_EOF'
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
+node --input-type=module <<'ENSURE_ACCOUNTS_EOF'
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcryptjs");
 const prisma = new PrismaClient();
 async function main() {
   const org = await prisma.organization.findFirst({ where: { slug: "aniston" } });
   if (!org) { console.log("Org not found — skipping system account check"); return; }
   const engDept = await prisma.department.findFirst({ where: { name: "Engineering", organizationId: org.id } });
-  const ceoDes = await prisma.designation.findFirst({ where: { name: "CEO", organizationId: org.id } });
+  const ceoDes  = await prisma.designation.findFirst({ where: { name: "CEO", organizationId: org.id } });
   const accounts = [
-    { email: "superadmin@anistonav.com", password: "Superadmin@1234", role: "SUPER_ADMIN" as const, code: "SYS-001", first: "Super",     last: "Admin"   },
-    { email: "developer@anistonav.com",  password: "Developer@2026!", role: "SUPER_ADMIN" as const, code: "SYS-DEV", first: "Developer", last: "Account" },
+    { email: "superadmin@anistonav.com", password: "Superadmin@1234", role: "SUPER_ADMIN", code: "SYS-001", first: "Super",     last: "Admin"   },
+    { email: "developer@anistonav.com",  password: "Developer@2026!", role: "SUPER_ADMIN", code: "SYS-DEV", first: "Developer", last: "Account" },
   ];
   for (const acct of accounts) {
     const existing = await prisma.user.findUnique({ where: { email: acct.email } });
     const hash = existing ? existing.passwordHash : await bcrypt.hash(acct.password, 12);
     const user = await prisma.user.upsert({
-      where: { email: acct.email },
+      where:  { email: acct.email },
       update: { role: acct.role, status: "ACTIVE" },
       create: { email: acct.email, passwordHash: hash, role: acct.role, status: "ACTIVE", organizationId: org.id },
     });
     await prisma.employee.upsert({
-      where: { employeeCode: acct.code },
+      where:  { employeeCode: acct.code },
       update: { isSystemAccount: true, userId: user.id, status: "ACTIVE", deletedAt: null, onboardingComplete: true },
       create: {
         employeeCode: acct.code, userId: user.id, firstName: acct.first, lastName: acct.last,
         email: acct.email, phone: "+91-0000000000", gender: "PREFER_NOT_TO_SAY",
-        departmentId: engDept?.id ?? null, designationId: ceoDes?.id ?? null,
+        departmentId: engDept ? engDept.id : null, designationId: ceoDes ? ceoDes.id : null,
         workMode: "OFFICE", joiningDate: new Date("2024-01-01"),
         status: "ACTIVE", onboardingComplete: true, isSystemAccount: true, organizationId: org.id,
       },
     });
-    console.log("  ✅ system account ensured: " + acct.email + " [" + acct.role + "]");
+    console.log("  system account ensured: " + acct.email + " [" + acct.role + "]");
   }
 }
-main().catch(e => console.log("system account check failed (non-blocking):", e.message)).finally(() => prisma.$disconnect());
+main()
+  .catch(e => console.log("system account check failed (non-blocking):", e.message))
+  .finally(() => prisma.$disconnect());
 ENSURE_ACCOUNTS_EOF
 echo "System account check done"
 
