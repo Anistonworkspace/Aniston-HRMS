@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { WifiOff, RefreshCw } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -24,6 +24,7 @@ import { useGetTodayStatusQuery } from '../../features/attendance/attendanceApi'
 
 export default function AppShell() {
   const { t } = useTranslation();
+  const prefersReducedMotion = useReducedMotion();
 
   // Activity tracking — runs globally for all logged-in users
   useActivityTracker();
@@ -391,6 +392,14 @@ export default function AppShell() {
 
   return (
     <div className="flex h-[100dvh] bg-surface-1 overflow-hidden">
+      {/* Skip-to-main-content — visually hidden, appears on keyboard focus (WCAG 2.4.1) */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[10000] focus:bg-brand-600 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm focus:font-semibold focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
+
       {/* Sidebar — desktop only */}
       <Sidebar />
 
@@ -399,7 +408,7 @@ export default function AppShell() {
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         <Topbar />
         {/* pb-[calc(5rem+env(safe-area-inset-bottom,0px))]: accounts for 64px mobile nav + iOS safe area */}
-        <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
+        <main id="main-content" ref={mainRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
           {/* Pull-to-refresh indicator — mobile only */}
           {(ptrProgress > 0 || ptrRefreshing) && (
             <div className="md:hidden fixed top-16 left-1/2 -translate-x-1/2 z-[200] pointer-events-none transition-all duration-200">
@@ -422,10 +431,10 @@ export default function AppShell() {
           <AnimatePresence>
             {!isOnline && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
+                initial={{ height: prefersReducedMotion ? 'auto' : 0, opacity: prefersReducedMotion ? 1 : 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
+                exit={{ height: prefersReducedMotion ? 'auto' : 0, opacity: prefersReducedMotion ? 1 : 0 }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
                 className="overflow-hidden"
               >
                 <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
@@ -438,15 +447,15 @@ export default function AppShell() {
           {/* Limited access banner for exiting employees */}
           {exitAccess && (
             <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600 flex-shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600 flex-shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
               <p className="text-xs text-amber-700">{t('appShell.limitedAccess')}</p>
             </div>
           )}
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: 'easeOut' }}
           >
             <Outlet />
           </motion.div>

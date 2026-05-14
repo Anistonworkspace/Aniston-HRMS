@@ -20,25 +20,18 @@ export default function App() {
         {(t) => (
           <div
             onClick={() => hotToast.dismiss(t.id)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '12px 16px',
-              borderRadius: '12px',
-              background: t.type === 'error' ? '#fef2f2' : t.type === 'success' ? '#f0fdf4' : '#fff',
-              color: t.type === 'error' ? '#991b1b' : t.type === 'success' ? '#166534' : '#1e293b',
-              fontSize: '14px',
-              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.04)',
-              border: `1px solid ${t.type === 'error' ? '#fecaca' : t.type === 'success' ? '#bbf7d0' : '#f1f5f9'}`,
-              cursor: 'pointer',
-              maxWidth: '360px',
-              opacity: t.visible ? 1 : 0,
-              transition: 'opacity 0.2s',
-            }}
+            className={[
+              'flex items-center gap-2 px-4 py-3 rounded-xl shadow-layer text-sm cursor-pointer max-w-[360px] border transition-opacity',
+              t.type === 'error'
+                ? 'bg-red-50 text-red-800 border-red-200'
+                : t.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : 'bg-white text-slate-800 border-gray-100',
+            ].join(' ')}
+            style={{ opacity: t.visible ? 1 : 0 }}
           >
-            <span style={{ flex: 1 }}>{resolveValue(t.message, t)}</span>
-            <span style={{ fontSize: '16px', opacity: 0.5, lineHeight: 1, flexShrink: 0 }}>✕</span>
+            <span className="flex-1">{resolveValue(t.message, t)}</span>
+            <span className="text-base opacity-50 leading-none flex-shrink-0">✕</span>
           </div>
         )}
       </Toaster>

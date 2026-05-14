@@ -22,7 +22,7 @@
  */
 import { useEffect, useRef, useState, ReactNode } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, RefreshCw, Smartphone, CheckCircle2, AlertCircle, RefreshCcw } from 'lucide-react';
 
 interface UpdateManifest {
@@ -68,18 +68,19 @@ interface WebUpdateBannerProps {
 }
 
 function WebUpdateBanner({ onReload }: WebUpdateBannerProps) {
+  const prefersReducedMotion = useReducedMotion();
   return (
     <motion.div
-      initial={{ opacity: 0, y: -64 }}
+      initial={{ opacity: 0, y: prefersReducedMotion ? 0 : -64 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -64 }}
-      transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+      exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -64 }}
+      transition={prefersReducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 28 }}
       className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-3 bg-indigo-600 text-white px-5 py-3 shadow-lg"
     >
       <div className="flex items-center gap-2.5 text-sm font-medium">
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+          animate={prefersReducedMotion ? {} : { rotate: 360 }}
+          transition={prefersReducedMotion ? { duration: 0 } : { repeat: Infinity, duration: 2, ease: 'linear' }}
         >
           <RefreshCcw size={15} />
         </motion.div>

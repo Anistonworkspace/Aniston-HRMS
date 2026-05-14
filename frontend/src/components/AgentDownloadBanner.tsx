@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Monitor, Download, ChevronDown, ChevronUp, X, CheckCircle2, Loader2, Wifi, WifiOff } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { useAppSelector } from '../app/store';
 import { useGetAgentStatusQuery, useGetAgentDownloadStatusQuery, useGenerateAgentPairCodeMutation } from '../features/attendance/attendanceApi';
 import { useGetEmployeeShiftQuery } from '../features/workforce/workforceApi';

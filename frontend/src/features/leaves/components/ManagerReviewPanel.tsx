@@ -61,7 +61,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <h2 className="text-base font-display font-bold text-gray-900">Manager Review</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close review panel" className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} /></button>
         </div>
 
         {/* Content */}

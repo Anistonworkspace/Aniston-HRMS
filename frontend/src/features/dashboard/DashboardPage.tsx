@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect, useCallback, memo, lazy, Suspense } from 
 import { motion } from 'framer-motion';
 import {
   Clock, MapPin, Loader2, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Clock3, Sun, Coffee,
+  CheckCircle2, XCircle, Clock3, Sun, Coffee, CalendarOff, CalendarCheck,
 } from 'lucide-react';
+import EmptyState from '../../components/ui/EmptyState';
 import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
@@ -81,7 +82,12 @@ const LeaveBalanceWidget = memo(function LeaveBalanceWidget() {
     );
   }
 
-  if (balances.length === 0) return null;
+  if (balances.length === 0) return (
+    <div className="layer-card p-4">
+      <h3 className="text-sm font-semibold text-gray-600 mb-1">{t('dashboard.leaveBalance')}</h3>
+      <EmptyState icon={CalendarOff} title="No leave balances" description="Your HR team hasn't assigned leave types yet." />
+    </div>
+  );
 
   return (
     <div className="layer-card p-4">
@@ -119,7 +125,12 @@ const UpcomingHolidaysWidget = memo(function UpcomingHolidaysWidget() {
     [holRes]
   );
 
-  if (holidays.length === 0) return null;
+  if (holidays.length === 0) return (
+    <div className="layer-card p-4">
+      <h3 className="text-sm font-semibold text-gray-600 mb-1">{t('dashboard.upcomingHolidays')}</h3>
+      <EmptyState icon={CalendarCheck} title="No upcoming holidays" description="Enjoy uninterrupted work days ahead." />
+    </div>
+  );
 
   return (
     <div className="layer-card p-4">

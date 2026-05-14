@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { X, ChevronRight, ChevronLeft, Loader2, CheckCircle, SkipForward, Info } from 'lucide-react';
 import {
   useSaveDraftMutation,
@@ -28,6 +28,7 @@ interface LeaveApplyWizardProps {
 const STEPS = ['Leave Details', 'Task Impact', 'Handover', 'Confirm & Submit'];
 
 export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initialLeaveTypeId }: LeaveApplyWizardProps) {
+  const prefersReducedMotion = useReducedMotion();
   const [step, setStep] = useState(0);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -174,14 +175,15 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
         <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
+          initial={{ scale: prefersReducedMotion ? 1 : 0.9, opacity: prefersReducedMotion ? 1 : 0 }}
           animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
           className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center"
         >
           <motion.div
-            initial={{ scale: 0 }}
+            initial={{ scale: prefersReducedMotion ? 1 : 0 }}
             animate={{ scale: 1 }}
-            transition={{ type: 'spring', delay: 0.2 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { type: 'spring', delay: 0.2 }}
             className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4"
           >
             <CheckCircle size={32} className="text-emerald-600" />
@@ -208,8 +210,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
+        initial={{ scale: prefersReducedMotion ? 1 : 0.95, opacity: prefersReducedMotion ? 1 : 0 }}
         animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
         className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
       >
         {/* Header */}
@@ -234,7 +237,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
 
             {/* ── Step 0: Leave Details ── */}
             {step === 0 && (
-              <motion.div key="step0" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
+              <motion.div key="step0" initial={{ x: prefersReducedMotion ? 0 : 20, opacity: prefersReducedMotion ? 1 : 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: prefersReducedMotion ? 0 : -20, opacity: prefersReducedMotion ? 1 : 0 }} className="space-y-4">
                 {/* Leave Mode */}
                 <div className="flex gap-2">
                   {[
@@ -256,8 +259,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
 
                 {/* Leave Type */}
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Leave Type *</label>
+                  <label htmlFor="leave-type-select" className="text-xs text-gray-500 mb-1 block">Leave Type *</label>
                   <select
+                    id="leave-type-select"
                     value={formData.leaveTypeId}
                     onChange={(e) => setFormData(prev => ({ ...prev, leaveTypeId: e.target.value }))}
                     className="input-glass w-full text-sm"
@@ -282,8 +286,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                 {/* Dates */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-gray-500 mb-1 block">{leaveMode === 'multiple' ? 'Start Date *' : 'Date *'}</label>
+                    <label htmlFor="leave-start-date" className="text-xs text-gray-500 mb-1 block">{leaveMode === 'multiple' ? 'Start Date *' : 'Date *'}</label>
                     <input
+                      id="leave-start-date"
                       type="date"
                       value={formData.startDate}
                       onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
@@ -296,8 +301,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                   </div>
                   {leaveMode === 'multiple' && (
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">End Date *</label>
+                      <label htmlFor="leave-end-date" className="text-xs text-gray-500 mb-1 block">End Date *</label>
                       <input
+                        id="leave-end-date"
                         type="date"
                         value={formData.endDate}
                         onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
@@ -308,8 +314,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                   )}
                   {leaveMode === 'half' && (
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Session *</label>
+                      <label htmlFor="leave-session-select" className="text-xs text-gray-500 mb-1 block">Session *</label>
                       <select
+                        id="leave-session-select"
                         value={formData.halfDaySession}
                         onChange={(e) => setFormData(prev => ({ ...prev, halfDaySession: e.target.value }))}
                         className="input-glass w-full text-sm"
@@ -405,8 +412,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
 
                 {/* Reason */}
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Reason *</label>
+                  <label htmlFor="leave-reason" className="text-xs text-gray-500 mb-1 block">Reason *</label>
                   <textarea
+                    id="leave-reason"
                     value={formData.reason}
                     onChange={(e) => setFormData(prev => ({ ...prev, reason: e.target.value }))}
                     className="input-glass w-full text-sm"
@@ -419,7 +427,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
 
             {/* ── Step 1: Task Impact ── */}
             {step === 1 && (
-              <motion.div key="step1" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
+              <motion.div key="step1" initial={{ x: prefersReducedMotion ? 0 : 20, opacity: prefersReducedMotion ? 1 : 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: prefersReducedMotion ? 0 : -20, opacity: prefersReducedMotion ? 1 : 0 }} className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-700">Task Impact Assessment</h3>
                   <span className="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">informational only</span>
@@ -462,7 +470,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
 
             {/* ── Step 2: Handover (fully optional) ── */}
             {step === 2 && (
-              <motion.div key="step2" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-3">
+              <motion.div key="step2" initial={{ x: prefersReducedMotion ? 0 : 20, opacity: prefersReducedMotion ? 1 : 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: prefersReducedMotion ? 0 : -20, opacity: prefersReducedMotion ? 1 : 0 }} className="space-y-3">
                 <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 flex gap-2 text-xs text-blue-700">
                   <span>ℹ</span>
                   <span>Backup assignment is <strong>completely optional</strong> for all leave types. You can skip this step and still submit your leave.</span>
@@ -486,7 +494,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
 
             {/* ── Step 3: Confirm & Submit ── */}
             {step === 3 && (
-              <motion.div key="step3" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
+              <motion.div key="step3" initial={{ x: prefersReducedMotion ? 0 : 20, opacity: prefersReducedMotion ? 1 : 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: prefersReducedMotion ? 0 : -20, opacity: prefersReducedMotion ? 1 : 0 }} className="space-y-4">
                 {/* Summary */}
                 <div className="layer-card p-4">
                   <h4 className="text-sm font-semibold text-gray-700 mb-3">Leave Summary</h4>

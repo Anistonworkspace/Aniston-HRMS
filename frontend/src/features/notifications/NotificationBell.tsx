@@ -3,6 +3,7 @@ import {
   Bell, X, Calendar, Clock, Headphones, User, Zap,
   FileText, Megaphone, UserPlus, CheckCheck, BellOff,
 } from 'lucide-react';
+import EmptyState from '../../components/ui/EmptyState';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
@@ -250,6 +251,14 @@ export default function NotificationBell() {
         aria-label="Notifications"
       >
         <Bell size={20} />
+        {/* aria-live announces count changes to screen readers without being disruptive */}
+        <span
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {badgeCount ? `${badgeCount} unread notifications` : 'No unread notifications'}
+        </span>
         <AnimatePresence>
           {badgeCount && (
             <motion.span
@@ -257,6 +266,7 @@ export default function NotificationBell() {
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0 }}
+              aria-hidden="true"
               className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none"
             >
               {badgeCount}
@@ -321,13 +331,12 @@ export default function NotificationBell() {
             {/* Notification list */}
             <div className="overflow-y-auto flex-1 custom-scrollbar divide-y divide-gray-50">
               {notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                    <BellOff size={24} className="text-gray-400" />
-                  </div>
-                  <p className="text-sm font-medium text-gray-700 mb-1">You're all caught up!</p>
-                  <p className="text-xs text-gray-400">No notifications yet. We'll let you know when something needs your attention.</p>
-                </div>
+                <EmptyState
+                  icon={BellOff}
+                  title="You're all caught up!"
+                  description="No notifications yet. We'll let you know when something needs your attention."
+                  className="py-16"
+                />
               ) : (
                 notifications.map((notif) => (
                   <NotifItem key={notif.id} notif={notif} onRead={handleNotifClick} />

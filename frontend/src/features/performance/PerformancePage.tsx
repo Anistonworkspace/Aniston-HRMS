@@ -23,19 +23,24 @@ import PermDenied from '../../components/PermDenied';
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
+// Gauge color thresholds — mapped to Tailwind token equivalents
+// emerald-500 / amber-500 / orange-500 / red-500 / gray-200
+const GAUGE_TRACK = '#e5e7eb'; // gray-200
+const gaugeColor = (score: number) =>
+  score >= 75 ? '#10b981' : score >= 60 ? '#f59e0b' : score >= 45 ? '#f97316' : '#ef4444';
+
 // ── Circular Score Gauge ──────────────────────────────────────────────
 function ScoreGauge({ score, size = 140 }: { score: number; size?: number }) {
   const radius = (size - 20) / 2;
   const circumference = 2 * Math.PI * radius;
   const filled = circumference * (score / 100);
-  const color = score >= 75 ? '#10b981' : score >= 60 ? '#f59e0b' : score >= 45 ? '#f97316' : '#ef4444';
 
   return (
-    <svg width={size} height={size} className="rotate-[-90deg]">
-      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={12} />
+    <svg width={size} height={size} className="rotate-[-90deg]" aria-hidden="true">
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={GAUGE_TRACK} strokeWidth={12} />
       <circle
         cx={size / 2} cy={size / 2} r={radius} fill="none"
-        stroke={color} strokeWidth={12} strokeLinecap="round"
+        stroke={gaugeColor(score)} strokeWidth={12} strokeLinecap="round"
         strokeDasharray={`${filled} ${circumference}`}
         className="transition-all duration-700"
       />

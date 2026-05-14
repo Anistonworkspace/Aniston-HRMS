@@ -26,21 +26,14 @@ window.addEventListener('beforeinstallprompt', (e) => {
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches
   || (navigator as any).standalone === true;
 
-// Always prevent zoom on mobile (browser + standalone)
-const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-
-if (isMobile || isStandalone) {
-  // Prevent pinch-to-zoom
-  document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
-  document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
-  document.addEventListener('gestureend', (e) => e.preventDefault(), { passive: false });
-
-  // Prevent multi-touch zoom
-  document.addEventListener('touchstart', (e) => {
-    if (e.touches.length > 1) e.preventDefault();
-  }, { passive: false });
-
-  // Prevent double-tap zoom on iOS
+// Only disable double-tap zoom in standalone PWA mode.
+// WCAG 1.4.4 requires that users can zoom to 200% — we must NOT prevent
+// pinch-to-zoom in the browser. Standalone PWA is treated as a native app
+// where the OS controls zoom separately; browser users must retain full zoom.
+if (isStandalone) {
+  // Prevent double-tap zoom on iOS (standalone only)
+  // touch-action:manipulation in globals.css handles this for most cases,
+  // but this JS fallback catches older iOS versions.
   let lastTouchEnd = 0;
   document.addEventListener('touchend', (e) => {
     const now = Date.now();
