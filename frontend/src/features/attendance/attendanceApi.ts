@@ -147,7 +147,7 @@ export const attendanceApi = api.injectEndpoints({
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
-    storeGPSTrail: builder.mutation<any, { points: any[] }>({
+    storeGPSTrail: builder.mutation<any, { points: Array<{ lat: number; lng: number; timestamp: string; accuracy?: number; speed?: number; heading?: number; altitude?: number }>; source?: 'realtime' | 'offline_sync'; attendanceId?: string }>({
       query: (body) => ({ url: '/attendance/gps-trail', method: 'POST', body }),
       // Use targeted GPS tag so only GPS-trail queries refetch, not all Attendance queries
       invalidatesTags: (_, __, arg) => [{ type: 'GPSTrail' as const, id: 'PENDING' }],
@@ -384,16 +384,19 @@ export const attendanceApi = api.injectEndpoints({
     // ===== P1.3: Monthly Report =====
     getMonthlyReport: builder.query<any, { month: number; year: number }>({
       query: ({ month, year }) => `/attendance/monthly-report?month=${month}&year=${year}`,
+      providesTags: ['Attendance'],
     }),
 
     // ===== P2.7: Self-Service Report =====
     getMyReport: builder.query<any, { month: number; year: number }>({
       query: ({ month, year }) => `/attendance/my/report?month=${month}&year=${year}`,
+      providesTags: ['Attendance'],
     }),
 
     // ===== P2.9: Geofence Map =====
     getCheckInMapData: builder.query<any, string>({
       query: (attendanceId) => `/attendance/check-in-map/${attendanceId}`,
+      providesTags: (_, __, attendanceId) => [{ type: 'Attendance' as const, id: attendanceId }],
     }),
 
     // ===== P2.10: Overtime =====

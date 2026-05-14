@@ -524,6 +524,10 @@ export enum LeaveApplicableTo {
   INTERN = 'INTERN',
   NOTICE_PERIOD = 'NOTICE_PERIOD',
   SPECIFIC = 'SPECIFIC',
+  // Policy-engine audience values
+  ACTIVE_ONLY = 'ACTIVE_ONLY',
+  TRAINEE_ONLY = 'TRAINEE_ONLY',
+  ALL_ELIGIBLE = 'ALL_ELIGIBLE',
 }
 
 /**

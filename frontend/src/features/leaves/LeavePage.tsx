@@ -34,6 +34,7 @@ import {
   usePostConditionMessageMutation,
   useSubmitDraftMutation,
   useGetDraftsCountQuery,
+  useBulkRestoreLeaveTypesMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -175,6 +176,7 @@ function LeaveManagementView() {
   const { data: policiesRes } = useGetLeavePoliciesQuery(undefined, { skip: activeTab !== 'types' });
   const [handleAction] = useHandleLeaveActionMutation();
   const [deleteLeaveType] = useDeleteLeaveTypeMutation();
+  const [bulkRestore, { isLoading: bulkRestoring }] = useBulkRestoreLeaveTypesMutation();
 
   // Combine data based on active filter tab
   const activeRes = approvalStatusFilter === 'pending' ? approvalsRes : allLeavesRes;
@@ -821,6 +823,13 @@ function LeaveManagementView() {
                               Expand Legacy Types
                             </button>{' '}
                             and click <strong>Restore</strong> on each type to convert it to a policy-managed type, or create a new leave type above.
+                            <button
+                              disabled={bulkRestoring}
+                              onClick={() => bulkRestore().unwrap().then((res) => toast.success(`Migrated ${res.restored} legacy type${res.restored !== 1 ? 's' : ''} to policy-managed`)).catch((err: any) => toast.error(err?.data?.error?.message || 'Migration failed'))}
+                              className="text-sm text-indigo-400 hover:text-indigo-300 underline ml-4 disabled:opacity-50"
+                            >
+                              {bulkRestoring ? 'Migrating…' : 'Migrate All to Policy-Managed'}
+                            </button>
                           </p>
                         </div>
                       </div>
@@ -837,13 +846,22 @@ function LeaveManagementView() {
                 {/* Legacy types — collapsible */}
                 {legacyTypes.length > 0 && (
                   <div className="mt-4">
-                    <button
-                      onClick={() => setShowLegacyTypes((v) => !v)}
-                      className="flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-700 transition-colors mb-2 font-medium"
-                    >
-                      <ChevronRight size={13} className={cn('transition-transform', showLegacyTypes && 'rotate-90')} />
-                      Legacy Types ({legacyTypes.length}) — click Restore to convert to policy-managed
-                    </button>
+                    <div className="flex items-center gap-2 mb-2">
+                      <button
+                        onClick={() => setShowLegacyTypes((v) => !v)}
+                        className="flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-700 transition-colors font-medium"
+                      >
+                        <ChevronRight size={13} className={cn('transition-transform', showLegacyTypes && 'rotate-90')} />
+                        Legacy Types ({legacyTypes.length}) — click Restore to convert to policy-managed
+                      </button>
+                      <button
+                        disabled={bulkRestoring}
+                        onClick={() => bulkRestore().unwrap().then((res) => toast.success(`Migrated ${res.restored} legacy type${res.restored !== 1 ? 's' : ''} to policy-managed`)).catch((err: any) => toast.error(err?.data?.error?.message || 'Migration failed'))}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 underline disabled:opacity-50"
+                      >
+                        {bulkRestoring ? 'Migrating…' : 'Migrate All'}
+                      </button>
+                    </div>
                     <AnimatePresence>
                       {showLegacyTypes && (
                         <motion.div

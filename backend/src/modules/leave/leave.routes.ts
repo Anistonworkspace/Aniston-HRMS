@@ -54,6 +54,11 @@ router.post(
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => leaveController.createLeaveType(req, res, next)
 );
+router.post(
+  '/types/bulk-restore',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => leaveController.bulkRestoreLeaveTypes(req, res, next)
+);
 router.patch(
   '/types/:id',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),

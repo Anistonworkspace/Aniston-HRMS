@@ -25,7 +25,7 @@ async function provisionNewYearBalances(targetYear: number) {
     if (leaveTypes.length === 0) continue;
 
     const employees = await prisma.employee.findMany({
-      where: { organizationId: org.id, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION', 'INTERN', 'ONBOARDING'] } },
+      where: { organizationId: org.id, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION', 'INTERN'] } },
       select: { id: true },
     });
     if (employees.length === 0) continue;
@@ -39,15 +39,19 @@ async function provisionNewYearBalances(targetYear: number) {
 
       const toCreate = employees
         .filter(e => !existingSet.has(e.id))
-        .map(e => ({
-          employeeId: e.id,
-          leaveTypeId: lt.id,
-          year: targetYear,
-          allocated: Number(lt.defaultBalance ?? 0),
-          used: 0,
-          pending: 0,
-          carriedForward: 0,
-        }));
+        .map(e => {
+          const allocated = Number(lt.defaultBalance ?? 0);
+          return {
+            employeeId: e.id,
+            leaveTypeId: lt.id,
+            year: targetYear,
+            allocated,
+            policyAllocated: allocated,
+            used: 0,
+            pending: 0,
+            carriedForward: 0,
+          };
+        });
 
       if (toCreate.length > 0) {
         await prisma.leaveBalance.createMany({ data: toCreate, skipDuplicates: true });
@@ -142,12 +146,14 @@ async function processYearEndCarryForward(targetYear?: number) {
           } else {
             // Create new balance for this year — seed with default balance + carry-forward
             const defaultAlloc = Number(lt.defaultBalance ?? 0);
+            const newAllocated = defaultAlloc + carryDays;
             await prisma.leaveBalance.create({
               data: {
                 employeeId:     prev.employeeId,
                 leaveTypeId:    lt.id,
                 year:           currentYear,
-                allocated:      defaultAlloc + carryDays,
+                allocated:      newAllocated,
+                policyAllocated: newAllocated,
                 used:           0,
                 pending:        0,
                 carriedForward: carryDays,

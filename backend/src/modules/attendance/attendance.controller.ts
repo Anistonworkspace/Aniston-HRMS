@@ -171,7 +171,7 @@ export class AttendanceController {
       const start = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
       const end = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
 
-      const result = await attendanceService.getEmployeeAttendance(employeeId, start, end);
+      const result = await attendanceService.getEmployeeAttendance(employeeId, start, end, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -214,7 +214,7 @@ export class AttendanceController {
         res.status(400).json({ success: false, data: null, error: { code: 'INVALID_ACTION', message: 'Action must be APPROVED, REJECTED, or MANAGER_REVIEWED' } });
         return;
       }
-      const result = await attendanceService.handleRegularization(id, action, req.user!.userId, remarks, req.user!.role, approvalType);
+      const result = await attendanceService.handleRegularization(id, action, req.user!.userId, remarks, req.user!.role, approvalType, req.user!.employeeId ?? undefined);
       res.json({ success: true, data: result, message: `Regularization ${action.toLowerCase()}` });
     } catch (err) { next(err); }
   }
@@ -381,7 +381,7 @@ export class AttendanceController {
   async getEmployeeAttendanceDetail(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
-      const result = await attendanceService.getEmployeeAttendanceDetail(employeeId, date);
+      const result = await attendanceService.getEmployeeAttendanceDetail(employeeId, date, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

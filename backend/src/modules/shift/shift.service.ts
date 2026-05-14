@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError, ConflictError } from '../../middleware/errorHandler.js';
 import type { CreateShiftInput, AssignShiftInput, CreateLocationInput } from './shift.validation.js';
 import { emitToUser } from '../../sockets/index.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 
 export class ShiftService {
   // ===================== SHIFTS =====================
@@ -780,6 +781,23 @@ export class ShiftService {
       }
     }
 
+    // Audit log for shift change request review
+    await createAuditLog({
+      userId: reviewedBy,
+      organizationId,
+      entity: 'ShiftChangeRequest',
+      entityId: id,
+      action: action === 'APPROVED' ? 'APPROVE' : 'REJECT',
+      newValue: {
+        employeeId: request.employeeId,
+        fromShiftId: request.fromShiftId,
+        toShiftId: request.toShiftId,
+        status: action,
+        reviewRemarks,
+        effectiveDate: action === 'APPROVED' ? (effectiveDate || new Date().toISOString().split('T')[0]) : undefined,
+      },
+    });
+
     return { message: action === 'APPROVED' ? 'Shift change approved and applied.' : 'Shift change request rejected.' };
   }
 
@@ -926,10 +944,34 @@ export class ShiftService {
 
         await tx.employee.update({
           where: { id: request.employeeId },
-          data: { approvedHomeGeofenceId: geofence.id },
+          data: { approvedHomeGeofenceId: geofence.id, workMode: 'HYBRID' },
         });
 
         return { message: 'Home location approved and geofence created', geofenceId: geofence.id };
+      });
+
+      // After transaction: assign employee to the org's HYBRID shift
+      const hybridShift = await prisma.shift.findFirst({
+        where: { organizationId, shiftType: 'HYBRID', deletedAt: null },
+      });
+      if (hybridShift) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        await this.assignShift(
+          { employeeId: request.employeeId, shiftId: hybridShift.id, startDate: today.toISOString().split('T')[0] },
+          organizationId,
+          reviewedBy,
+        );
+      }
+
+      // Audit log
+      await createAuditLog({
+        userId: reviewedBy,
+        organizationId,
+        entity: 'HomeLocationRequest',
+        entityId: request.id,
+        action: 'APPROVE',
+        newValue: { employeeId: request.employeeId, status: 'APPROVED', reviewNotes, hybridShiftAssigned: !!hybridShift },
       });
     } else {
       // Clear old geofence from employee so they can't clock in from old location
@@ -946,6 +988,16 @@ export class ShiftService {
         }
       });
       result = { message: 'Home location request rejected' };
+
+      // Audit log for rejection
+      await createAuditLog({
+        userId: reviewedBy,
+        organizationId,
+        entity: 'HomeLocationRequest',
+        entityId: request.id,
+        action: 'REJECT',
+        newValue: { employeeId: request.employeeId, status: 'REJECTED', reviewNotes },
+      });
     }
 
     // Notify employee via socket
@@ -957,6 +1009,8 @@ export class ShiftService {
           action,
           reviewNotes,
           radiusMeters: action === 'APPROVED' ? (radiusMeters ?? 100) : undefined,
+          workMode: action === 'APPROVED' ? 'HYBRID' : undefined,
+          shiftChanged: action === 'APPROVED',
         });
       }
     }

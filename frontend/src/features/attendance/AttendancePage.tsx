@@ -951,10 +951,11 @@ function AttendancePersonalView() {
         toast(t('attendance.checkoutQueued'), { icon: '📡' });
         return;
       }
-      const msg: string = err?.data?.error?.message || t('attendance.failedClockOut');
-      // EARLY_CHECKOUT: prefix signals the server is asking for confirmation, not hard-blocking
-      if (msg.startsWith('EARLY_CHECKOUT:')) {
-        const displayMsg = msg.replace('EARLY_CHECKOUT:', '').trim();
+      const errorData = err?.data?.error;
+      const msg: string = errorData?.message || t('attendance.failedClockOut');
+      // EARLY_CHECKOUT: structured code or legacy prefix signals the server is asking for confirmation, not hard-blocking
+      if (errorData?.code === 'EARLY_CHECKOUT_CONFIRMATION_REQUIRED' || msg.startsWith('EARLY_CHECKOUT:')) {
+        const displayMsg = msg.startsWith('EARLY_CHECKOUT:') ? msg.replace('EARLY_CHECKOUT:', '').trim() : msg;
         setShiftWarning({
           title: 'Early Check-Out',
           message: displayMsg,
@@ -1074,7 +1075,8 @@ function AttendancePersonalView() {
   const workMode = today?.workMode || 'OFFICE';
 
   // True when the employee is assigned to a FIELD shift (GPS-based live tracking)
-  const isFieldShift = (today?.shift as any)?.shiftType === 'FIELD';
+  // Also detect via workMode on the today record, in case shiftType is not set
+  const isFieldShift = (today?.shift as any)?.shiftType === 'FIELD' || (today as any)?.workMode === 'FIELD_SALES';
 
   // Desktop users skip all location gates — they see status-only UI
   // Employee-level permission gate (canViewAttendanceHistory)

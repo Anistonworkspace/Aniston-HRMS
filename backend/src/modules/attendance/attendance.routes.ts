@@ -5,7 +5,7 @@ import { authenticate, requirePermission, authorize, requireEmpPerm } from '../.
 import { Role } from '@aniston/shared';
 import { uploadAttendancePhoto } from '../../middleware/upload.middleware.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
-import { BadRequestError } from '../../middleware/errorHandler.js';
+import { BadRequestError, NotFoundError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { compOffService } from './compoff.service.js';
 import { enqueueNotification, enqueueEmail } from '../../jobs/queues.js';
 import { assertHRActionAllowed } from '../../utils/hrRestrictions.js';
@@ -158,7 +158,6 @@ router.get(
 // Project site photo upload (returns URL to use in projectSiteCheckIn body)
 router.post(
   '/project-site/upload-photo',
-  authenticate,
   uploadAttendancePhoto.single('photo'),
   (req, res, next) => {
     try {
@@ -624,6 +623,28 @@ router.patch('/overtime/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, R
     const { action, remarks } = req.body;
     const status = action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : null;
     if (!status) { res.status(400).json({ success: false, error: { message: 'action must be approve or reject' } }); return; }
+
+    // Fetch the overtime request first to validate org scope and ownership
+    const overtimeReq = await prisma.overtimeRequest.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+    });
+    if (!overtimeReq) throw new NotFoundError('Overtime request');
+
+    // Prevent self-approval
+    if (overtimeReq.employeeId === req.user!.employeeId) {
+      throw new ForbiddenError('You cannot approve your own overtime request');
+    }
+
+    // Manager can only approve overtime for their direct reports
+    if (req.user!.role === 'MANAGER') {
+      const targetEmployee = await prisma.employee.findFirst({
+        where: { id: overtimeReq.employeeId },
+      });
+      if (targetEmployee?.managerId !== req.user!.employeeId) {
+        throw new ForbiddenError('You can only approve overtime for your direct reports');
+      }
+    }
+
     const updated = await prisma.overtimeRequest.update({
       where: { id: req.params.id },
       data: { status, approvedBy: req.user!.userId, approverRemarks: remarks || null, approvedAt: new Date() },

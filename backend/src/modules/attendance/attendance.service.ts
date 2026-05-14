@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
+import { AppError, BadRequestError, NotFoundError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { emitToOrg, invalidateDashboardCache } from '../../sockets/index.js';
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
@@ -526,6 +526,13 @@ export class AttendanceService {
     }
 
     // For PROJECT_SITE mode, also create a site check-in if siteName was provided in the same request
+    // Enforce photo for PROJECT_SITE employees
+    if ((employee.workMode === 'PROJECT_SITE' || currentShiftType === 'PROJECT_SITE') && data.siteName) {
+      if (!data.checkInPhoto) {
+        throw new BadRequestError('Photo is required for project site check-in');
+      }
+    }
+
     if (employee.workMode === 'PROJECT_SITE' && data.siteName) {
       await prisma.projectSiteCheckIn.create({
         data: {
@@ -736,9 +743,12 @@ export class AttendanceService {
           if (currentISTMinutes < halfDayMinMinutes) {
             const minsShort = halfDayMinMinutes - currentISTMinutes;
             if (!data.earlyCheckoutConfirmed) {
-              throw new BadRequestError(
-                `EARLY_CHECKOUT:Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
-                `(${minsShort} min remaining). Confirm early checkout to proceed.`
+              throw new AppError(
+                `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
+                `(${minsShort} min remaining). Confirm early checkout to proceed.`,
+                400,
+                'EARLY_CHECKOUT_CONFIRMATION_REQUIRED',
+                { earlyMinutes: minsShort }
               );
             }
             earlyCheckoutFlagged = true;
@@ -749,9 +759,12 @@ export class AttendanceService {
           if (currentISTMinutes < shiftEndMinutes) {
             const minsShort = shiftEndMinutes - currentISTMinutes;
             if (!data.earlyCheckoutConfirmed) {
-              throw new BadRequestError(
-                `EARLY_CHECKOUT:Your shift (${coShift.name}) ends at ${coShift.endTime} ` +
-                `(${minsShort} min remaining). Confirm early checkout to proceed, or apply for half-day leave.`
+              throw new AppError(
+                `Your shift (${coShift.name}) ends at ${coShift.endTime} ` +
+                `(${minsShort} min remaining). Confirm early checkout to proceed, or apply for half-day leave.`,
+                400,
+                'EARLY_CHECKOUT_CONFIRMATION_REQUIRED',
+                { earlyMinutes: minsShort }
               );
             }
             earlyCheckoutFlagged = true;
@@ -771,9 +784,12 @@ export class AttendanceService {
         if (!halfDayLeave && currentISTMinutes < defaultEndMinutes) {
           const minsShort = defaultEndMinutes - currentISTMinutes;
           if (!data.earlyCheckoutConfirmed) {
-            throw new BadRequestError(
-              `EARLY_CHECKOUT:Shift ends at ${fmt12h(defaultEndMinutes)} (${minsShort} min remaining). ` +
-              `Confirm early checkout to proceed, or apply for half-day leave.`
+            throw new AppError(
+              `Shift ends at ${fmt12h(defaultEndMinutes)} (${minsShort} min remaining). ` +
+              `Confirm early checkout to proceed, or apply for half-day leave.`,
+              400,
+              'EARLY_CHECKOUT_CONFIRMATION_REQUIRED',
+              { earlyMinutes: minsShort }
             );
           }
           earlyCheckoutFlagged = true;
@@ -784,9 +800,12 @@ export class AttendanceService {
           if (currentISTMinutes < halfDayMinMinutes) {
             const minsShort = halfDayMinMinutes - currentISTMinutes;
             if (!data.earlyCheckoutConfirmed) {
-              throw new BadRequestError(
-                `EARLY_CHECKOUT:Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
-                `(${minsShort} min remaining). Confirm early checkout to proceed.`
+              throw new AppError(
+                `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
+                `(${minsShort} min remaining). Confirm early checkout to proceed.`,
+                400,
+                'EARLY_CHECKOUT_CONFIRMATION_REQUIRED',
+                { earlyMinutes: minsShort }
               );
             }
             earlyCheckoutFlagged = true;
@@ -2325,7 +2344,8 @@ export class AttendanceService {
     approvedBy: string,
     remarks?: string,
     approverRole?: string,
-    approvalType?: 'FULL_DAY' | 'HALF_DAY'
+    approvalType?: 'FULL_DAY' | 'HALF_DAY',
+    approverEmployeeId?: string
   ) {
     const reg = await prisma.attendanceRegularization.findUnique({
       where: { id: regularizationId },
@@ -2336,6 +2356,11 @@ export class AttendanceService {
       },
     });
     if (!reg) throw new NotFoundError('Regularization request');
+
+    // Prevent self-approval — approver cannot approve their own regularization request
+    if (approverEmployeeId && reg.employeeId === approverEmployeeId) {
+      throw new ForbiddenError('You cannot approve your own regularization request');
+    }
 
     // HR restriction gate
     const regEmployeeId = reg.attendance?.employeeId;
@@ -2563,8 +2588,8 @@ export class AttendanceService {
   /**
    * Get attendance records for a specific employee in a date range (HR/Admin view)
    */
-  async getEmployeeAttendance(employeeId: string, startDate: string, endDate: string) {
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  async getEmployeeAttendance(employeeId: string, startDate: string, endDate: string, organizationId: string) {
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId, organizationId } });
     if (!employee) throw new NotFoundError('Employee');
 
     const start = new Date(startDate);
@@ -2575,6 +2600,7 @@ export class AttendanceService {
     const records = await prisma.attendanceRecord.findMany({
       where: {
         employeeId,
+        employee: { organizationId },
         date: { gte: start, lte: end },
       },
       include: { breaks: true, logs: { orderBy: { timestamp: 'asc' } } },
@@ -3661,9 +3687,13 @@ export class AttendanceService {
   /**
    * Employee attendance detail — enriched for the detail page
    */
-  async getEmployeeAttendanceDetail(employeeId: string, date: string) {
+  async getEmployeeAttendanceDetail(employeeId: string, date: string, organizationId: string) {
     const queryDate = new Date(date);
     queryDate.setHours(0, 0, 0, 0);
+
+    // Org scope check — prevent IDOR across organizations
+    const emp = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!emp) throw new NotFoundError('Employee');
 
     const [record, regularizations, anomalies, leaveRequests, shiftAssignment] = await Promise.all([
       prisma.attendanceRecord.findUnique({

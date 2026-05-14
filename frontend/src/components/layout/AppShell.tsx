@@ -274,6 +274,24 @@ export default function AppShell() {
     return () => { offSocketEvent('shift:assigned', handleShiftAssigned); };
   }, [dispatch]);
 
+  // Shift change request reviewed — refresh roster + employee list for the affected employee
+  useEffect(() => {
+    const handleShiftRequestReviewed = () => {
+      dispatch(api.util.invalidateTags(['Attendance', 'EmployeeList'] as any[]));
+    };
+    onSocketEvent('shift:request-reviewed', handleShiftRequestReviewed);
+    return () => { offSocketEvent('shift:request-reviewed', handleShiftRequestReviewed); };
+  }, [dispatch]);
+
+  // Home location request reviewed — refresh roster + employee list (workMode may have changed)
+  useEffect(() => {
+    const handleHomeLocationReviewed = () => {
+      dispatch(api.util.invalidateTags(['Attendance', 'EmployeeList'] as any[]));
+    };
+    onSocketEvent('home-location:reviewed', handleHomeLocationReviewed);
+    return () => { offSocketEvent('home-location:reviewed', handleHomeLocationReviewed); };
+  }, [dispatch]);
+
   // GPS auto-restarted event — fired by MainActivity.onResume() via evaluateJavascript
   // when it detects saved credentials and restarts the service. Invalidate attendance
   // cache so the UI reflects active tracking without the employee navigating to Attend.

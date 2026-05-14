@@ -257,6 +257,11 @@ export const leaveApi = api.injectEndpoints({
         'Leave',
       ],
     }),
+
+    bulkRestoreLeaveTypes: builder.mutation<{ restored: number; types: any[] }, void>({
+      query: () => ({ url: '/leaves/types/bulk-restore', method: 'POST' }),
+      invalidatesTags: ['Leave'],
+    }),
   }),
 });
 
@@ -307,4 +312,6 @@ export const {
   useSubmitConditionResponseMutation,
   usePostConditionMessageMutation,
   useResolveConditionalLeaveMutation,
+  // Bulk restore legacy leave types
+  useBulkRestoreLeaveTypesMutation,
 } = leaveApi;

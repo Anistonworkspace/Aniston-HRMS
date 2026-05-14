@@ -195,7 +195,7 @@ export const workforceApi = api.injectEndpoints({
     }),
     reviewShiftChangeRequest: builder.mutation<ApiResponse<any>, { id: string; action: 'APPROVED' | 'REJECTED'; reviewRemarks?: string; effectiveDate?: string }>({
       query: ({ id, ...body }) => ({ url: `/workforce/shifts/change-request/${id}`, method: 'PATCH', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'EmployeeList'],
     }),
 
     // HR Action Restrictions
@@ -226,7 +226,7 @@ export const workforceApi = api.injectEndpoints({
     }),
     reviewHomeLocationRequest: builder.mutation<ApiResponse<any>, { id: string; action: 'APPROVED' | 'REJECTED'; reviewNotes?: string; radiusMeters?: number }>({
       query: ({ id, ...body }) => ({ url: `/workforce/shifts/home-location-request/${id}/review`, method: 'PATCH', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'EmployeeList'],
     }),
   }),
 });

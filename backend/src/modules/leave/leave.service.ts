@@ -124,6 +124,43 @@ export class LeaveService {
   }
 
   /**
+   * Bulk-migrate legacy leave types (old audience values) to policy-managed audience values.
+   * Safe to call multiple times — already-migrated types are skipped.
+   */
+  async bulkRestoreLeaveTypes(organizationId: string) {
+    const legacyAudiences = ['ALL', 'PROBATION', 'CONFIRMED', 'INTERN', 'NOTICE_PERIOD', 'SPECIFIC'];
+
+    const legacyTypes = await prisma.leaveType.findMany({
+      where: { organizationId, applicableTo: { in: legacyAudiences }, isActive: true, deletedAt: null },
+    });
+
+    if (legacyTypes.length === 0) return { restored: 0, types: [] };
+
+    const audienceMap: Record<string, string> = {
+      ALL: 'ALL_ELIGIBLE',
+      CONFIRMED: 'ACTIVE_ONLY',
+      PROBATION: 'ALL_ELIGIBLE',
+      INTERN: 'TRAINEE_ONLY',
+      NOTICE_PERIOD: 'ALL_ELIGIBLE',
+      SPECIFIC: 'ALL_ELIGIBLE',
+    };
+
+    const updates = await Promise.all(
+      legacyTypes.map((lt) =>
+        prisma.leaveType.update({
+          where: { id: lt.id },
+          data: { applicableTo: audienceMap[lt.applicableTo] || 'ALL_ELIGIBLE' },
+        }),
+      ),
+    );
+
+    return {
+      restored: updates.length,
+      types: updates.map((u) => ({ id: u.id, name: u.name, applicableTo: u.applicableTo })),
+    };
+  }
+
+  /**
    * Get leave balances for an employee (current year)
    */
   async getBalances(employeeId: string, year?: number) {
@@ -1603,7 +1640,7 @@ export class LeaveService {
   /**
    * Get full leave request detail with audit, handovers, and decisions
    */
-  async getLeaveDetail(requestId: string) {
+  async getLeaveDetail(requestId: string, organizationId?: string) {
     const request = await prisma.leaveRequest.findUnique({
       where: { id: requestId },
       include: {
@@ -1611,7 +1648,7 @@ export class LeaveService {
         employee: {
           select: {
             id: true, firstName: true, lastName: true, employeeCode: true, email: true,
-            managerId: true, avatar: true,
+            managerId: true, avatar: true, organizationId: true,
             department: { select: { name: true } },
           },
         },
@@ -1626,6 +1663,11 @@ export class LeaveService {
       },
     });
     if (!request) throw new NotFoundError('Leave request');
+
+    // Org scope check — prevent IDOR across organizations
+    if (organizationId && request.employee.organizationId !== organizationId) {
+      throw new NotFoundError('Leave request');
+    }
 
     // Resolve backup employee name if set
     let backupEmployee: { id: string; firstName: string; lastName: string; employeeCode: string } | null = null;
@@ -1643,7 +1685,7 @@ export class LeaveService {
    * Get manager review data (leave detail + employee context)
    */
   async getManagerReviewData(requestId: string, organizationId: string) {
-    const detail = await this.getLeaveDetail(requestId);
+    const detail = await this.getLeaveDetail(requestId, organizationId);
 
     // Recent leave history (last 6 months)
     const sixMonthsAgo = new Date();
@@ -1669,7 +1711,7 @@ export class LeaveService {
    * Get HR review data (leave detail + compliance checks)
    */
   async getHrReviewData(requestId: string, organizationId: string) {
-    const detail = await this.getLeaveDetail(requestId);
+    const detail = await this.getLeaveDetail(requestId, organizationId);
 
     // Notice compliance
     const noticeMet = detail.noticeHours !== null ? detail.noticeHours >= 24 : null;
@@ -1957,9 +1999,7 @@ export class LeaveService {
         }
 
         // Create ON_LEAVE attendance records
-        const orgData = await tx.organization.findUnique({ where: { id: organizationId }, select: { workingDays: true } });
-        const workingDayStr: string = (orgData as any)?.workingDays || '1,2,3,4,5';
-        const workingDaysSet = new Set(workingDayStr.split(',').map((d: string) => parseInt(d, 10)));
+        const workingDaysSet = await this.getWorkingDays(organizationId);
         const orgHolidays = await tx.holiday.findMany({
           where: { organizationId, date: { gte: new Date(req.startDate), lte: new Date(req.endDate) }, type: { in: ['PUBLIC', 'CUSTOM'] } },
           select: { date: true },
@@ -2462,7 +2502,10 @@ export class LeaveService {
     // Privileged roles can cancel any employee's leave; employees can only cancel their own
     const request = await prisma.leaveRequest.findFirst({
       where: isPrivileged ? { id: requestId } : { id: requestId, employeeId },
-      include: { employee: { include: { user: { select: { role: true } } } } },
+      include: {
+        employee: { include: { user: { select: { role: true } } } },
+        leaveType: { select: { name: true, code: true } },
+      },
     });
     if (!request) throw new NotFoundError('Leave request');
 
@@ -2543,6 +2586,15 @@ export class LeaveService {
 
       return cancelled;
     });
+
+    // Notify manager/HR about the cancellation (non-blocking)
+    const cancelOrganizationId = (request as any).employee?.organizationId;
+    if (cancelOrganizationId) {
+      const cancelledWithType = { ...updated, leaveType: request.leaveType };
+      this.sendLeaveNotifications(cancelledWithType, 'cancelled', cancelOrganizationId, leaveOwnerId).catch((err) =>
+        logger.warn(`[LeaveNotify] Cancel notify failed: ${err.message}`)
+      );
+    }
 
     return updated;
   }
@@ -2699,6 +2751,41 @@ export class LeaveService {
             const backupSubject = `You've been assigned as backup for ${empName}'s leave`;
             await notify(backup.userId, backup.email, backupSubject, 'leave-backup-assigned', baseContext);
           }
+        }
+
+      } else if (event === 'cancelled') {
+        const subject = `Leave Cancelled: ${empName} — ${leaveTypeName} (${dayLabel})`;
+
+        // Notify manager
+        if (employee.managerId) {
+          const manager = await prisma.employee.findUnique({
+            where: { id: employee.managerId },
+            select: { userId: true, email: true },
+          });
+          if (manager?.userId) {
+            await notify(manager.userId, manager.email, subject, 'leave-cancelled', baseContext);
+          }
+        }
+
+        // Notify HR/Admin users
+        const hrUsers = await prisma.user.findMany({
+          where: { organizationId, role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] }, status: 'ACTIVE' },
+          select: { id: true, email: true },
+        });
+        const hrEmailsSent = new Set<string>();
+        for (const hr of hrUsers) {
+          await notify(hr.id, hr.email, subject, 'leave-cancelled', baseContext);
+          if (hr.email) hrEmailsSent.add(hr.email);
+        }
+
+        // Also send to adminNotificationEmail if set and not already notified
+        if (org?.adminNotificationEmail && !hrEmailsSent.has(org.adminNotificationEmail)) {
+          await enqueueEmail({
+            to: org.adminNotificationEmail,
+            subject,
+            template: 'leave-cancelled',
+            context: baseContext,
+          }).catch((err) => logger.error(`[LeaveNotify] adminNotificationEmail cancel: ${err.message}`));
         }
       }
     } catch (err: any) {

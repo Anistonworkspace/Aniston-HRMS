@@ -9,6 +9,7 @@ import {
   useCreateShiftChangeRequestMutation,
 } from '../workforce/workforceApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
+import { useGetOrgLeaveSettingsQuery } from '../leaves/leaveApi';
 import { useAppSelector } from '../../app/store';
 import LocationPickerMap from '../../components/map/LocationPickerMap';
 import LocationSearch from '../../components/map/LocationSearch';
@@ -93,6 +94,8 @@ function getShiftDisplay(shiftType: string, shiftName?: string) {
 /* ===== SHIFTS PANEL ===== */
 function ShiftsPanel() {
   const { data: res } = useGetShiftsQuery();
+  const { data: orgSettingsRes } = useGetOrgLeaveSettingsQuery();
+  const orgWorkingDays: string | undefined = orgSettingsRes?.data?.workingDays;
   const shifts = res?.data || [];
   const [createShift, { isLoading: creating }] = useCreateShiftMutation();
   const [updateShift] = useUpdateShiftMutation();
@@ -207,6 +210,20 @@ function ShiftsPanel() {
 
   return (
     <div className="space-y-4">
+      {/* Working Days — configured in Leave Settings */}
+      <div className="layer-card p-3 rounded-lg bg-white/5 border border-white/10 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Working Days</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {orgWorkingDays
+              ? `${orgWorkingDays.split(',').length}-day week`
+              : 'Not configured'}
+            {' · '}
+            <span className="text-indigo-500">Configure in Leave Management → Types</span>
+          </p>
+        </div>
+      </div>
+
       {/* Default shifts info banner */}
       <div className="layer-card p-4 bg-blue-50/50 border border-blue-100">
         <p className="text-sm text-blue-800 font-semibold mb-1">Default Shifts (always maintained)</p>
@@ -832,9 +849,10 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
 }
 
 /* ===== ASSIGNMENTS PANEL ===== */
-const SHIFT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  OFFICE: { label: 'General', color: 'text-blue-600' },
-  FIELD: { label: 'Live Tracking', color: 'text-green-600' },
+const SHIFT_TYPE_LABELS: Record<string, { label: string; color: string; bg?: string }> = {
+  OFFICE: { label: 'General', color: 'text-blue-600', bg: 'bg-blue-50' },
+  FIELD: { label: 'Live Tracking', color: 'text-green-600', bg: 'bg-green-50' },
+  HYBRID: { label: 'Hybrid (WFH)', color: 'text-purple-600', bg: 'bg-purple-100' },
 };
 function getShiftTypeLabel(shiftType: string, shiftName?: string) {
   return SHIFT_TYPE_LABELS[shiftType] || { label: shiftName || shiftType, color: 'text-purple-600' };
@@ -996,7 +1014,9 @@ function AssignmentsPanel() {
                         </div>
                       </td>
                       <td className="p-3">
-                        {dbAssignment.location?.name ? (
+                        {dbAssignment.shift?.shiftType === 'FIELD' ? (
+                          <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking</span>
+                        ) : dbAssignment.location?.name ? (
                           <span className="text-xs text-gray-600 flex items-center gap-1">
                             <MapPin size={10} className="text-brand-500" />
                             {dbAssignment.location.name}
@@ -1004,8 +1024,6 @@ function AssignmentsPanel() {
                               <span className="text-[10px] text-gray-400">· {dbAssignment.location.geofence.radiusMeters}m</span>
                             )}
                           </span>
-                        ) : dbAssignment.shift?.shiftType === 'FIELD' ? (
-                          <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking</span>
                         ) : (
                           <span className="text-[10px] text-red-400">No location assigned</span>
                         )}
