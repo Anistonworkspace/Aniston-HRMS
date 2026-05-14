@@ -99,6 +99,9 @@ export const settingsApi = api.injectEndpoints({
     testEmailConnection: builder.mutation<any, void>({
       query: () => ({ url: '/settings/email/test', method: 'POST' }),
     }),
+    retryFailedEmails: builder.mutation<{ success: boolean; data: { retried: number; message: string } }, void>({
+      query: () => ({ url: '/settings/email/retry-failed', method: 'POST' }),
+    }),
     getTeamsConfig: builder.query<any, void>({
       query: () => '/settings/teams',
       providesTags: ['TeamsConfig'],
@@ -248,6 +251,7 @@ export const {
   useGetEmailConfigQuery,
   useSaveEmailConfigMutation,
   useTestEmailConnectionMutation,
+  useRetryFailedEmailsMutation,
   useGetTeamsConfigQuery,
   useSaveTeamsConfigMutation,
   useTestTeamsConnectionMutation,

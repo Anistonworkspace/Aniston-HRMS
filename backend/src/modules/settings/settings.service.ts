@@ -4,7 +4,7 @@ import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 import { validateConnection, getClientCredentialsToken, getOrganizationUsers } from '../../lib/microsoftGraph.js';
-import { enqueueEmail } from '../../jobs/queues.js';
+import { enqueueEmail, emailQueue } from '../../jobs/queues.js';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env.js';
 import type { UpdateOrganizationInput, CreateLocationInput, UpdateLocationInput, AuditLogQuery, TeamsConfigInput } from './settings.validation.js';
@@ -313,6 +313,13 @@ export class SettingsService {
     } catch (err: any) {
       return { success: false, message: `Failed to queue test email: ${err.message}` };
     }
+  }
+
+  async retryFailedEmails() {
+    const failed = await emailQueue.getFailed();
+    if (failed.length === 0) return { retried: 0, message: 'No failed email jobs to retry' };
+    await Promise.all(failed.map((job) => job.retry()));
+    return { retried: failed.length, message: `Retried ${failed.length} failed email job${failed.length !== 1 ? 's' : ''}` };
   }
 
   // ==================

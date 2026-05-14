@@ -61,6 +61,10 @@ router.post('/email/test', requirePermission('settings', 'update'), (req, res, n
   settingsController.testEmailConnection(req, res, next)
 );
 
+router.post('/email/retry-failed', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.retryFailedEmails(req, res, next)
+);
+
 router.post('/organization/test-admin-email', requirePermission('settings', 'update'), (req, res, next) =>
   settingsController.testAdminNotificationEmail(req, res, next)
 );

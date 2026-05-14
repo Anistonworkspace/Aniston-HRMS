@@ -115,6 +115,15 @@ export class SettingsController {
     }
   }
 
+  async retryFailedEmails(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await settingsService.retryFailedEmails();
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async testAdminNotificationEmail(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await settingsService.testAdminNotificationEmail(req.user!.organizationId);

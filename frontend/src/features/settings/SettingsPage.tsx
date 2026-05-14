@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Building2, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText, Bug, Clock, Shield, Activity } from 'lucide-react';
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useRetryFailedEmailsMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation } from './settingsApi';
 import { useGetAgentDownloadStatusQuery } from '../attendance/attendanceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
@@ -330,6 +330,7 @@ function EmailConfig() {
   const { data: orgRes } = useGetOrgSettingsQuery();
   const [saveConfig, { isLoading: saving }] = useSaveEmailConfigMutation();
   const [testConnection, { isLoading: testing }] = useTestEmailConnectionMutation();
+  const [retryFailed, { isLoading: retrying }] = useRetryFailedEmailsMutation();
   const [updateOrg, { isLoading: savingAdminEmail }] = useUpdateOrgMutation();
   const [testAdminEmail, { isLoading: isTestingAdminEmail }] = useTestAdminNotificationEmailMutation();
   const config = res?.data;
@@ -555,6 +556,26 @@ function EmailConfig() {
           <button onClick={handleTest} disabled={testing || !config?.configured} className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50">
             {testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             Test Connection
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const res = await retryFailed().unwrap();
+                if (res.data?.retried === 0) {
+                  toast('No failed emails in queue — all clear!', { icon: '✅' });
+                } else {
+                  toast.success(res.data?.message || `Retried ${res.data?.retried} failed emails`);
+                }
+              } catch (err: any) {
+                toast.error(err?.data?.error?.message || 'Failed to retry emails');
+              }
+            }}
+            disabled={retrying}
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+            title="Retry all emails that failed to send (e.g. due to wrong SMTP password)"
+          >
+            {retrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Retry Failed Emails
           </button>
         </div>
       </div>
