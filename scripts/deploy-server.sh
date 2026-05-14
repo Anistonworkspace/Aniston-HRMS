@@ -80,9 +80,11 @@ fi
   echo "JWT_ACCESS_EXPIRY=15m"
   echo "JWT_REFRESH_EXPIRY=7d"
   echo "ENCRYPTION_KEY=$DEPLOY_ENCRYPTION_KEY"
-  echo "SMTP_HOST=smtp.office365.com"
-  echo "SMTP_PORT=587"
-  echo "SMTP_FROM=noreply@aniston.in"
+  echo "SMTP_HOST=${DEPLOY_SMTP_HOST:-smtp.office365.com}"
+  echo "SMTP_PORT=${DEPLOY_SMTP_PORT:-587}"
+  echo "SMTP_FROM=${DEPLOY_SMTP_FROM:-noreply@aniston.in}"
+  echo "SMTP_USER=${DEPLOY_SMTP_USER:-}"
+  echo "SMTP_PASS=${DEPLOY_SMTP_PASS:-}"
   echo "STORAGE_BUCKET=aniston-hrms"
   echo "STORAGE_ENDPOINT=${DEPLOY_STORAGE_ENDPOINT:-}"
   echo "STORAGE_ACCESS_KEY=${DEPLOY_STORAGE_ACCESS_KEY:-}"
@@ -203,8 +205,48 @@ echo "=== [10/17] Seeding database ==="
 if [ "${ALLOW_PROD_SEED:-}" = "true" ]; then
   npx tsx prisma/seed.ts
 else
-  echo "Skipping seed in production"
+  echo "Skipping full seed in production"
 fi
+
+echo "=== [10.1/17] Ensuring system accounts are present ==="
+npx tsx - <<'ENSURE_ACCOUNTS_EOF'
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+const prisma = new PrismaClient();
+async function main() {
+  const org = await prisma.organization.findFirst({ where: { slug: "aniston" } });
+  if (!org) { console.log("Org not found — skipping system account check"); return; }
+  const engDept = await prisma.department.findFirst({ where: { name: "Engineering", organizationId: org.id } });
+  const ceoDes = await prisma.designation.findFirst({ where: { name: "CEO", organizationId: org.id } });
+  const accounts = [
+    { email: "superadmin@anistonav.com", password: "Superadmin@1234", role: "SUPER_ADMIN" as const, code: "SYS-001", first: "Super",     last: "Admin"   },
+    { email: "developer@anistonav.com",  password: "Developer@2026!", role: "SUPER_ADMIN" as const, code: "SYS-DEV", first: "Developer", last: "Account" },
+  ];
+  for (const acct of accounts) {
+    const existing = await prisma.user.findUnique({ where: { email: acct.email } });
+    const hash = existing ? existing.passwordHash : await bcrypt.hash(acct.password, 12);
+    const user = await prisma.user.upsert({
+      where: { email: acct.email },
+      update: { role: acct.role, status: "ACTIVE" },
+      create: { email: acct.email, passwordHash: hash, role: acct.role, status: "ACTIVE", organizationId: org.id },
+    });
+    await prisma.employee.upsert({
+      where: { employeeCode: acct.code },
+      update: { isSystemAccount: true, userId: user.id, status: "ACTIVE", deletedAt: null, onboardingComplete: true },
+      create: {
+        employeeCode: acct.code, userId: user.id, firstName: acct.first, lastName: acct.last,
+        email: acct.email, phone: "+91-0000000000", gender: "PREFER_NOT_TO_SAY",
+        departmentId: engDept?.id ?? null, designationId: ceoDes?.id ?? null,
+        workMode: "OFFICE", joiningDate: new Date("2024-01-01"),
+        status: "ACTIVE", onboardingComplete: true, isSystemAccount: true, organizationId: org.id,
+      },
+    });
+    console.log("  ✅ system account ensured: " + acct.email + " [" + acct.role + "]");
+  }
+}
+main().catch(e => console.log("system account check failed (non-blocking):", e.message)).finally(() => prisma.$disconnect());
+ENSURE_ACCOUNTS_EOF
+echo "System account check done"
 
 echo "=== [11/17] Building shared + backend ==="
 npm run build --workspace=shared

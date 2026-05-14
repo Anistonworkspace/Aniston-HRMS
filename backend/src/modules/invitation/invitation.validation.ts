@@ -24,8 +24,8 @@ export const createInvitationSchema = z.object({
   // officeLocationId: REQUIRED — determines geofence boundary for OFFICE attendance check-in
   officeLocationId: z.string().uuid('Select a valid office location'),
 
-  // shiftId: REQUIRED — auto-creates a ShiftAssignment when the employee accepts the invitation
-  shiftId: z.string().uuid('Select a valid shift'),
+  // shiftId: optional — creates a ShiftAssignment on acceptance when provided
+  shiftId: z.string().uuid('Select a valid shift').optional(),
 
   // workMode: REQUIRED — determines attendance mode:
   //   OFFICE → geofence auto check-in, FIELD_SALES → GPS trail every 60s,
