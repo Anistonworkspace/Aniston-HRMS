@@ -17,6 +17,11 @@ import toast from 'react-hot-toast';
 import { useEmpPerms } from '../../hooks/useEmpPerms';
 import PermDenied from '../../components/PermDenied';
 
+function isReadableBankAccount(val: string | null | undefined): boolean {
+  if (!val || val === '__REENTRY_REQUIRED__') return false;
+  return /^\d{6,20}$/.test(val.replace(/[\s\-]/g, ''));
+}
+
 export default function ProfilePage() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
@@ -141,7 +146,7 @@ export default function ProfilePage() {
         address: (employee.address as any) || { line1: '', city: '', state: '', pincode: '' },
       });
       setBankForm({
-        bankAccountNumber: employee.bankAccountNumber || '',
+        bankAccountNumber: isReadableBankAccount(employee.bankAccountNumber) ? employee.bankAccountNumber! : '',
         bankName: employee.bankName || '',
         bankBranchName: (employee as any).bankBranchName || '',
         ifscCode: employee.ifscCode || '',
@@ -907,7 +912,7 @@ export default function ProfilePage() {
           </div>
 
           {/* Dual verification status badges */}
-          {employee?.bankAccountNumber && !showBankEdit && (
+          {isReadableBankAccount(employee?.bankAccountNumber) && !showBankEdit && (
             <div className="flex flex-wrap gap-1.5 mb-3">
               {(employee as any).bankVerifiedByHr ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
@@ -989,15 +994,15 @@ export default function ProfilePage() {
                 {isEmployeeRole ? 'Save Branch Name' : 'Save Bank Details'}
               </button>
             </div>
-          ) : employee?.bankAccountNumber ? (
+          ) : (employee?.bankName || isReadableBankAccount(employee?.bankAccountNumber)) ? (
             <>
               <dl className="space-y-3 mb-4">
-                <ProfileRow label="Account Holder" value={employee.accountHolderName} />
-                <ProfileRow label="Bank" value={employee.bankName} />
-                <ProfileRow label="Branch" value={(employee as any).bankBranchName} />
-                <ProfileRow label="Account Number" value={employee.bankAccountNumber ? `••••${employee.bankAccountNumber.slice(-4)}` : undefined} mono />
-                <ProfileRow label="IFSC Code" value={employee.ifscCode} mono />
-                <ProfileRow label="Account Type" value={employee.accountType} />
+                <ProfileRow label="Account Holder" value={employee?.accountHolderName} />
+                <ProfileRow label="Bank" value={employee?.bankName} />
+                <ProfileRow label="Branch" value={(employee as any)?.bankBranchName} />
+                <ProfileRow label="Account Number" value={isReadableBankAccount(employee?.bankAccountNumber) ? `••••${employee!.bankAccountNumber!.slice(-4)}` : '⚠ Re-entry required by HR'} mono />
+                <ProfileRow label="IFSC Code" value={employee?.ifscCode} mono />
+                <ProfileRow label="Account Type" value={employee?.accountType} />
               </dl>
               {/* Employee confirm / flag buttons */}
               {isEmployeeRole && (

@@ -105,8 +105,8 @@ export class EmployeeService {
       let bankAccountNumber = emp.bankAccountNumber ?? null;
       if (bankAccountNumber) {
         try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
-          // Valid legacy plaintext is digits-only 9-18 chars; anything else is ciphertext → null
-          if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = null;
+          // Decryption failed — wrong key (migration from old DB). Signal HR to re-enter.
+          if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = '__REENTRY_REQUIRED__';
         }
       }
 
@@ -221,8 +221,8 @@ export class EmployeeService {
     let bankAccountNumber = (employee as any).bankAccountNumber ?? null;
     if (bankAccountNumber) {
       try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
-        // Valid legacy plaintext is digits-only 9-18 chars; anything else is ciphertext → null
-        if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = null;
+        // Decryption failed — wrong key (migration from old DB). Signal HR to re-enter.
+        if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = '__REENTRY_REQUIRED__';
       }
     }
 

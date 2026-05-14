@@ -99,7 +99,7 @@ export default function EmployeeDetailPage() {
       { label: t('employees.completionEmergency'), done: !!employee.emergencyContact },
       { label: t('employees.completionDept'), done: !!(employee.department && employee.designation) },
       { label: t('employees.completionDocuments'), done: (employee.documents?.length || 0) >= 3 },
-      { label: t('employees.completionBank'), done: !!(employee.bankAccountNumber && (employee as any).bankBranchName) },
+      { label: t('employees.completionBank'), done: !!(isReadableAccountNumber(employee.bankAccountNumber) && (employee as any).bankBranchName) },
     ];
     const pct = Math.round((items.filter(i => i.done).length / items.length) * 100);
     return { items, pct };
@@ -462,7 +462,7 @@ export default function EmployeeDetailPage() {
                       <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                         <DollarSign size={15} className="text-emerald-500" /> Bank Details
                       </h3>
-                      {employee.bankAccountNumber && (
+                      {(isReadableAccountNumber(employee.bankAccountNumber) || employee.bankName) && (
                         <div className="flex flex-wrap gap-1.5 justify-end">
                           {(employee as any).bankVerifiedByHr ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
@@ -485,7 +485,7 @@ export default function EmployeeDetailPage() {
                         </div>
                       )}
                     </div>
-                    {employee.bankAccountNumber ? (
+                    {(isReadableAccountNumber(employee.bankAccountNumber) || employee.bankName) ? (
                       <>
                         <dl className="space-y-2.5 mb-4">
                           <InfoRow label="Account Holder" value={employee.accountHolderName || '—'} />
@@ -654,7 +654,7 @@ export default function EmployeeDetailPage() {
                       { label: t('employees.completionEmergency'), done: !!employee.emergencyContact },
                       { label: t('employees.completionDept'), done: !!(employee.department && employee.designation) },
                       { label: t('employees.completionDocuments'), done: (employee.documents?.length || 0) >= 3 },
-                      { label: t('employees.completionBank'), done: !!(employee.bankAccountNumber && (employee as any).bankBranchName) },
+                      { label: t('employees.completionBank'), done: !!(isReadableAccountNumber(employee.bankAccountNumber) && (employee as any).bankBranchName) },
                     ].map((item, i) => (
                       <div key={i} className="flex items-center justify-between text-sm">
                         <span className="text-gray-600">{item.label}</span>
@@ -672,7 +672,7 @@ export default function EmployeeDetailPage() {
                         !!employee.emergencyContact,
                         !!(employee.department && employee.designation),
                         (employee.documents?.length || 0) >= 3,
-                        !!employee.bankAccountNumber,
+                        isReadableAccountNumber(employee.bankAccountNumber),
                       ].filter(Boolean).length * 20}%` }}
                     />
                   </div>
