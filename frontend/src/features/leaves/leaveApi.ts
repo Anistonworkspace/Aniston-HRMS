@@ -169,7 +169,7 @@ export const leaveApi = api.injectEndpoints({
     }),
 
     // Org-level leave settings (working days)
-    getOrgLeaveSettings: builder.query<{ workingDays: string }, void>({
+    getOrgLeaveSettings: builder.query<any, void>({
       query: () => '/leaves/org-settings',
       providesTags: ['Leave'],
     }),

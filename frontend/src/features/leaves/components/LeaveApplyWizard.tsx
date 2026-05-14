@@ -395,6 +395,13 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                     <p><strong>Insufficient leave balance.</strong> You need {Math.abs(preview.balance.remainingAfter)} more day(s) to apply for this leave. Contact HR to adjust your balance.</p>
                   </div>
                 )}
+                {/* 0-day guard — shown when selected dates contain no working days */}
+                {preview !== null && Number(preview.days) <= 0 && formData.startDate && effectiveEndDate && (
+                  <div className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
+                    <span className="text-red-500 mt-0.5">✕</span>
+                    <p><strong>No working days selected.</strong> Selected dates contain no working days. Please select dates within working days.</p>
+                  </div>
+                )}
 
                 {/* Reason */}
                 <div>
@@ -540,7 +547,9 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                 disabled={
                   savingDraft || auditLoading || !formData.leaveTypeId || !formData.startDate ||
                   // Block if paid leave and balance would go negative
-                  (selectedType?.isPaid && preview !== null && (preview.balance?.remainingAfter ?? 0) < 0)
+                  (selectedType?.isPaid && preview !== null && (preview.balance?.remainingAfter ?? 0) < 0) ||
+                  // Block if selected dates contain no working days
+                  (preview !== null && Number(preview.days) <= 0 && !!formData.startDate && !!effectiveEndDate)
                 }
                 className="btn-primary text-sm flex items-center gap-1 disabled:opacity-50"
               >

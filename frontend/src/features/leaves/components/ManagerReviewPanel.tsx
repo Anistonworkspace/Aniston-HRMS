@@ -15,7 +15,6 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
   const { data: res, isLoading } = useGetManagerReviewQuery(leaveId);
   const [handleAction, { isLoading: acting }] = useHandleLeaveActionMutation();
   const [remarks, setRemarks] = useState('');
-  const [conditionNote, setConditionNote] = useState('');
 
   const data = res?.data;
 
@@ -25,7 +24,6 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
         id: leaveId,
         action,
         remarks: remarks || undefined,
-        conditionNote: action === 'APPROVED_WITH_CONDITION' ? conditionNote : undefined,
       }).unwrap();
       toast.success(`Leave ${action.toLowerCase().replace(/_/g, ' ')}`);
       onClose();

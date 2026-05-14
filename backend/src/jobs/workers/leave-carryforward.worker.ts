@@ -3,17 +3,27 @@ import { bullmqConnection } from '../queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { redis } from '../../lib/redis.js';
+import { leavePolicyService } from '../../modules/leave/leave-policy.service.js';
 
 /**
  * New-year leave balance provisioning.
- * Creates fresh LeaveBalance records for ALL active leave types for all active employees
- * who don't yet have a balance for the target year. This covers leave types where
- * carryForward=false — they simply get allocated=defaultBalance each year.
+ *
+ * BUG-002 FIX: Uses the policy engine (leavePolicyService.allocateForEmployee) to
+ * determine the correct yearly allocation for each employee, instead of using the
+ * raw `defaultBalance` field on the LeaveType.  This respects HR-configured policy
+ * rules (yearly days, prorata, monthly accrual, category filters, etc.).
+ *
+ * Falls back to `lt.defaultBalance ?? 0` only when no policy rule exists for the
+ * employee+leave-type combination, so existing orgs without a configured policy
+ * continue to work without crashing.
+ *
  * Idempotent: existing balances are never overwritten.
  */
 async function provisionNewYearBalances(targetYear: number) {
-  logger.info(`[Leave CF] Provisioning new-year balances for ${targetYear}...`);
+  logger.info(`[Leave CF] Provisioning new-year balances for ${targetYear} (policy-engine)...`);
   let created = 0;
+  let policyUsed = 0;
+  let fallback = 0;
 
   const orgs = await prisma.organization.findMany({ select: { id: true } });
 
@@ -26,9 +36,17 @@ async function provisionNewYearBalances(targetYear: number) {
 
     const employees = await prisma.employee.findMany({
       where: { organizationId: org.id, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION', 'INTERN'] } },
-      select: { id: true },
+      select: { id: true, status: true, joiningDate: true, user: { select: { role: true } } },
     });
     if (employees.length === 0) continue;
+
+    // Load the default policy once per org to use for allocation resolution
+    let defaultPolicy: Awaited<ReturnType<typeof leavePolicyService.getOrCreateDefaultPolicy>> | null = null;
+    try {
+      defaultPolicy = await leavePolicyService.getOrCreateDefaultPolicy(org.id);
+    } catch (err) {
+      logger.warn(`[Leave CF] Could not load policy for org ${org.id}, falling back to defaultBalance:`, err);
+    }
 
     for (const lt of leaveTypes) {
       const existingBalances = await prisma.leaveBalance.findMany({
@@ -37,30 +55,64 @@ async function provisionNewYearBalances(targetYear: number) {
       });
       const existingSet = new Set(existingBalances.map(b => b.employeeId));
 
-      const toCreate = employees
-        .filter(e => !existingSet.has(e.id))
-        .map(e => {
-          const allocated = Number(lt.defaultBalance ?? 0);
-          return {
-            employeeId: e.id,
-            leaveTypeId: lt.id,
-            year: targetYear,
-            allocated,
-            policyAllocated: allocated,
-            used: 0,
-            pending: 0,
-            carriedForward: 0,
+      const toCreate: {
+        employeeId: string;
+        leaveTypeId: string;
+        year: number;
+        allocated: number;
+        policyAllocated: number;
+        used: number;
+        pending: number;
+        carriedForward: number;
+        organizationId: string;
+      }[] = [];
+
+      for (const emp of employees) {
+        if (existingSet.has(emp.id)) continue;
+
+        let allocated = Number(lt.defaultBalance ?? 0); // graceful fallback
+
+        if (defaultPolicy) {
+          const empSnapshot = {
+            id: emp.id,
+            status: emp.status,
+            joiningDate: emp.joiningDate,
+            organizationId: org.id,
+            user: emp.user ?? null,
           };
+          const resolution = leavePolicyService._resolveFromPolicy(empSnapshot, lt.id, targetYear, defaultPolicy);
+          if (resolution !== null) {
+            allocated = resolution.days;
+            policyUsed++;
+          } else {
+            // No policy rule for this employee+leave-type combo — use defaultBalance as fallback
+            fallback++;
+          }
+        } else {
+          fallback++;
+        }
+
+        toCreate.push({
+          employeeId: emp.id,
+          leaveTypeId: lt.id,
+          year: targetYear,
+          allocated,
+          policyAllocated: allocated,
+          used: 0,
+          pending: 0,
+          carriedForward: 0,
+          organizationId: org.id,
         });
+      }
 
       if (toCreate.length > 0) {
-        await prisma.leaveBalance.createMany({ data: toCreate, skipDuplicates: true });
+        await prisma.leaveBalance.createMany({ data: toCreate as any, skipDuplicates: true });
         created += toCreate.length;
       }
     }
   }
 
-  logger.info(`[Leave CF] Provisioned ${created} new leave balance records for ${targetYear}.`);
+  logger.info(`[Leave CF] Provisioned ${created} new leave balance records for ${targetYear} (policy-engine: ${policyUsed}, fallback: ${fallback}).`);
   return { created };
 }
 
@@ -144,20 +196,38 @@ async function processYearEndCarryForward(targetYear?: number) {
               });
             }
           } else {
-            // Create new balance for this year — seed with default balance + carry-forward
-            const defaultAlloc = Number(lt.defaultBalance ?? 0);
-            const newAllocated = defaultAlloc + carryDays;
+            // Create new balance for this year — seed with policy-allocated days + carry-forward.
+            // BUG-002 FIX: resolve allocation from policy engine; fall back to defaultBalance if
+            // the policy has no rule configured for this employee+leave-type combination.
+            const empForCf = await prisma.employee.findUnique({
+              where: { id: prev.employeeId },
+              select: { id: true, status: true, joiningDate: true, organizationId: true, user: { select: { role: true } } },
+            });
+            let policyAlloc = Number(lt.defaultBalance ?? 0); // fallback
+            if (empForCf) {
+              try {
+                const cfPolicy = await leavePolicyService.getOrCreateDefaultPolicy(empForCf.organizationId);
+                const resolution = leavePolicyService._resolveFromPolicy(empForCf, lt.id, currentYear, cfPolicy);
+                if (resolution !== null) {
+                  policyAlloc = resolution.days;
+                }
+              } catch {
+                // Non-fatal: fall back to defaultBalance
+              }
+            }
+            const newAllocated = policyAlloc + carryDays;
             await prisma.leaveBalance.create({
               data: {
                 employeeId:     prev.employeeId,
                 leaveTypeId:    lt.id,
                 year:           currentYear,
                 allocated:      newAllocated,
-                policyAllocated: newAllocated,
+                policyAllocated: policyAlloc,
                 used:           0,
                 pending:        0,
                 carriedForward: carryDays,
-              },
+                organizationId: empForCf?.organizationId,
+              } as any,
             });
           }
 

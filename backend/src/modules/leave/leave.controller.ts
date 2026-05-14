@@ -184,7 +184,13 @@ export class LeaveController {
 
   async getLeaveDetail(req: Request, res: Response, next: NextFunction) {
     try {
-      const detail = await leaveService.getLeaveDetail(req.params.id, req.user!.organizationId);
+      // BUG-004: pass caller role + employeeId so the service can enforce ownership checks
+      const detail = await leaveService.getLeaveDetail(
+        req.params.id,
+        req.user!.organizationId,
+        req.user!.role,
+        req.user!.employeeId ?? undefined,
+      );
       res.json({ success: true, data: detail });
     } catch (err) { next(err); }
   }

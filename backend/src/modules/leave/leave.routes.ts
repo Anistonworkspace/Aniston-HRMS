@@ -289,7 +289,7 @@ router.get(
             carriedForward: Number(b.carriedForward),
             used: Number(b.used),
             pending: Number(b.pending),
-            remaining: Number(b.allocated) + Number(b.carriedForward) - Number(b.used) - Number(b.pending),
+            remaining: Number(b.allocated) - Number(b.used) - Number(b.pending),
           })),
           leavesApplied: counts.applied,
           leavesApproved: counts.approved,
@@ -389,7 +389,7 @@ router.get(
         carriedForward: Number(b.carriedForward),
         used: Number(b.used),
         pending: Number(b.pending),
-        remaining: Number(b.allocated) + Number(b.carriedForward) - Number(b.used) - Number(b.pending),
+        remaining: Number(b.allocated) - Number(b.used) - Number(b.pending),
       }));
 
       // Exclude unpaid (LWP) types from quota totals — they have no fixed allocation

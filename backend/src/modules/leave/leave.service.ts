@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../middleware/errorHandler.js';
 import { leavePolicyService } from './leave-policy.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { emitToOrg, emitToUser, invalidateDashboardCache } from '../../sockets/index.js';
@@ -206,7 +206,9 @@ export class LeaveService {
           manualAdjustment: Number((balance as any).manualAdjustment ?? 0),
           previousUsed: Number((balance as any).previousUsed ?? 0),
           effectiveAllocated: Number((balance as any).policyAllocated ?? balance.allocated) + Number((balance as any).manualAdjustment ?? 0),
-          remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
+          // BUG-021 FIX: allocated already includes carriedForward (cron sets allocated = policyDays + cfDays).
+          // Do NOT add carriedForward again — that double-counts it and inflates remaining balance.
+          remaining: Number(balance.allocated) - Number(balance.used) - Number(balance.pending),
           allocationBasis: allocation?.basis,
           allocationCategory: allocation?.category,
         };
@@ -493,6 +495,9 @@ export class LeaveService {
     }
 
     // 11. Weekend adjacent check (sandwich rule)
+    // BUG-006 FIX: use OR — leave is invalid if EITHER the day before OR the day after
+    // is a non-working day, not only when BOTH are.  The "sandwich rule" forbids leave
+    // that extends a single adjacent weekend/holiday, not only when surrounded on both sides.
     if (!leaveType.allowWeekendAdjacent) {
       const dayBefore = new Date(startDate);
       dayBefore.setDate(dayBefore.getDate() - 1);
@@ -500,7 +505,7 @@ export class LeaveService {
       dayAfter.setDate(dayAfter.getDate() + 1);
       const beforeIsOff = !workingDays.has(dayBefore.getDay());
       const afterIsOff = !workingDays.has(dayAfter.getDay());
-      if (beforeIsOff && afterIsOff) {
+      if (beforeIsOff || afterIsOff) {
         throw new BadRequestError(`${leaveType.name} cannot be taken adjacent to a non-working day (sandwich rule applies).`);
       }
     }
@@ -726,7 +731,13 @@ export class LeaveService {
     if (!isAdmin && employeeId) {
       where.employeeId = employeeId;
     } else if (query.employeeId) {
+      // BUG-003: Always scope by org when filtering by employeeId in admin context
+      // to prevent cross-org IDOR — an admin must not be able to read another org's
+      // employee leaves by supplying an arbitrary employeeId.
       where.employeeId = query.employeeId;
+      if (isAdmin && organizationId) {
+        where.employee = { organizationId };
+      }
     } else if (organizationId && isAdmin) {
       where.employee = { organizationId };
     }
@@ -920,7 +931,11 @@ export class LeaveService {
       where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: data.leaveTypeId, year } },
     });
 
-    const allocated = balance ? Number(balance.allocated) + Number(balance.carriedForward) : 0;
+    // Apply maxCarryForward cap so preview matches actual apply behaviour (BUG-014 fix)
+    const rawCf = balance ? Number(balance.carriedForward) : 0;
+    const maxCfPrev = (leaveType as any).maxCarryForward != null ? Number((leaveType as any).maxCarryForward) : null;
+    const effectiveCfPrev = maxCfPrev !== null ? Math.min(rawCf, maxCfPrev) : rawCf;
+    const allocated = balance ? Number(balance.allocated) + effectiveCfPrev : 0;
     const used = balance ? Number(balance.used) : 0;
     const pending = balance ? Number(balance.pending) : 0;
     const available = allocated - used - pending;
@@ -1316,12 +1331,13 @@ export class LeaveService {
     }
 
     // 15. Weekend adjacent check
+    // BUG-006 FIX: use OR — same fix as in applyLeave (sandwich rule fires on EITHER side)
     if (!leaveType.allowWeekendAdjacent) {
       const dayBefore = new Date(startDate);
       dayBefore.setDate(dayBefore.getDate() - 1);
       const dayAfter = new Date(endDate);
       dayAfter.setDate(dayAfter.getDate() + 1);
-      if (!workingDays.has(dayBefore.getDay()) && !workingDays.has(dayAfter.getDay())) {
+      if (!workingDays.has(dayBefore.getDay()) || !workingDays.has(dayAfter.getDay())) {
         throw new BadRequestError(`${leaveType.name} cannot be taken adjacent to a non-working day (sandwich rule applies).`);
       }
     }
@@ -1475,9 +1491,11 @@ export class LeaveService {
   // =====================
 
   /**
-   * Get full leave request detail with audit, handovers, and decisions
+   * Get full leave request detail with audit, handovers, and decisions.
+   * @param callerRole  - the role of the requesting user (used for BUG-004 authorization)
+   * @param callerEmployeeId - the employeeId of the requesting user (used for BUG-004)
    */
-  async getLeaveDetail(requestId: string, organizationId?: string) {
+  async getLeaveDetail(requestId: string, organizationId?: string, callerRole?: string, callerEmployeeId?: string) {
     const request = await prisma.leaveRequest.findUnique({
       where: { id: requestId },
       include: {
@@ -1504,6 +1522,25 @@ export class LeaveService {
     // Org scope check — prevent IDOR across organizations
     if (organizationId && request.employee.organizationId !== organizationId) {
       throw new NotFoundError('Leave request');
+    }
+
+    // BUG-004: Role-scoped access control on leave detail
+    // EMPLOYEE/INTERN: can only view their own leave requests
+    // MANAGER: can view their own OR their direct reports' leave requests
+    // HR/Admin/SuperAdmin: always allowed (no extra check needed)
+    if (callerRole && callerEmployeeId) {
+      if (callerRole === 'EMPLOYEE' || callerRole === 'INTERN') {
+        if (request.employeeId !== callerEmployeeId) {
+          throw new ForbiddenError('You can only view your own leave requests');
+        }
+      } else if (callerRole === 'MANAGER') {
+        const isOwnLeave = request.employeeId === callerEmployeeId;
+        const isDirectReport = request.employee.managerId === callerEmployeeId;
+        if (!isOwnLeave && !isDirectReport) {
+          throw new ForbiddenError('You can only view leave requests for yourself or your direct reports');
+        }
+      }
+      // HR / ADMIN / SUPER_ADMIN: no additional restriction
     }
 
     // Resolve backup employee name if set
@@ -2126,6 +2163,15 @@ export class LeaveService {
       }
       if (request.status !== 'PENDING') {
         throw new BadRequestError('Managers can only act on PENDING requests');
+      }
+
+      // BUG-001: Manager team scope — manager can only action direct reports' leaves
+      const approverEmployee = await prisma.user.findUnique({
+        where: { id: approvedBy },
+        select: { employeeId: true },
+      });
+      if (approverEmployee?.employeeId && request.employee.managerId !== approverEmployee.employeeId) {
+        throw new ForbiddenError('You can only action leave requests for your direct reports');
       }
     } else if (!isHRAdmin) {
       throw new BadRequestError('You do not have permission to perform leave actions');

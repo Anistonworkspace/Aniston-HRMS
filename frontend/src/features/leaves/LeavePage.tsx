@@ -21,6 +21,7 @@ import {
   useDeleteLeaveTypeMutation,
   useCreateHolidayMutation,
   useBulkCreateHolidaysMutation,
+  useUpdateHolidayMutation,
   useDeleteHolidayMutation,
   useGetHolidaySuggestionsQuery,
   useGetAllEmployeeLeaveBalancesQuery,
@@ -171,7 +172,8 @@ function LeaveManagementView() {
   const { data: typesRes } = useGetLeaveTypesQuery();
   const { data: holidaysRes } = useGetHolidaysQuery({});
   const { data: policiesRes } = useGetLeavePoliciesQuery(undefined, { skip: activeTab !== 'types' });
-  const [handleAction] = useHandleLeaveActionMutation();
+  const [handleAction, { isLoading: actionLoading }] = useHandleLeaveActionMutation();
+  const [actioningLeaveId, setActioningLeaveId] = useState<string | null>(null);
   const [deleteLeaveType] = useDeleteLeaveTypeMutation();
   // Combine data based on active filter tab
   const activeRes = approvalStatusFilter === 'pending' ? approvalsRes : allLeavesRes;
@@ -207,6 +209,7 @@ function LeaveManagementView() {
     const action = user?.role === 'MANAGER' ? 'MANAGER_APPROVED' : 'APPROVED';
     const name = leave?.employee ? `${leave.employee.firstName} ${leave.employee.lastName}` : 'employee';
     const leaveTypeName = leave?.leaveType?.name || 'Leave';
+    setActioningLeaveId(id);
     try {
       await handleAction({ id, action }).unwrap();
       toast.success(user?.role === 'MANAGER'
@@ -215,17 +218,23 @@ function LeaveManagementView() {
       );
     } catch (err: any) {
       toast.error(err?.data?.error?.message || t('leaves.failedToApprove'));
+    } finally {
+      setActioningLeaveId(null);
     }
   };
 
   const handleReject = async (id: string, leave?: any) => {
+    if (!window.confirm('Reject this leave request? The employee will be notified.')) return;
     const name = leave?.employee ? `${leave.employee.firstName} ${leave.employee.lastName}` : 'employee';
     const leaveTypeName = leave?.leaveType?.name || 'Leave';
+    setActioningLeaveId(id);
     try {
       await handleAction({ id, action: 'REJECTED' }).unwrap();
       toast.success(`${leaveTypeName} for ${name} rejected`);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || t('leaves.failedToReject'));
+    } finally {
+      setActioningLeaveId(null);
     }
   };
 
@@ -637,19 +646,21 @@ function LeaveManagementView() {
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
                               onClick={() => handleApprove(leave.id, leave)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors"
+                              disabled={actioningLeaveId === leave.id}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              <ThumbsUp size={14} />
+                              {actioningLeaveId === leave.id ? <Loader2 size={14} className="animate-spin" /> : <ThumbsUp size={14} />}
                               {t('leaves.approve')}
                             </motion.button>
                             <motion.button
                               aria-label="Reject leave"
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
+                              disabled={actioningLeaveId === leave.id}
                               onClick={() => handleReject(leave.id, leave)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              <ThumbsDown size={14} />
+                              {actioningLeaveId === leave.id ? <Loader2 size={14} className="animate-spin" /> : <ThumbsDown size={14} />}
                               {t('leaves.reject')}
                             </motion.button>
                           </>
@@ -836,10 +847,12 @@ function HolidayManagementTab() {
   const { data: suggestionsRes } = useGetHolidaySuggestionsQuery({});
   const [createHoliday, { isLoading: creating }] = useCreateHolidayMutation();
   const [bulkCreate, { isLoading: bulkCreating }] = useBulkCreateHolidaysMutation();
+  const [updateHoliday, { isLoading: updating }] = useUpdateHolidayMutation();
   const [deleteHoliday] = useDeleteHolidayMutation();
   const [showForm, setShowForm] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
+  const [editingHoliday, setEditingHoliday] = useState<any>(null);
   const [form, setForm] = useState({
     name: '', date: '', type: 'PUBLIC', isOptional: false, isHalfDay: false,
     halfDaySession: '', description: '', notifyEmployees: true,
@@ -851,6 +864,7 @@ function HolidayManagementTab() {
   const resetForm = () => {
     setForm({ name: '', date: '', type: 'PUBLIC', isOptional: false, isHalfDay: false,
       halfDaySession: '', description: '', notifyEmployees: true });
+    setEditingHoliday(null);
     setShowForm(false);
   };
 
@@ -889,6 +903,41 @@ function HolidayManagementTab() {
       toast.success('Holiday deleted');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to delete');
+    }
+  };
+
+  const handleEditClick = (h: any) => {
+    setEditingHoliday(h);
+    setForm({
+      name: h.name || '',
+      date: h.date ? h.date.split('T')[0] : '',
+      type: h.type || 'PUBLIC',
+      isOptional: h.isOptional ?? false,
+      isHalfDay: h.isHalfDay ?? false,
+      halfDaySession: h.halfDaySession || '',
+      description: h.description || '',
+      notifyEmployees: false,
+    });
+    setShowForm(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!editingHoliday || !form.name || !form.date) return;
+    try {
+      const payload = {
+        name: form.name,
+        date: form.date,
+        type: form.type,
+        isOptional: form.isOptional,
+        isHalfDay: form.isHalfDay,
+        halfDaySession: form.isHalfDay && form.halfDaySession ? form.halfDaySession : undefined,
+        description: form.description || undefined,
+      };
+      await updateHoliday({ id: editingHoliday.id, data: payload }).unwrap();
+      toast.success('Holiday updated!');
+      resetForm();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to update');
     }
   };
 
@@ -964,7 +1013,7 @@ function HolidayManagementTab() {
         {showForm && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-4">
             <div className="layer-card p-5">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Create Holiday / Event</h3>
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">{editingHoliday ? 'Edit Holiday / Event' : 'Create Holiday / Event'}</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
@@ -1011,10 +1060,17 @@ function HolidayManagementTab() {
                 </div>
               </div>
               <div className="flex gap-3 mt-4">
-                <button onClick={handleCreate} disabled={creating || !form.name || !form.date} className="btn-primary text-sm flex items-center gap-2">
-                  {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                  Create
-                </button>
+                {editingHoliday ? (
+                  <button onClick={handleUpdate} disabled={updating || !form.name || !form.date} className="btn-primary text-sm flex items-center gap-2">
+                    {updating ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+                    Save Changes
+                  </button>
+                ) : (
+                  <button onClick={handleCreate} disabled={creating || !form.name || !form.date} className="btn-primary text-sm flex items-center gap-2">
+                    {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                    Create
+                  </button>
+                )}
                 <button onClick={resetForm} className="btn-secondary text-sm">{t('common.cancel')}</button>
               </div>
             </div>
@@ -1065,7 +1121,10 @@ function HolidayManagementTab() {
                       {h.isHalfDay ? `Half Day (${h.halfDaySession === 'FIRST_HALF' ? '1st' : '2nd'} half)` : 'Full Day'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => handleDelete(h.id, h.name)} className="text-xs text-red-500 hover:text-red-700">{t('common.delete')}</button>
+                      <div className="flex items-center gap-2 justify-end">
+                        <button onClick={() => handleEditClick(h)} className="text-xs text-brand-600 hover:text-brand-800 font-medium">{t('common.edit') || 'Edit'}</button>
+                        <button onClick={() => handleDelete(h.id, h.name)} className="text-xs text-red-500 hover:text-red-700">{t('common.delete')}</button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1843,16 +1902,16 @@ function OrgWorkingDaysCard() {
   const [selected, setSelected] = useState<Set<string>>(new Set(['1', '2', '3', '4', '5', '6']));
   const [dirty, setDirty] = useState(false);
 
-  const serverDays = settingsRes?.workingDays || '1,2,3,4,5,6';
+  const serverDays = settingsRes?.data?.workingDays || '1,2,3,4,5,6';
   const serverSet = new Set(serverDays.split(',').map((d: string) => d.trim()));
 
   // Sync from server when data loads
   useEffect(() => {
-    if (settingsRes?.workingDays) {
-      setSelected(new Set(settingsRes.workingDays.split(',').map((d: string) => d.trim())));
+    if (settingsRes?.data?.workingDays) {
+      setSelected(new Set(settingsRes.data.workingDays.split(',').map((d: string) => d.trim())));
       setDirty(false);
     }
-  }, [settingsRes?.workingDays]);
+  }, [settingsRes?.data?.workingDays]);
 
   const toggle = (val: string) => {
     setSelected((prev) => {
@@ -2440,7 +2499,7 @@ function LeavePersonalView() {
               <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5">
                 <div
                   className="bg-brand-500 h-1.5 rounded-full transition-all"
-                  style={{ width: `${Math.min((Number(bal.used) / Number(bal.allocated)) * 100, 100)}%` }}
+                  style={{ width: `${Math.min((Number(bal.used) / Math.max(Number(bal.allocated), 1)) * 100, 100)}%` }}
                 />
               </div>
             </motion.div>
@@ -2704,7 +2763,7 @@ function LeavePersonalView() {
       {/* Apply Leave Wizard */}
       {showApplyModal && (
         <LeaveApplyWizard
-          leaveTypes={allLeaveTypes}
+          leaveTypes={leaveTypes}
           balances={balances}
           initialLeaveTypeId={applyInitialTypeId}
           onClose={() => { setShowApplyModal(false); setApplyInitialTypeId(undefined); }}
