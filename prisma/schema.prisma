@@ -918,7 +918,7 @@ model LeaveType {
   gender         Gender?
 
   // Leave policy configuration
-  applicableTo           String   @default("ALL")    // "ALL", "PROBATION", "CONFIRMED", "INTERN", "NOTICE_PERIOD", "ONBOARDING"
+  applicableTo           String   @default("ACTIVE_ONLY")  // "ACTIVE_ONLY", "TRAINEE_ONLY", "ALL_ELIGIBLE"
   applicableToRole       String?                      // null = all roles; "EMPLOYEE", "MANAGER", "HR", "ADMIN", "INTERN"
   applicableToEmployeeIds String?                     // JSON array of specific employee IDs — if set, overrides status/role filters
   maxPerMonth        Int?                         // Max leaves per month (null = unlimited)
