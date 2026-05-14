@@ -132,6 +132,16 @@ async function main() {
       departmentId: engDept?.id,
       designationId: ceoDes?.id,
     },
+    {
+      email: 'developer@anistonav.com',
+      password: 'Developer@2026!',
+      role: 'SUPER_ADMIN' as const,
+      employeeCode: 'SYS-DEV',
+      firstName: 'Developer',
+      lastName: 'Account',
+      departmentId: engDept?.id,
+      designationId: ceoDes?.id,
+    },
   ];
 
   // Migrate old EMP-xxx system accounts to SYS-xxx and mark as system accounts
