@@ -80,7 +80,6 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   // Don't gate the onboarding route itself, profile, logout, or MFA-required page
   const isOnboardingExemptRoute =
     location.pathname === '/employee-onboarding' ||
-    location.pathname === '/mfa-required' ||
     location.pathname === '/kyc-pending' ||
     location.pathname === '/profile';
 
@@ -102,29 +101,14 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return <Navigate to="/employee-onboarding" replace />;
   }
 
-  // Profile Completion Gate: redirect employees who haven't filled all required profile fields.
-  // If onboarding was already completed, the only missing piece is MFA → show dedicated MFA page
-  // instead of routing them back through the full 6-step onboarding wizard.
-  if (
-    user &&
-    !GATE_EXEMPT_ROLES.includes(user.role) &&
-    user.onboardingComplete !== false &&
-    user.profileComplete === false &&
-    !user.exitAccess &&
-    !isOnboardingExemptRoute
-  ) {
-    return <Navigate to="/mfa-required" replace />;
-  }
-
   // KYC Gate: route based on kycStatus
   //   PENDING / REUPLOAD_REQUIRED / REJECTED → back to onboarding Step 6 (upload docs in same wizard)
   //   SUBMITTED / PROCESSING / PENDING_HR_REVIEW → /kyc-pending (waiting for HR review)
-  const isKycExemptRoute = location.pathname === '/kyc-pending' || location.pathname === '/profile' || location.pathname === '/employee-onboarding' || location.pathname === '/mfa-required';
+  const isKycExemptRoute = location.pathname === '/kyc-pending' || location.pathname === '/profile' || location.pathname === '/employee-onboarding';
   if (
     user &&
     !GATE_EXEMPT_ROLES.includes(user.role) &&
     user.onboardingComplete !== false &&
-    user.profileComplete !== false &&
     user.kycCompleted === false &&
     !user.exitAccess
   ) {

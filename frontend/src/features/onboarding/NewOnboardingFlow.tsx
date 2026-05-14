@@ -4,28 +4,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, PartyPopper,
   Upload, FileText, CheckCircle2, AlertTriangle,
-  RefreshCw, Shield, Building2, Lock, Camera,
+  RefreshCw, Building2, Lock, Camera,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setUser } from '../auth/authSlice';
 import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnboardingMutation } from './onboardingApi';
-import { useGetMfaStatusQuery, useGetMeQuery } from '../auth/authApi';
-import { MFASetupModal } from '../auth/MFASetupModal';
+import { useGetMeQuery } from '../auth/authApi';
 import { useUploadDocumentMutation } from '../documents/documentApi';
 import PassportPhotoUploader from '../../components/ui/PassportPhotoUploader';
 import LanguageSwitcher from '../../components/ui/LanguageSwitcher';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-// getSteps returns translated step metadata
+// getSteps returns translated step metadata (MFA removed — employees set up MFA from Profile)
 const getSteps = (t: (key: string) => string) => [
-  { num: 1, title: t('onboarding.step1Title'), desc: t('onboarding.step1Desc') },
-  { num: 2, title: t('onboarding.step2Title'), desc: t('onboarding.step2Desc') },
-  { num: 3, title: t('onboarding.step3Title'), desc: t('onboarding.step3Desc') },
-  { num: 4, title: t('onboarding.step4Title'), desc: t('onboarding.step4Desc') },
-  { num: 5, title: t('onboarding.step5Title'), desc: t('onboarding.step5Desc') },
-  { num: 6, title: t('onboarding.step6Title'), desc: t('onboarding.step6Desc') },
+  { num: 1, title: t('onboarding.step2Title'), desc: t('onboarding.step2Desc') },
+  { num: 2, title: t('onboarding.step3Title'), desc: t('onboarding.step3Desc') },
+  { num: 3, title: t('onboarding.step4Title'), desc: t('onboarding.step4Desc') },
+  { num: 4, title: t('onboarding.step5Title'), desc: t('onboarding.step5Desc') },
+  { num: 5, title: t('onboarding.step6Title'), desc: t('onboarding.step6Desc') },
 ];
 
 const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'] as const;
@@ -178,10 +176,12 @@ export default function NewOnboardingFlow() {
   const [currentStep, setCurrentStep] = useState(1);
   const [completed, setCompleted] = useState(false);
 
-  // Resume from last incomplete step
+  // Resume from last incomplete step (step numbers shifted down by 1 since MFA removed)
   useEffect(() => {
     if (status?.resumeStep) {
-      setCurrentStep(Math.min(status.resumeStep, 6));
+      // Backend still returns 1-based step including old Step1=MFA; map down by 1 (min 1)
+      const mappedStep = Math.max(1, (status.resumeStep > 1 ? status.resumeStep - 1 : 1));
+      setCurrentStep(Math.min(mappedStep, 5));
     }
   }, [status]);
 
@@ -190,7 +190,7 @@ export default function NewOnboardingFlow() {
       await saveStep({ step: stepNum, data }).unwrap();
       toast.success('Saved!');
       await refetch();
-      setCurrentStep(s => Math.min(s + 1, 6));
+      setCurrentStep(s => Math.min(s + 1, 5));
     } catch (err: any) {
       // Global api.ts handler already toasts server errors; only handle offline case here
       if (err?.status === 'FETCH_ERROR') {
@@ -307,7 +307,6 @@ export default function NewOnboardingFlow() {
                 currentStep > step.num ? 'text-emerald-600' : 'text-gray-400'
               )}>
                 {step.title}
-                {step.num === 1 && <span className="text-gray-400 ml-0.5">(opt)</span>}
               </span>
               {i < STEPS.length - 1 && (
                 <div className={cn('w-4 sm:w-8 h-0.5 mx-1', currentStep > step.num ? 'bg-emerald-400' : 'bg-gray-200')} />
@@ -329,14 +328,6 @@ export default function NewOnboardingFlow() {
             <p className="text-sm text-gray-500 mb-6">{STEPS[currentStep - 1].desc}</p>
 
             {currentStep === 1 && (
-              <Step1MFA
-                onSkip={() => setCurrentStep(2)}
-                onEnabled={() => { refetch(); setCurrentStep(2); }}
-                isMfaEnabled={status?.sections?.mfa}
-                workMode={workMode}
-              />
-            )}
-            {currentStep === 2 && (
               <Step2Personal
                 onSave={(d) => handleSaveStep(2, d)}
                 saving={saving}
@@ -344,27 +335,27 @@ export default function NewOnboardingFlow() {
                 isSiteEmployee={workMode === 'PROJECT_SITE'}
               />
             )}
-            {currentStep === 3 && (
+            {currentStep === 2 && (
               <Step3Emergency
                 onSave={(d) => handleSaveStep(3, d)}
                 saving={saving}
                 initialData={status?.emergencyContact}
               />
             )}
-            {currentStep === 4 && (
+            {currentStep === 3 && (
               <Step4Bank
                 onSave={(d) => handleSaveStep(4, d)}
                 saving={saving}
                 initialData={status}
               />
             )}
-            {currentStep === 5 && (
+            {currentStep === 4 && (
               <Step5Documents
                 uploadedDocTypes={status?.uploadedDocTypes || []}
                 rejectedDocs={(status as any)?.rejectedDocs || []}
                 reuploadDocTypes={status?.reuploadDocTypes || []}
                 documentRejectReasons={status?.documentRejectReasons || {}}
-                onContinue={() => setCurrentStep(6)}
+                onContinue={() => setCurrentStep(5)}
                 onRefetch={refetch}
                 workMode={workMode}
                 qualification={status?.qualification}
@@ -373,7 +364,7 @@ export default function NewOnboardingFlow() {
                 experienceDocFields={status?.experienceDocFields || []}
               />
             )}
-            {currentStep === 6 && (
+            {currentStep === 5 && (
               <Step6Review
                 status={status}
                 onComplete={handleComplete}
@@ -398,12 +389,7 @@ export default function NewOnboardingFlow() {
             <ChevronLeft size={16} /> {t('onboarding.back')}
           </button>
           <span className="text-xs text-gray-400">{t('onboarding.stepOf', { current: currentStep, total: STEPS.length })}</span>
-          {currentStep === 1 && (
-            <button onClick={() => setCurrentStep(2)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-              {t('onboarding.skip')} <ChevronRight size={16} />
-            </button>
-          )}
-          {currentStep !== 1 && <span />}
+          <span />
         </div>
       </div>
     </div>
