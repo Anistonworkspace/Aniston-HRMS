@@ -119,13 +119,6 @@ export class LeaveController {
     } catch (err) { next(err); }
   }
 
-  async bulkRestoreLeaveTypes(req: Request, res: Response, next: NextFunction) {
-    try {
-      const result = await leaveService.bulkRestoreLeaveTypes(req.user!.organizationId);
-      res.json({ success: true, data: result });
-    } catch (err) { next(err); }
-  }
-
   async previewLeave(req: Request, res: Response, next: NextFunction) {
     try {
       const data = previewLeaveSchema.parse(req.body);

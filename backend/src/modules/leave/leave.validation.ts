@@ -35,7 +35,7 @@ export const createLeaveTypeSchema = z.object({
   maxDays: z.number().min(0.5).optional(),
   noticeDays: z.number().int().min(0).default(0),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']).optional(),
-  applicableTo: z.enum(['ALL', 'ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE', 'PROBATION', 'ACTIVE', 'CONFIRMED', 'NOTICE_PERIOD', 'ONBOARDING', 'INTERN', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED']).default('ACTIVE_ONLY'),
+  applicableTo: z.enum(['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE']).default('ACTIVE_ONLY'),
   applicableToRole: z.enum(['EMPLOYEE', 'MANAGER', 'HR', 'ADMIN', 'INTERN', 'SUPER_ADMIN']).optional().nullable(),
   applicableToEmployeeIds: z.array(z.string().uuid()).optional().nullable(),
   maxPerMonth: z.number().int().min(1).optional(),

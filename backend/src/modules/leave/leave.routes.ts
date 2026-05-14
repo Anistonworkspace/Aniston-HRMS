@@ -54,11 +54,6 @@ router.post(
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => leaveController.createLeaveType(req, res, next)
 );
-router.post(
-  '/types/bulk-restore',
-  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
-  (req, res, next) => leaveController.bulkRestoreLeaveTypes(req, res, next)
-);
 router.patch(
   '/types/:id',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
@@ -221,9 +216,6 @@ router.get(
         leaveCountMap.set(lc.employeeId, existing);
       });
 
-      // Applicability filter — mirrors the policy-engine path in leave.service.ts getBalances()
-      // so the table and the detail popup always agree on which leave types count.
-      const POLICY_MANAGED_AUDIENCES_SET = new Set(['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE']);
       const isLeaveApplicable = (lt: any, emp: any): boolean => {
         if (!lt.isActive) return false;
         if (lt.gender && lt.gender !== emp.gender) return false;
@@ -236,34 +228,15 @@ router.get(
         const userRole = emp.user?.role;
         if (lt.applicableToRole && lt.applicableToRole !== userRole) return false;
 
-        const probationMonths = lt.probationMonths ?? 0;
-        if (probationMonths > 0 && emp.joiningDate) {
-          const joined = new Date(emp.joiningDate);
-          const now = new Date();
-          const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
-          if (monthsWorked < probationMonths) return false;
-        }
-
         const app = lt.applicableTo as string;
         const status = emp.status as string;
         const isTrainee = status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
         const isActive = status === 'ACTIVE';
         const isEligible = isActive || isTrainee;
 
-        // Policy-managed audience values — strict status match required
-        if (POLICY_MANAGED_AUDIENCES_SET.has(app)) {
-          if (app === 'ACTIVE_ONLY') return isActive;
-          if (app === 'TRAINEE_ONLY') return isTrainee;
-          if (app === 'ALL_ELIGIBLE') return isEligible;
-        }
-
-        // Legacy audience values — kept for backward compat but scoped to current status
-        if (app === 'ALL') return isEligible;
-        if (app === 'PROBATION') return status === 'PROBATION';
-        if (app === 'ACTIVE' || app === 'CONFIRMED') return isActive;
-        if (app === 'INTERN') return status === 'INTERN' || userRole === 'INTERN';
-        // Non-eligible statuses never apply
-        if (['NOTICE_PERIOD', 'ONBOARDING', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'].includes(app)) return false;
+        if (app === 'ACTIVE_ONLY') return isActive;
+        if (app === 'TRAINEE_ONLY') return isTrainee;
+        if (app === 'ALL_ELIGIBLE') return isEligible;
         return isEligible;
       };
 

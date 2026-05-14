@@ -147,6 +147,18 @@ if command -v psql &>/dev/null && [ -n "${RESOLVED_DATABASE_URL:-}" ]; then
   psql "$RESOLVED_DATABASE_URL" -c "UPDATE \"Employee\" SET \"agentPairedAt\" = '2026-05-03 00:00:00'::timestamp WHERE \"agentPairingCode\" IS NOT NULL AND \"agentPairedAt\" IS NULL AND \"deletedAt\" IS NULL;" 2>/dev/null && echo "Agent pairing state restored" || echo "agentPairedAt update skipped"
 fi
 
+echo "=== [6.35/17] Removing legacy leave types (one-time cleanup) ==="
+if command -v psql &>/dev/null && [ -n "${RESOLVED_DATABASE_URL:-}" ]; then
+  # Hard-delete all leave types that still have old audience values.
+  # HR will create fresh leave types from the UI going forward.
+  # This runs idempotently — if no legacy types exist, it's a no-op.
+  DELETED=$(psql "$RESOLVED_DATABASE_URL" -tAc "
+    DELETE FROM \"LeaveType\"
+    WHERE \"applicableTo\" NOT IN ('ACTIVE_ONLY','TRAINEE_ONLY','ALL_ELIGIBLE')
+    RETURNING id;" 2>/dev/null | wc -l || echo "0")
+  echo "Legacy leave types removed: ${DELETED}"
+fi
+
 echo "=== [6.4–6.9/17] Running idempotent SQL migrations ==="
 if command -v psql &>/dev/null && [ -n "${RESOLVED_DATABASE_URL:-}" ]; then
   for f in \

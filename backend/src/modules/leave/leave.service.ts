@@ -34,10 +34,6 @@ export class LeaveService {
   async createLeaveType(data: CreateLeaveTypeInput, organizationId: string) {
     const { applicableToEmployeeIds, ...rest } = data as any;
 
-    // Leave types with these audiences are policy-managed (shown in the main Types list).
-    // Types with any other applicableTo value are treated as "legacy" by the UI.
-    const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
-
     // Prevent duplicate code or name within the same organization
     const existing = await prisma.leaveType.findFirst({
       where: {
@@ -48,31 +44,12 @@ export class LeaveService {
           { name: { equals: rest.name?.trim(), mode: 'insensitive' } },
         ],
       },
-      select: { id: true, code: true, name: true, applicableTo: true },
+      select: { id: true, code: true, name: true },
     });
     if (existing) {
       const isCodeConflict = existing.code === (rest.code?.toUpperCase?.() ?? rest.code);
-      const isPolicyManaged = POLICY_MANAGED_AUDIENCES.includes(existing.applicableTo);
-
-      if (isPolicyManaged) {
-        // Hard block — already a properly configured leave type
-        if (isCodeConflict) throw new BadRequestError(`A leave type with code "${rest.code}" already exists for this organization.`);
-        throw new BadRequestError(`A leave type named "${existing.name}" already exists for this organization. Choose a different name.`);
-      }
-
-      // Soft conflict — a legacy/unconfigured leave type exists with the same code/name.
-      // Return recovery metadata so the frontend can offer a "Restore" path instead of a dead-end.
-      throw new BadRequestError(
-        isCodeConflict
-          ? `A legacy leave type with code "${rest.code}" already exists. Expand "Legacy Types" and click Restore to convert it to a policy-managed type.`
-          : `A legacy leave type named "${existing.name}" already exists. Expand "Legacy Types" and click Restore to convert it to a policy-managed type.`,
-        {
-          conflictType: 'LEAVE_TYPE_EXISTS_LEGACY',
-          existingLeaveTypeId: existing.id,
-          existingLeaveTypeName: existing.name,
-          existingLeaveTypeCode: existing.code,
-        },
-      );
+      if (isCodeConflict) throw new BadRequestError(`A leave type with code "${rest.code}" already exists.`);
+      throw new BadRequestError(`A leave type named "${existing.name}" already exists. Choose a different name.`);
     }
 
     return prisma.leaveType.create({
@@ -124,44 +101,8 @@ export class LeaveService {
   }
 
   /**
-   * Bulk-migrate legacy leave types (old audience values) to policy-managed audience values.
-   * Safe to call multiple times — already-migrated types are skipped.
-   */
-  async bulkRestoreLeaveTypes(organizationId: string) {
-    const legacyAudiences = ['ALL', 'PROBATION', 'CONFIRMED', 'INTERN', 'NOTICE_PERIOD', 'SPECIFIC'];
-
-    const legacyTypes = await prisma.leaveType.findMany({
-      where: { organizationId, applicableTo: { in: legacyAudiences }, isActive: true, deletedAt: null },
-    });
-
-    if (legacyTypes.length === 0) return { restored: 0, types: [] };
-
-    const audienceMap: Record<string, string> = {
-      ALL: 'ALL_ELIGIBLE',
-      CONFIRMED: 'ACTIVE_ONLY',
-      PROBATION: 'ALL_ELIGIBLE',
-      INTERN: 'TRAINEE_ONLY',
-      NOTICE_PERIOD: 'ALL_ELIGIBLE',
-      SPECIFIC: 'ALL_ELIGIBLE',
-    };
-
-    const updates = await Promise.all(
-      legacyTypes.map((lt) =>
-        prisma.leaveType.update({
-          where: { id: lt.id },
-          data: { applicableTo: audienceMap[lt.applicableTo] || 'ALL_ELIGIBLE' },
-        }),
-      ),
-    );
-
-    return {
-      restored: updates.length,
-      types: updates.map((u) => ({ id: u.id, name: u.name, applicableTo: u.applicableTo })),
-    };
-  }
-
-  /**
-   * Get leave balances for an employee (current year)
+   * Get leave balances for an employee (current year).
+   * Single path: policy-engine always. If no policy rules configured yet, returns empty balances.
    */
   async getBalances(employeeId: string, year?: number) {
     const currentYear = year || new Date().getFullYear();
@@ -172,7 +113,6 @@ export class LeaveService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Non-eligible statuses → return empty balances; frontend hides leave UI entirely
     const NON_ELIGIBLE_STATUSES = ['ONBOARDING', 'NOTICE_PERIOD', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
     if (NON_ELIGIBLE_STATUSES.includes(employee.status)) {
       return { employeeStatus: employee.status, balances: [] };
@@ -180,201 +120,98 @@ export class LeaveService {
 
     const userRole = employee.user?.role;
 
-    // ── Policy-engine path ───────────────────────────────────────────────────
-    // Try to get a default policy. If one exists AND has rules with the new
-    // policy-managed audience values, use it. Otherwise fall through to legacy path.
-    // Falls back to legacy LeaveType.defaultBalance if no policy found or has no rules.
     let defaultPolicy: any = null;
     try {
       defaultPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
-    } catch { /* non-blocking — fall through to legacy path */ }
+    } catch { /* non-blocking */ }
 
-    const POLICY_MANAGED_AUDIENCES = ['ACTIVE_ONLY', 'TRAINEE_ONLY', 'ALL_ELIGIBLE'];
-
-    // Only enter policy-engine path when the policy actually has rules with new audience values.
-    // An empty policy (0 rules, or all rules use legacy audiences) falls through to legacy path.
-    const hasPolicyRules = defaultPolicy?.rules?.some((r: any) =>
-      POLICY_MANAGED_AUDIENCES.includes(r.leaveType?.applicableTo),
-    ) ?? false;
-
-    if (defaultPolicy && hasPolicyRules) {
-      const category = leavePolicyService.getEmployeeCategory(employee);
-
-      // Determine which leave types this employee should have based on policy rules
-      const applicableRules = defaultPolicy.rules.filter((r: any) =>
-        (r.employeeCategory === category || r.employeeCategory === 'ALL') &&
-        r.isAllowed &&
-        r.leaveType?.isActive !== false,
-      );
-
-      // Also apply gender/specific-employee filters from the LeaveType itself
-      const allLeaveTypes = await prisma.leaveType.findMany({
-        where: {
-          id: { in: applicableRules.map((r: any) => r.leaveTypeId) },
-          organizationId: employee.organizationId,
-          isActive: true,
-        },
-      });
-      const leaveTypeMap = new Map(allLeaveTypes.map(lt => [lt.id, lt]));
-
-      const filteredRules = applicableRules.filter((r: any) => {
-        const lt = leaveTypeMap.get(r.leaveTypeId);
-        if (!lt) return false;
-
-        // Gate 1 — must be a policy-managed leave type (new audience format)
-        const app = lt.applicableTo as string;
-        if (!POLICY_MANAGED_AUDIENCES.includes(app)) return false;
-
-        // Gate 2 — gender restriction
-        if (lt.gender && lt.gender !== employee.gender) return false;
-
-        // Gate 3 — specific employee whitelist
-        const specificIds: string[] | null = (lt as any).applicableToEmployeeIds
-          ? (() => { try { return JSON.parse((lt as any).applicableToEmployeeIds); } catch { return null; } })()
-          : null;
-        if (specificIds && specificIds.length > 0) return specificIds.includes(employeeId);
-
-        // Gate 4 — role restriction
-        if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
-
-        // Gate 5 — audience vs employee status cross-check
-        const status = employee.status;
-        const isTrainee = status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
-        const isActive = status === 'ACTIVE';
-        if (app === 'ACTIVE_ONLY' && !isActive) return false;
-        if (app === 'TRAINEE_ONLY' && !isTrainee) return false;
-        if (app === 'ALL_ELIGIBLE' && !isActive && !isTrainee) return false;
-
-        return true;
-      });
-
-      // Fetch existing balances
-      const existingBalances = await prisma.leaveBalance.findMany({
-        where: { employeeId, leaveTypeId: { in: filteredRules.map((r: any) => r.leaveTypeId) }, year: currentYear },
-      });
-      const balanceMap = new Map(existingBalances.map(b => [b.leaveTypeId, b]));
-
-      // Create missing balances using policy-driven allocation
-      for (const rule of filteredRules) {
-        if (balanceMap.has(rule.leaveTypeId)) continue;
-        const allocation = leavePolicyService._resolveFromPolicy(employee, rule.leaveTypeId, currentYear, defaultPolicy);
-        if (!allocation) continue;
-        try {
-          const created = await (prisma.leaveBalance.create as any)({
-            data: {
-              employeeId,
-              leaveTypeId: rule.leaveTypeId,
-              year: currentYear,
-              policyAllocated: allocation.days,
-              manualAdjustment: 0,
-              previousUsed: 0,
-              allocated: allocation.days,
-              used: 0,
-              pending: 0,
-              carriedForward: 0,
-              organizationId: employee.organizationId,
-            },
-          });
-          balanceMap.set(rule.leaveTypeId, created);
-        } catch { /* skipDuplicates equivalent */ }
-      }
-
-      // Re-fetch to pick up any just-created records
-      const allBalances = await prisma.leaveBalance.findMany({
-        where: { employeeId, leaveTypeId: { in: filteredRules.map((r: any) => r.leaveTypeId) }, year: currentYear },
-      });
-      allBalances.forEach(b => balanceMap.set(b.leaveTypeId, b));
-
-      const balances = filteredRules
-        .filter((r: any) => balanceMap.has(r.leaveTypeId))
-        .map((r: any) => {
-          const lt = leaveTypeMap.get(r.leaveTypeId)!;
-          const balance = balanceMap.get(r.leaveTypeId)!;
-          const allocation = leavePolicyService._resolveFromPolicy(employee, r.leaveTypeId, currentYear, defaultPolicy);
-          return {
-            ...balance,
-            leaveType: { id: lt.id, name: lt.name, code: lt.code, isPaid: lt.isPaid },
-            policyAllocated: Number((balance as any).policyAllocated ?? balance.allocated),
-            manualAdjustment: Number((balance as any).manualAdjustment ?? 0),
-            previousUsed: Number((balance as any).previousUsed ?? 0),
-            effectiveAllocated: Number((balance as any).policyAllocated ?? balance.allocated) + Number((balance as any).manualAdjustment ?? 0),
-            remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
-            allocationBasis: allocation?.basis,
-            allocationCategory: allocation?.category,
-          };
-        });
-      return { employeeStatus: employee.status, balances };
+    if (!defaultPolicy || !defaultPolicy.rules?.length) {
+      return { employeeStatus: employee.status, balances: [] };
     }
 
-    // ── Legacy path (no default policy) ─────────────────────────────────────
-    const allLeaveTypes = await prisma.leaveType.findMany({
-      where: { organizationId: employee.organizationId, isActive: true },
-    });
+    const category = leavePolicyService.getEmployeeCategory(employee);
 
-    const leaveTypes = allLeaveTypes.filter((lt) => {
+    const applicableRules = defaultPolicy.rules.filter((r: any) =>
+      (r.employeeCategory === category || r.employeeCategory === 'ALL') &&
+      r.isAllowed &&
+      r.leaveType?.isActive !== false,
+    );
+
+    const allLeaveTypes = await prisma.leaveType.findMany({
+      where: { id: { in: applicableRules.map((r: any) => r.leaveTypeId) }, organizationId: employee.organizationId, isActive: true },
+    });
+    const leaveTypeMap = new Map(allLeaveTypes.map(lt => [lt.id, lt]));
+
+    const filteredRules = applicableRules.filter((r: any) => {
+      const lt = leaveTypeMap.get(r.leaveTypeId);
+      if (!lt) return false;
+
       if (lt.gender && lt.gender !== employee.gender) return false;
+
       const specificIds: string[] | null = (lt as any).applicableToEmployeeIds
         ? (() => { try { return JSON.parse((lt as any).applicableToEmployeeIds); } catch { return null; } })()
         : null;
       if (specificIds && specificIds.length > 0) return specificIds.includes(employeeId);
+
       if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
-      const probationMonths = (lt as any).probationMonths ?? 0;
-      if (probationMonths > 0 && (employee as any).joiningDate) {
-        const joined = new Date((employee as any).joiningDate);
-        const now = new Date();
-        const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
-        if (monthsWorked < probationMonths) return false;
-      }
-      const app = lt.applicableTo;
+
+      const app = lt.applicableTo as string;
       const status = employee.status;
-      const isEligible = ['ACTIVE', 'PROBATION', 'INTERN'].includes(status) || userRole === 'INTERN';
-      // New simplified audience values
-      if (app === 'ACTIVE_ONLY') return status === 'ACTIVE';
-      if (app === 'TRAINEE_ONLY') return status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
-      if (app === 'ALL_ELIGIBLE') return isEligible;
-      // Legacy values — kept for backward compat
-      if (app === 'ALL') return isEligible; // ALL now scoped to eligible statuses only
-      if (app === 'PROBATION') return status === 'PROBATION';
-      if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
-      if (app === 'NOTICE_PERIOD') return false; // non-eligible
-      if (app === 'ONBOARDING') return false;    // non-eligible
-      if (app === 'INTERN') return status === 'INTERN' || userRole === 'INTERN';
-      if (app === 'SUSPENDED' || app === 'INACTIVE' || app === 'TERMINATED' || app === 'ABSCONDED') return false;
-      return isEligible;
+      const isTrainee = status === 'PROBATION' || status === 'INTERN' || userRole === 'INTERN';
+      const isActive = status === 'ACTIVE';
+      if (app === 'ACTIVE_ONLY' && !isActive) return false;
+      if (app === 'TRAINEE_ONLY' && !isTrainee) return false;
+      if (app === 'ALL_ELIGIBLE' && !isActive && !isTrainee) return false;
+
+      return true;
     });
 
     const existingBalances = await prisma.leaveBalance.findMany({
-      where: { employeeId, leaveTypeId: { in: leaveTypes.map(lt => lt.id) }, year: currentYear },
+      where: { employeeId, leaveTypeId: { in: filteredRules.map((r: any) => r.leaveTypeId) }, year: currentYear },
     });
     const balanceMap = new Map(existingBalances.map(b => [b.leaveTypeId, b]));
 
-    const missingTypes = leaveTypes.filter(lt => !balanceMap.has(lt.id));
-    if (missingTypes.length > 0) {
-      await (prisma.leaveBalance.createMany as any)({
-        data: missingTypes.map(lt => ({
-          employeeId, leaveTypeId: lt.id, year: currentYear,
-          policyAllocated: lt.defaultBalance,
-          manualAdjustment: 0,
-          previousUsed: 0,
-          allocated: lt.defaultBalance, used: 0, pending: 0, carriedForward: 0,
-        })),
-        skipDuplicates: true,
-      });
-      const newBalances = await prisma.leaveBalance.findMany({
-        where: { employeeId, leaveTypeId: { in: missingTypes.map(lt => lt.id) }, year: currentYear },
-      });
-      newBalances.forEach(b => balanceMap.set(b.leaveTypeId, b));
+    for (const rule of filteredRules) {
+      if (balanceMap.has(rule.leaveTypeId)) continue;
+      const allocation = leavePolicyService._resolveFromPolicy(employee, rule.leaveTypeId, currentYear, defaultPolicy);
+      if (!allocation) continue;
+      try {
+        const created = await (prisma.leaveBalance.create as any)({
+          data: {
+            employeeId, leaveTypeId: rule.leaveTypeId, year: currentYear,
+            policyAllocated: allocation.days, manualAdjustment: 0, previousUsed: 0,
+            allocated: allocation.days, used: 0, pending: 0, carriedForward: 0,
+            organizationId: employee.organizationId,
+          },
+        });
+        balanceMap.set(rule.leaveTypeId, created);
+      } catch { /* skip duplicates */ }
     }
 
-    const legacyBalances = leaveTypes.map(lt => {
-      const balance = balanceMap.get(lt.id)!;
-      return {
-        ...balance,
-        leaveType: { id: lt.id, name: lt.name, code: lt.code, isPaid: lt.isPaid },
-        remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
-      };
+    const allBalances = await prisma.leaveBalance.findMany({
+      where: { employeeId, leaveTypeId: { in: filteredRules.map((r: any) => r.leaveTypeId) }, year: currentYear },
     });
-    return { employeeStatus: employee.status, balances: legacyBalances };
+    allBalances.forEach(b => balanceMap.set(b.leaveTypeId, b));
+
+    const balances = filteredRules
+      .filter((r: any) => balanceMap.has(r.leaveTypeId))
+      .map((r: any) => {
+        const lt = leaveTypeMap.get(r.leaveTypeId)!;
+        const balance = balanceMap.get(r.leaveTypeId)!;
+        const allocation = leavePolicyService._resolveFromPolicy(employee, r.leaveTypeId, currentYear, defaultPolicy);
+        return {
+          ...balance,
+          leaveType: { id: lt.id, name: lt.name, code: lt.code, isPaid: lt.isPaid },
+          policyAllocated: Number((balance as any).policyAllocated ?? balance.allocated),
+          manualAdjustment: Number((balance as any).manualAdjustment ?? 0),
+          previousUsed: Number((balance as any).previousUsed ?? 0),
+          effectiveAllocated: Number((balance as any).policyAllocated ?? balance.allocated) + Number((balance as any).manualAdjustment ?? 0),
+          remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
+          allocationBasis: allocation?.basis,
+          allocationCategory: allocation?.category,
+        };
+      });
+    return { employeeStatus: employee.status, balances };
   }
 
   /**
