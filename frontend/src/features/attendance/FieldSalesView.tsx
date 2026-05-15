@@ -171,7 +171,8 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   // duplicate starts when the component remounts (e.g. tab switch + return).
   const autoStartRef = useRef(false);
   useEffect(() => {
-    if (!isCheckedIn) {
+    // Don't auto-start if employee has already checked out today
+    if (!isCheckedIn || isCheckedOut) {
       autoStartRef.current = false;
       return;
     }
@@ -214,6 +215,17 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCheckedIn, hasConsented, consentData, isTracking]);
+
+  // Auto-stop GPS when employee clocks out — prevents tracking continuing after shift ends.
+  const isCheckedOut = todayStatus?.isCheckedOut ?? false;
+  const prevCheckedOutRef = useRef(isCheckedOut);
+  useEffect(() => {
+    if (!prevCheckedOutRef.current && isCheckedOut && isTracking) {
+      stopTracking();
+    }
+    prevCheckedOutRef.current = isCheckedOut;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCheckedOut, isTracking]);
 
   // H1: On mount, load any persisted buffer and flush immediately if online.
   // This handles the case where the employee reopens the app while already connected
@@ -686,6 +698,25 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         return total + R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       }, 0)
     : 0;
+
+  // Guard: only FIELD or HYBRID shift employees may use this view.
+  // Once todayStatus has loaded (not undefined), check shift type.
+  const assignedShiftType = todayStatus?.shift?.shiftType;
+  if (todayStatus !== undefined && assignedShiftType !== 'FIELD' && assignedShiftType !== 'HYBRID') {
+    return (
+      <div className="layer-card p-10 text-center">
+        <Navigation size={40} className="mx-auto text-gray-200 mb-3" />
+        <p className="text-sm font-semibold text-gray-600">GPS Field Tracking Not Available</p>
+        <p className="text-xs text-gray-400 mt-1">
+          Live GPS tracking is only available for employees assigned to a <strong>Field (Live Tracking)</strong> or <strong>Hybrid WFH</strong> shift.
+          {assignedShiftType
+            ? ` Your current shift type is "${assignedShiftType}".`
+            : ' You have no shift assigned for today.'}
+        </p>
+        <p className="text-xs text-gray-300 mt-2">Contact HR to update your shift assignment.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -113,7 +113,8 @@ export class LeaveService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    const NON_ELIGIBLE_STATUSES = ['ONBOARDING', 'NOTICE_PERIOD', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
+    // NOTICE_PERIOD employees can still view and consume their accrued leave balances
+    const NON_ELIGIBLE_STATUSES = ['ONBOARDING', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
     if (NON_ELIGIBLE_STATUSES.includes(employee.status)) {
       return { employeeStatus: employee.status, balances: [] };
     }
@@ -426,10 +427,10 @@ export class LeaveService {
         throw new BadRequestError(`${leaveType.name} is restricted to specific employees only. You are not eligible for this leave type. Contact HR if you believe this is an error.`);
       }
     } else {
-      // 9b. Status eligibility gate — only ACTIVE, PROBATION, INTERN are leave-eligible
+      // 9b. Status eligibility gate — hard blocks for truly ineligible statuses.
+      // NOTICE_PERIOD is NOT blocked here — applicableTo on each leave type controls eligibility.
       const STATUS_BLOCK_MAP: Record<string, string> = {
         ONBOARDING: 'Employees in onboarding cannot apply for leave. Complete your onboarding process first.',
-        NOTICE_PERIOD: 'Employees serving their notice period cannot apply for new paid or unpaid leave.',
         SUSPENDED: 'Your account is suspended. Please contact HR.',
         INACTIVE: 'Your account is inactive. Please contact HR.',
         TERMINATED: 'Terminated employees cannot apply for leave.',
@@ -443,19 +444,20 @@ export class LeaveService {
         const status = employee.status;
 
         const isTrainee = status === 'PROBATION' || status === 'INTERN' || empUserRole === 'INTERN';
-        const isEligible = status === 'ACTIVE' || isTrainee;
+        // NOTICE_PERIOD employees are eligible for ALL_ELIGIBLE leave types (earned leave consumption)
+        const isEligible = status === 'ACTIVE' || status === 'NOTICE_PERIOD' || isTrainee;
 
         const allowed = (() => {
           // New simplified audience values
-          if (app === 'ACTIVE_ONLY') return status === 'ACTIVE';
+          if (app === 'ACTIVE_ONLY') return status === 'ACTIVE' || status === 'NOTICE_PERIOD';
           if (app === 'TRAINEE_ONLY') return isTrainee;
           if (app === 'ALL_ELIGIBLE') return isEligible;
           // Legacy values
           if (app === 'PROBATION') return status === 'PROBATION';
-          if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
+          if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE' || status === 'NOTICE_PERIOD';
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
-          if (app === 'ALL') return isEligible; // now scoped to eligible statuses only
-          // Any other explicit value (NOTICE_PERIOD, ONBOARDING, SUSPENDED, etc.) is non-eligible
+          if (app === 'ALL') return isEligible;
+          // Any other explicit value (ONBOARDING, SUSPENDED, etc.) is non-eligible
           return false;
         })();
 
@@ -463,7 +465,7 @@ export class LeaveService {
           const labels: Record<string, string> = {
             ACTIVE_ONLY: 'active/confirmed employees',
             TRAINEE_ONLY: 'employees on probation or internship',
-            ALL_ELIGIBLE: 'active, probation, or intern employees',
+            ALL_ELIGIBLE: 'active, probation, notice period, or intern employees',
             PROBATION: 'employees in probation period',
             ACTIVE: 'active/full-time employees',
             CONFIRMED: 'active/full-time employees',

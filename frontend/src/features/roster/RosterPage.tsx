@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send, Repeat, Navigation } from 'lucide-react';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send, Repeat, Navigation, Map } from 'lucide-react';
 import HomeLocationRequestsTab from './HomeLocationRequestsTab';
 import ShiftChangeRequestsTab from './ShiftChangeRequestsTab';
 import {
@@ -37,7 +37,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
-type Tab = 'shifts' | 'locations' | 'assignments' | 'shift-requests';
+type Tab = 'shifts' | 'locations' | 'assignments' | 'home-locations' | 'shift-requests';
 type ShiftFilter = string | null;
 
 export default function RosterPage() {
@@ -45,6 +45,7 @@ export default function RosterPage() {
   const [shiftFilter, setShiftFilter] = useState<ShiftFilter>(null);
   const { user } = useAppSelector((s) => s.auth);
   const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const isHrOrAdmin = isAdmin || user?.role === 'HR';
 
   const goToAssignments = (shiftId?: string) => {
     setShiftFilter(shiftId || null);
@@ -65,6 +66,9 @@ export default function RosterPage() {
           { key: 'shifts' as Tab, label: 'Shifts', icon: Clock },
           { key: 'locations' as Tab, label: 'Office Locations', icon: MapPin },
           { key: 'assignments' as Tab, label: 'Assign Employees', icon: Users },
+          ...(isHrOrAdmin ? [
+            { key: 'home-locations' as Tab, label: 'Home Locations', icon: Home },
+          ] : []),
           ...(isAdmin ? [
             { key: 'shift-requests' as Tab, label: 'Shift Requests', icon: Repeat },
           ] : []),
@@ -82,6 +86,7 @@ export default function RosterPage() {
       {tab === 'shifts' && <ShiftsPanel onViewAssigned={goToAssignments} />}
       {tab === 'locations' && <LocationsPanel isAdmin={isAdmin} />}
       {tab === 'assignments' && <AssignmentsPanel shiftFilter={shiftFilter} onClearFilter={() => setShiftFilter(null)} />}
+      {tab === 'home-locations' && isHrOrAdmin && <HomeLocationRequestsTab />}
       {tab === 'shift-requests' && isAdmin && <ShiftChangeRequestsTab />}
     </div>
   );
@@ -103,8 +108,10 @@ function getShiftDisplay(shiftType: string, shiftName?: string) {
 function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => void }) {
   const { data: res } = useGetShiftsQuery();
   const { data: orgSettingsRes } = useGetOrgLeaveSettingsQuery();
+  const { data: assignmentsRes } = useGetAllAssignmentsQuery();
   const orgWorkingDays: string | undefined = orgSettingsRes?.data?.workingDays;
   const shifts = res?.data || [];
+  const allAssignments: any[] = assignmentsRes?.data || [];
   const [createShift, { isLoading: creating }] = useCreateShiftMutation();
   const [updateShift] = useUpdateShiftMutation();
   const [deleteShift] = useDeleteShiftMutation();
@@ -441,14 +448,29 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
 
                     {/* Hybrid shift info — shown only for HYBRID type */}
                     {(form.shiftType === 'HYBRID' || (isEditing && editShift?.shiftType === 'HYBRID')) && (
-                      <div className="rounded-xl border border-purple-200 bg-purple-50/40 p-4">
-                        <div className="flex items-center gap-2 mb-2">
+                      <div className="rounded-xl border border-purple-200 bg-purple-50/40 p-4 space-y-2">
+                        <div className="flex items-center gap-2">
                           <Home className="h-4 w-4 text-purple-600" />
                           <p className="text-sm font-semibold text-purple-700">Hybrid / WFH Shift</p>
                         </div>
                         <p className="text-xs text-purple-700 bg-purple-100 rounded-lg px-3 py-2">
                           Employees assigned to this shift must clock in from <strong>either their approved home location or their assigned office location</strong>. Both geofences are enforced. GPS is required.
                         </p>
+                        {isEditing && (() => {
+                          const homeGeofencedCount = allAssignments.filter((a: any) =>
+                            a.shiftId === editShift?.id && a.employee?.approvedHomeGeofenceId
+                          ).length;
+                          return homeGeofencedCount > 0 ? (
+                            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                              <Shield className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+                              <p className="text-xs text-amber-700">
+                                <strong>{homeGeofencedCount} employee{homeGeofencedCount > 1 ? 's have' : ' has'} an approved home geofence</strong> on this shift.
+                                Changing the shift type to OFFICE or FIELD will disable their WFH clock-in capability.
+                                Notify affected employees before making this change.
+                              </p>
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                     )}
                   </div>

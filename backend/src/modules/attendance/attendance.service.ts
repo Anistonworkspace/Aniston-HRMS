@@ -1715,11 +1715,14 @@ export class AttendanceService {
     });
     const empWorkMode = gpsEmployee?.workMode;
     const empShiftType = gpsEmployee?.shiftAssignments?.[0]?.shift?.shiftType;
-    const isFieldEligible = empWorkMode === 'FIELD_SALES' || empShiftType === 'FIELD';
+    // Eligibility is driven by today's assigned shift type — FIELD or HYBRID only.
+    // workMode alone is not sufficient because it reflects the last clock-in mode,
+    // not the current active shift assignment.
+    const isFieldEligible = empShiftType === 'FIELD' || empShiftType === 'HYBRID';
     if (!isFieldEligible) {
       throw new BadRequestError(
-        `GPS tracking requires a FIELD shift assignment or FIELD_SALES work mode. ` +
-        `Current: workMode=${empWorkMode ?? 'none'}, shiftType=${empShiftType ?? 'none'}`
+        `GPS trail recording is only allowed for employees assigned to a FIELD or HYBRID shift. ` +
+        `Current shift type: ${empShiftType ?? 'none (no shift assigned today)'}. Contact HR to update your shift assignment.`
       );
     }
 
@@ -1732,8 +1735,25 @@ export class AttendanceService {
     }
 
     const orgId = gpsEmployee?.organizationId || '';
-    const trackingIntervalMinutes = gpsEmployee?.shiftAssignments?.[0]?.shift?.trackingIntervalMinutes ?? 60;
+    const activeShift = gpsEmployee?.shiftAssignments?.[0]?.shift;
+    const trackingIntervalMinutes = activeShift?.trackingIntervalMinutes ?? 60;
     const minIntervalMs = (trackingIntervalMinutes * 60_000) * 0.5; // 50% tolerance
+
+    // Compute shift window bounds for today (with 30-min grace on each side)
+    const SHIFT_WINDOW_GRACE_MS = 30 * 60 * 1000;
+    let shiftWindowStart: number | null = null;
+    let shiftWindowEnd: number | null = null;
+    if (activeShift?.startTime && activeShift?.endTime) {
+      const [startH, startM] = activeShift.startTime.split(':').map(Number);
+      const [endH, endM] = activeShift.endTime.split(':').map(Number);
+      const todayBase = new Date(today);
+      const startMs = new Date(todayBase).setHours(startH, startM, 0, 0);
+      let endMs = new Date(todayBase).setHours(endH, endM, 0, 0);
+      // Handle night shifts that end past midnight
+      if (endH < startH) endMs = new Date(todayBase).setHours(endH + 24, endM, 0, 0);
+      shiftWindowStart = startMs - SHIFT_WINDOW_GRACE_MS;
+      shiftWindowEnd = endMs + SHIFT_WINDOW_GRACE_MS;
+    }
 
     const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes GPS clock drift allowed
@@ -1773,6 +1793,16 @@ export class AttendanceService {
       if (p.speed !== undefined && p.speed !== null && p.speed > 83.3) {
         anomalies.push(`GPS_IMPLAUSIBLE_SPEED:${p.speed.toFixed(1)}m/s`);
         // Accept but flag — don't block offline sync for a single noisy reading
+      }
+
+      // Shift window filter: reject points outside shift hours (±30 min grace).
+      // Skip for offline_sync batches — multi-day batches may span boundaries legitimately.
+      const isOfflineSyncBatch = (data as any).source === 'offline_sync';
+      if (!isOfflineSyncBatch && shiftWindowStart !== null && shiftWindowEnd !== null) {
+        if (ts < shiftWindowStart || ts > shiftWindowEnd) {
+          anomalies.push(`GPS_OUTSIDE_SHIFT_WINDOW:${p.timestamp}`);
+          continue;
+        }
       }
 
       // Frequency check: skip for offline_sync batches — they are time-compressed uploads
