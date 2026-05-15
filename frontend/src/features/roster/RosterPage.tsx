@@ -69,7 +69,7 @@ export default function RosterPage() {
           ...(isHrOrAdmin ? [
             { key: 'home-locations' as Tab, label: 'Home Locations', icon: Home },
           ] : []),
-          ...(isAdmin ? [
+          ...(isHrOrAdmin ? [
             { key: 'shift-requests' as Tab, label: 'Shift Requests', icon: Repeat },
           ] : []),
         ].map(t => (
@@ -84,10 +84,10 @@ export default function RosterPage() {
       </div>
 
       {tab === 'shifts' && <ShiftsPanel onViewAssigned={goToAssignments} />}
-      {tab === 'locations' && <LocationsPanel isAdmin={isAdmin} />}
+      {tab === 'locations' && <LocationsPanel isHrOrAdmin={isHrOrAdmin} />}
       {tab === 'assignments' && <AssignmentsPanel shiftFilter={shiftFilter} onClearFilter={() => setShiftFilter(null)} />}
       {tab === 'home-locations' && isHrOrAdmin && <HomeLocationRequestsTab />}
-      {tab === 'shift-requests' && isAdmin && <ShiftChangeRequestsTab />}
+      {tab === 'shift-requests' && isHrOrAdmin && <ShiftChangeRequestsTab />}
     </div>
   );
 }
@@ -113,7 +113,7 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
   const shifts = res?.data || [];
   const allAssignments: any[] = assignmentsRes?.data || [];
   const [createShift, { isLoading: creating }] = useCreateShiftMutation();
-  const [updateShift] = useUpdateShiftMutation();
+  const [updateShift, { isLoading: updating }] = useUpdateShiftMutation();
   const [deleteShift] = useDeleteShiftMutation();
   const [show, setShow] = useState(false);
   const [editShift, setEditShift] = useState<any>(null);
@@ -491,9 +491,11 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                 </div>
 
                 <div className="flex gap-2">
-                  <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
+                  <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating || updating}
                     className="btn-primary text-sm flex items-center gap-1.5">
-                    {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
+                    {isEditing
+                      ? updating ? <><Loader2 size={14} className="animate-spin" /> Updating...</> : <><Save size={14} /> Update</>
+                      : creating ? <><Loader2 size={14} className="animate-spin" /> Creating...</> : 'Create'}
                   </button>
                   <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="btn-secondary text-sm">Cancel</button>
                 </div>
@@ -600,7 +602,7 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
 }
 
 /* ===== LOCATIONS PANEL ===== */
-function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
+function LocationsPanel({ isHrOrAdmin }: { isHrOrAdmin: boolean }) {
   const [locTab, setLocTab] = useState<'offices' | 'home-requests'>('offices');
   const { data: res } = useGetLocationsQuery();
   const locations = res?.data || [];
@@ -683,7 +685,7 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
           >
             <MapPin size={14} /> Office Locations
           </button>
-          {isAdmin && (
+          {isHrOrAdmin && (
             <button
               onClick={() => setLocTab('home-requests')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -702,7 +704,7 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
       </div>
 
       {/* Home location requests sub-tab */}
-      {locTab === 'home-requests' && isAdmin && <HomeLocationRequestsTab />}
+      {locTab === 'home-requests' && isHrOrAdmin && <HomeLocationRequestsTab />}
 
       {/* Office locations content */}
       {locTab === 'offices' && <div className="space-y-4">
@@ -782,7 +784,7 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
               {locations.map((l: any) => {
                 const c = l.geofence?.coordinates as any;
                 if (!c?.lat) return null;
-                return <span key={l.id}><Marker position={[c.lat, c.lng]} /><Circle center={[c.lat, c.lng]} radius={l.geofence?.radiusMeters || 200} pathOptions={{ color: '#4f46e5', fillOpacity: 0.15 }} /></span>;
+                return <><Marker key={`m-${l.id}`} position={[c.lat, c.lng]} /><Circle key={`c-${l.id}`} center={[c.lat, c.lng]} radius={l.geofence?.radiusMeters || 200} pathOptions={{ color: '#4f46e5', fillOpacity: 0.15 }} /></>;
               })}
             </MapContainer>
             {/* Fullscreen toggle button */}
@@ -826,14 +828,15 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
                     const c = l.geofence?.coordinates as any;
                     if (!c?.lat) return null;
                     return (
-                      <span key={l.id}>
-                        <Marker position={[c.lat, c.lng]} />
+                      <>
+                        <Marker key={`m-${l.id}`} position={[c.lat, c.lng]} />
                         <Circle
+                          key={`c-${l.id}`}
                           center={[c.lat, c.lng]}
                           radius={l.geofence?.radiusMeters || 200}
                           pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.12, weight: 2 }}
                         />
-                      </span>
+                      </>
                     );
                   })}
                 </MapContainer>
@@ -855,8 +858,12 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
             </div>
             <div className="flex gap-1">
               <button onClick={() => handleEdit(l)} className="text-gray-400 p-1" onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.color = '')}><Pencil size={14} /></button>
-              <button onClick={async () => { if (confirm('Delete?')) { await deleteLocation(l.id).unwrap(); toast.success('Deleted'); } }}
-                className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+              <button onClick={async () => {
+                if (confirm('Delete?')) {
+                  try { await deleteLocation(l.id).unwrap(); toast.success('Deleted'); }
+                  catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to delete location'); }
+                }
+              }} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
             </div>
           </div>
         ))}
