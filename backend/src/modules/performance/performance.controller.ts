@@ -105,7 +105,7 @@ export class PerformanceController {
   async createReview(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createReviewSchema.parse(req.body);
-      const review = await performanceService.createReview(data, req.user!.userId, req.user!.organizationId);
+      const review = await performanceService.createReview(data, req.user!.userId, req.user!.organizationId, req.user!.employeeId);
       res.status(201).json({ success: true, data: review, message: 'Review submitted' });
     } catch (err) {
       next(err);

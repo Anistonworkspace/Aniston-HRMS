@@ -176,12 +176,10 @@ export default function NewOnboardingFlow() {
   const [currentStep, setCurrentStep] = useState(1);
   const [completed, setCompleted] = useState(false);
 
-  // Resume from last incomplete step (step numbers shifted down by 1 since MFA removed)
+  // Resume from last incomplete step
   useEffect(() => {
     if (status?.resumeStep) {
-      // Backend still returns 1-based step including old Step1=MFA; map down by 1 (min 1)
-      const mappedStep = Math.max(1, (status.resumeStep > 1 ? status.resumeStep - 1 : 1));
-      setCurrentStep(Math.min(mappedStep, 5));
+      setCurrentStep(Math.min(Math.max(1, status.resumeStep), 5));
     }
   }, [status]);
 

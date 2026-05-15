@@ -47,6 +47,7 @@ logger.info('✅ BullMQ queues initialized');
       }
     }
     await backupQueue.add('scheduled-backup', {}, {
+      jobId: 'scheduled-backup',
       repeat: { pattern: '0 2 * * *' }, // 02:00 UTC every day
     });
     logger.info('✅ Backup cron job scheduled (daily at 02:00 UTC — DB + Files)');
@@ -65,14 +66,17 @@ logger.info('✅ BullMQ queues initialized');
     }
     // Auto-close stale records at 23:59 IST daily
     await attendanceCronQueue.add('auto-close-stale', {}, {
+      jobId: 'auto-close-stale',
       repeat: { pattern: '29 18 * * *' }, // 18:29 UTC = 23:59 IST
     });
     // Auto-mark absent at 00:04 IST daily (for previous day)
     await attendanceCronQueue.add('auto-mark-absent', {}, {
+      jobId: 'auto-mark-absent',
       repeat: { pattern: '34 18 * * *' }, // 18:34 UTC = 00:04 IST
     });
     // Auto-detect anomalies at 00:15 IST daily (after close + absent marking settle)
     await attendanceCronQueue.add('auto-detect-anomalies', {}, {
+      jobId: 'auto-detect-anomalies',
       repeat: { pattern: '45 18 * * *' }, // 18:45 UTC = 00:15 IST
     });
     // GPS heartbeat monitor — every 10 min, detects force-stopped apps
@@ -87,6 +91,7 @@ logger.info('✅ BullMQ queues initialized');
     });
     // GPS trail purge — every Sunday at 02:00 IST (20:30 UTC Saturday)
     await attendanceCronQueue.add('purge-gps-trail', {}, {
+      jobId: 'purge-gps-trail',
       repeat: { pattern: '30 20 * * 0' }, // 20:30 UTC Sunday = 02:00 IST Monday
     });
     // Outside-geofence alert — every 5 min, 08:00–22:00 IST (02:30–16:30 UTC), Mon–Sat

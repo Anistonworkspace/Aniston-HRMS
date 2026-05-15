@@ -145,7 +145,7 @@ router.get('/runs/:id/export',
   async (req, res, next) => {
     try {
       const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
-      const run = await payrollService.getPayrollRunById(req.params.id);
+      const run = await payrollService.getPayrollRunById(req.params.id, req.user!.organizationId);
       const org = await (await import('../../lib/prisma.js')).prisma.organization.findUnique({
         where: { id: req.user!.organizationId }, select: { name: true },
       });
@@ -165,7 +165,7 @@ router.get('/runs/:id/attendance-export',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
-      const run = await payrollService.getPayrollRunById(req.params.id);
+      const run = await payrollService.getPayrollRunById(req.params.id, req.user!.organizationId);
       const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
       const { prisma } = await import('../../lib/prisma.js');
 
@@ -339,7 +339,7 @@ router.post('/runs/:id/send-email',
   async (req, res, next) => {
     try {
       const { prisma } = await import('../../lib/prisma.js');
-      const run = await payrollService.getPayrollRunById(req.params.id);
+      const run = await payrollService.getPayrollRunById(req.params.id, req.user!.organizationId);
       if (!['COMPLETED', 'LOCKED'].includes(run.status)) {
         res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Payroll must be completed or locked to send email' } });
         return;
@@ -529,7 +529,7 @@ router.get('/runs/:id/bank-file',
   async (req, res, next) => {
     try {
       const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
-      const run = await payrollService.getPayrollRunById(req.params.id);
+      const run = await payrollService.getPayrollRunById(req.params.id, req.user!.organizationId);
       const { prisma } = await import('../../lib/prisma.js');
       const org = await prisma.organization.findUnique({
         where: { id: req.user!.organizationId }, select: { name: true },

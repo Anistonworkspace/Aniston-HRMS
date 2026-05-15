@@ -99,7 +99,7 @@ export const kycApi = api.injectEndpoints({
         url: `/onboarding/kyc/${employeeId}/verify`,
         method: 'POST',
       }),
-      invalidatesTags: ['Kyc', 'Employee'],
+      invalidatesTags: ['Kyc', 'Employee', 'Onboarding'],
     }),
 
     // HR: reject whole KYC submission
@@ -109,7 +109,7 @@ export const kycApi = api.injectEndpoints({
         method: 'POST',
         body: { reason },
       }),
-      invalidatesTags: ['Kyc', 'Employee'],
+      invalidatesTags: ['Kyc', 'Employee', 'Onboarding'],
     }),
 
     // HR: request re-upload of specific document types with per-doc reasons
@@ -123,7 +123,7 @@ export const kycApi = api.injectEndpoints({
         method: 'POST',
         body: { docTypes, reasons },
       }),
-      invalidatesTags: ['Kyc', 'Employee'],
+      invalidatesTags: ['Kyc', 'Employee', 'Onboarding'],
     }),
 
     // HR: update internal review notes

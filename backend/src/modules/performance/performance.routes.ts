@@ -84,6 +84,18 @@ router.get('/summary/:employeeId',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   async (req, res, next) => {
     try {
+      const { prisma: db } = await import('../../lib/prisma.js');
+      const { ForbiddenError: ForbErr } = await import('../../middleware/errorHandler.js');
+      // MANAGER can only view direct reports
+      if (req.user!.role === 'MANAGER') {
+        const target = await db.employee.findFirst({
+          where: { id: req.params.employeeId, organizationId: req.user!.organizationId },
+          select: { managerId: true },
+        });
+        if (!target || target.managerId !== req.user!.employeeId) {
+          return next(new ForbErr('Managers can only view performance for their direct reports'));
+        }
+      }
       const summary = await performanceService.getEmployeePerformanceSummary(req.params.employeeId, req.user!.organizationId);
       res.json({ success: true, data: summary });
     } catch (err) { next(err); }

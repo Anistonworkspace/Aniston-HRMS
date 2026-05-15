@@ -37,7 +37,7 @@ export class HelpdeskController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const ticket = await helpdeskService.getById(req.params.id, req.user!.organizationId);
+      const ticket = await helpdeskService.getById(req.params.id, req.user!.organizationId, req.user!.employeeId, req.user!.role);
       res.json({ success: true, data: ticket });
     } catch (err) { next(err); }
   }
@@ -53,7 +53,7 @@ export class HelpdeskController {
   async addComment(req: Request, res: Response, next: NextFunction) {
     try {
       const { content, isInternal } = addCommentSchema.parse(req.body);
-      const comment = await helpdeskService.addComment(req.params.id, req.user!.userId, content, isInternal, req.user!.organizationId, req.user!.role);
+      const comment = await helpdeskService.addComment(req.params.id, req.user!.userId, content, isInternal, req.user!.organizationId, req.user!.role, req.user!.employeeId);
       res.status(201).json({ success: true, data: comment });
     } catch (err) { next(err); }
   }

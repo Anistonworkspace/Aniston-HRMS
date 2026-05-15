@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { aiService } from '../../services/ai.service.js';
 import { enqueueEmail } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
@@ -1249,10 +1249,17 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
     return questions;
   }
 
-  async scoreRound(roundId: string, score: number, feedback: string, userId: string, organizationId: string) {
+  async scoreRound(roundId: string, score: number, feedback: string, userId: string, organizationId: string, userRole?: string) {
     if (score < 0 || score > 100) throw new BadRequestError('Score must be between 0 and 100');
     const round = await prisma.interviewRound.findFirst({ where: { id: roundId, organizationId } });
     if (!round) throw new NotFoundError('Round not found');
+
+    // GUEST_INTERVIEWER can only score rounds they are assigned to conduct
+    const isHrAdmin = userRole && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(userRole);
+    if (!isHrAdmin && round.conductedBy && round.conductedBy !== userId) {
+      throw new ForbiddenError('You can only score interview rounds assigned to you');
+    }
+
     return prisma.interviewRound.update({
       where: { id: roundId },
       data: { score, feedback, status: 'COMPLETED_ROUND', completedAt: new Date() },

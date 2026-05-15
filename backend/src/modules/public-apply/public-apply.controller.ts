@@ -105,7 +105,7 @@ export class PublicApplyController {
   async scoreRound(req: Request, res: Response, next: NextFunction) {
     try {
       const { score, feedback } = z.object({ score: z.number().min(0).max(100), feedback: z.string().optional() }).parse(req.body);
-      const result = await publicApplyService.scoreRound(p(req.params.roundId), score, feedback || '', req.user!.userId, req.user!.organizationId);
+      const result = await publicApplyService.scoreRound(p(req.params.roundId), score, feedback || '', req.user!.userId, req.user!.organizationId, req.user!.role);
       res.json({ success: true, data: result, message: 'Score submitted' });
     } catch (err) { next(err); }
   }

@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { aiService } from '../../services/ai.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
@@ -136,15 +136,28 @@ export class HelpdeskService {
     return ticket;
   }
 
-  async getById(id: string, organizationId: string) {
+  async getById(id: string, organizationId: string, callerEmployeeId?: string, callerRole?: string) {
     const ticket = await prisma.ticket.findFirst({
       where: { id, organizationId },
       include: {
         employee: { select: { firstName: true, lastName: true, employeeCode: true, avatar: true } },
-        comments: { orderBy: { createdAt: 'asc' } },
+        comments: {
+          orderBy: { createdAt: 'asc' },
+          // Filter out internal notes for non-HR roles
+          ...(callerRole && !['HR', 'ADMIN', 'SUPER_ADMIN'].includes(callerRole)
+            ? { where: { isInternal: false } }
+            : {}),
+        },
       },
     });
     if (!ticket) throw new NotFoundError('Ticket');
+
+    // EMPLOYEE/INTERN/MANAGER can only read their own tickets
+    const isHrSide = callerRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(callerRole);
+    if (!isHrSide && callerEmployeeId && ticket.employeeId !== callerEmployeeId) {
+      throw new ForbiddenError('You can only view your own support tickets');
+    }
+
     return ticket;
   }
 
@@ -228,12 +241,23 @@ export class HelpdeskService {
     return updated;
   }
 
-  async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean, organizationId: string, authorRole?: string) {
+  async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean, organizationId: string, authorRole?: string, callerEmployeeId?: string) {
     const ticket = await prisma.ticket.findFirst({
       where: { id: ticketId, organizationId },
       include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true, id: true } } } } },
     });
     if (!ticket) throw new NotFoundError('Ticket');
+
+    // EMPLOYEE/INTERN/MANAGER can only comment on their own tickets; cannot post internal notes
+    const isHrSide = authorRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(authorRole);
+    if (!isHrSide) {
+      if (callerEmployeeId && ticket.employeeId !== callerEmployeeId) {
+        throw new ForbiddenError('You can only comment on your own support tickets');
+      }
+      if (isInternal) {
+        throw new ForbiddenError('Only HR/Admin can post internal notes');
+      }
+    }
 
     const comment = await prisma.ticketComment.create({
       data: { ticketId, authorId, content, isInternal },

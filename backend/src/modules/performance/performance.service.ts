@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { aiService } from '../../services/ai.service.js';
-import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { taskIntegrationService } from '../task-integration/task-integration.service.js';
 import { calculateLeaveDisciplineScore, calculateWorkContinuityScore } from '../../utils/leavePerformance.js';
 import type {
@@ -166,7 +166,16 @@ export class PerformanceService {
     };
   }
 
-  async createReview(data: CreateReviewInput, reviewerId: string, organizationId: string) {
+  async createReview(data: CreateReviewInput, reviewerId: string, organizationId: string, callerEmployeeId?: string) {
+    // Self-review prevention: reviewer cannot review themselves
+    if (callerEmployeeId && data.employeeId === callerEmployeeId) {
+      throw new ForbiddenError('You cannot submit a performance review for yourself');
+    }
+
+    // Verify the subject employee is in the same org
+    const subject = await prisma.employee.findFirst({ where: { id: data.employeeId, organizationId } });
+    if (!subject) throw new NotFoundError('Employee');
+
     const review = await prisma.performanceReview.create({
       data: {
         ...data,

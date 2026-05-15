@@ -15,6 +15,14 @@ const applyRateLimiter = rateLimiter({
   failClosed: false, // fail open so Redis outage doesn't block legitimate applicants
 });
 
+// Rate limiter for application status tracking — 60 checks/hour per IP
+const trackRateLimiter = rateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  keyPrefix: 'rl:track-app',
+  failClosed: false,
+});
+
 // Public endpoints (no auth)
 router.get('/form/:token', (req, res, next) =>
   publicApplyController.getJobForm(req, res, next)
@@ -22,7 +30,7 @@ router.get('/form/:token', (req, res, next) =>
 router.post('/form/:token/apply', applyRateLimiter, uploadResume.single('resume'), (req, res, next) =>
   publicApplyController.submitApplication(req, res, next)
 );
-router.get('/track/:uid', (req, res, next) =>
+router.get('/track/:uid', trackRateLimiter, (req, res, next) =>
   publicApplyController.trackApplication(req, res, next)
 );
 

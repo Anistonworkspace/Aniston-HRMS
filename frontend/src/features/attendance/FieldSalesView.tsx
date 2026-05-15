@@ -144,6 +144,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const hasConsented = consentData?.consented && consentData?.consentVersion === GPS_CONSENT_VERSION;
 
   const isCheckedIn = todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut;
+  const isCheckedOut = todayStatus?.isCheckedOut ?? false;
 
   // Read configured interval from shift (default 60 min); enforce 1-min floor
   const trackingIntervalMs = useMemo(() => {
@@ -214,10 +215,9 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       startTrackingCore();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCheckedIn, hasConsented, consentData, isTracking]);
+  }, [isCheckedIn, isCheckedOut, hasConsented, consentData, isTracking]);
 
   // Auto-stop GPS when employee clocks out — prevents tracking continuing after shift ends.
-  const isCheckedOut = todayStatus?.isCheckedOut ?? false;
   const prevCheckedOutRef = useRef(isCheckedOut);
   useEffect(() => {
     if (!prevCheckedOutRef.current && isCheckedOut && isTracking) {
