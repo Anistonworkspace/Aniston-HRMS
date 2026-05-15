@@ -201,18 +201,21 @@ export class ShiftService {
     return shift;
   }
 
-  async updateShift(id: string, data: any, organizationId: string) {
+  async updateShift(id: string, data: Record<string, unknown>, organizationId: string) {
     const shift = await prisma.shift.findFirst({ where: { id, organizationId } });
     if (!shift) throw new NotFoundError('Shift');
 
-    if (data.isDefault) {
+    // Strip any organizationId that may have snuck in from request body
+    const { organizationId: _oid, ...safeData } = data as any;
+
+    if (safeData.isDefault) {
       await prisma.shift.updateMany({
         where: { organizationId, isDefault: true, id: { not: id } },
         data: { isDefault: false },
       });
     }
 
-    return prisma.shift.update({ where: { id }, data });
+    return prisma.shift.update({ where: { id, organizationId }, data: safeData });
   }
 
   async deleteShift(id: string, organizationId: string) {
@@ -732,9 +735,9 @@ export class ShiftService {
     });
   }
 
-  async getMyShiftChangeRequests(employeeId: string) {
+  async getMyShiftChangeRequests(employeeId: string, organizationId: string) {
     return prisma.shiftChangeRequest.findMany({
-      where: { employeeId },
+      where: { employeeId, employee: { organizationId } },
       include: {
         toShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },
         fromShift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } },

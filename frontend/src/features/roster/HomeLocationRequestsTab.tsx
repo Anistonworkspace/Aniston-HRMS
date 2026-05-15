@@ -175,12 +175,14 @@ export default function HomeLocationRequestsTab() {
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [radiusValues, setRadiusValues] = useState<Record<string, string>>({});
   const [mapPopupReq, setMapPopupReq] = useState<any | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
   const { data: res, isLoading, refetch } = useGetHomeLocationRequestsQuery(statusFilter ? { status: statusFilter } : undefined);
-  const [reviewRequest, { isLoading: reviewing }] = useReviewHomeLocationRequestMutation();
+  const [reviewRequest] = useReviewHomeLocationRequestMutation();
 
   const requests: any[] = res?.data || [];
 
   const handleReview = async (id: string, action: 'APPROVED' | 'REJECTED', radiusOverride?: number, notesOverride?: string) => {
+    setReviewingId(id);
     try {
       const radius = radiusOverride ?? (radiusValues[id] ? parseInt(radiusValues[id], 10) : undefined);
       const notes = notesOverride ?? reviewNotes[id]?.trim();
@@ -204,6 +206,8 @@ export default function HomeLocationRequestsTab() {
       setMapPopupReq(null);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to update request');
+    } finally {
+      setReviewingId(null);
     }
   };
 
@@ -332,17 +336,17 @@ export default function HomeLocationRequestsTab() {
                         </button>
                         <button
                           onClick={() => handleReview(req.id, 'APPROVED')}
-                          disabled={reviewing}
+                          disabled={reviewingId === req.id}
                           className="flex items-center justify-center gap-1 px-2 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 transition-colors disabled:opacity-60"
                         >
-                          {reviewing ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                          {reviewingId === req.id ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
                         </button>
                         <button
                           onClick={() => handleReview(req.id, 'REJECTED')}
-                          disabled={reviewing}
+                          disabled={reviewingId === req.id}
                           className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 transition-colors disabled:opacity-60"
                         >
-                          <XCircle size={11} />
+                          {reviewingId === req.id ? <Loader2 size={11} className="animate-spin" /> : <XCircle size={11} />}
                         </button>
                       </div>
                     </div>

@@ -22,51 +22,51 @@ interface RouteItem {
 }
 
 const ALL_ROUTES: RouteItem[] = [
-  // Core
+  // Core — dashboard and profile visible to all; pending-approvals only for HR/managers (ADMIN=IT does not approve HR requests)
   { id: 'dashboard', label: 'Dashboard', description: 'Overview, stats, quick actions', path: '/dashboard', icon: LayoutDashboard, category: 'Core', keywords: ['home', 'overview', 'stats', 'analytics'], roles: [] },
   { id: 'profile', label: 'My Profile', description: 'View and edit your profile', path: '/profile', icon: User, category: 'Core', keywords: ['profile', 'account', 'personal', 'me'], roles: [] },
-  { id: 'pending-approvals', label: 'Pending Approvals', description: 'Leave and ticket approvals', path: '/pending-approvals', icon: CheckSquare, category: 'Core', keywords: ['approvals', 'pending', 'review', 'leave'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { id: 'pending-approvals', label: 'Pending Approvals', description: 'Leave and ticket approvals', path: '/pending-approvals', icon: CheckSquare, category: 'Core', keywords: ['approvals', 'pending', 'review', 'leave'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
 
-  // Employees
-  { id: 'employees', label: 'Manage Employees', description: 'Employee list, profiles, onboarding', path: '/employees', icon: Users, category: 'People', keywords: ['employee', 'staff', 'team', 'hr', 'manage', 'people'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  // Employees — HR workflow; ADMIN (IT) does not manage employee records
+  { id: 'employees', label: 'Manage Employees', description: 'Employee list, profiles, onboarding', path: '/employees', icon: Users, category: 'People', keywords: ['employee', 'staff', 'team', 'hr', 'manage', 'people'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
   { id: 'exit-management', label: 'Exit Management', description: 'Employee offboarding and exit process', path: '/exit-management', icon: LogOut, category: 'People', keywords: ['exit', 'offboarding', 'resignation', 'leave company'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { id: 'walk-in-management', label: 'Walk-in Management', description: 'Manage walk-in candidates', path: '/walk-in-management', icon: UserPlus, category: 'People', keywords: ['walk-in', 'candidate', 'visitor', 'register'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { id: 'walk-in-management', label: 'Walk-in Management', description: 'Manage walk-in candidates', path: '/walk-in-management', icon: UserPlus, category: 'People', keywords: ['walk-in', 'candidate', 'visitor', 'register'], roles: ['SUPER_ADMIN', 'HR'] },
 
-  // Attendance & Time
-  { id: 'attendance', label: 'Attendance', description: 'Mark attendance, field sales, project site', path: '/attendance', icon: Clock, category: 'Time & Attendance', keywords: ['attendance', 'check-in', 'check-out', 'clock', 'geofence', 'gps', 'regularize', 'overtime'], roles: [] },
-  { id: 'roster', label: 'Roster', description: 'Employee scheduling and shifts', path: '/roster', icon: GitBranch, category: 'Time & Attendance', keywords: ['roster', 'schedule', 'shift', 'timing'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  // Attendance & Time — ADMIN (IT) only sees activity-tracking; other time features are for employees and HR
+  { id: 'attendance', label: 'Attendance', description: 'Mark attendance, field sales, project site', path: '/attendance', icon: Clock, category: 'Time & Attendance', keywords: ['attendance', 'check-in', 'check-out', 'clock', 'geofence', 'gps', 'regularize', 'overtime'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
+  { id: 'roster', label: 'Roster', description: 'Employee scheduling and shifts', path: '/roster', icon: GitBranch, category: 'Time & Attendance', keywords: ['roster', 'schedule', 'shift', 'timing'], roles: ['SUPER_ADMIN', 'HR'] },
   { id: 'activity-tracking', label: 'Activity Tracking', description: 'Monitor employee activity and sessions', path: '/activity-tracking', icon: Activity, category: 'Time & Attendance', keywords: ['activity', 'tracking', 'monitor', 'agent', 'session'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
 
-  // Leave
-  { id: 'leaves', label: 'Leave Management', description: 'Apply, approve, and manage leaves', path: '/leaves', icon: CalendarOff, category: 'Leave', keywords: ['leave', 'apply', 'holiday', 'absence', 'balance', 'sick', 'casual'], roles: [] },
+  // Leave — ADMIN (IT) does not manage leave
+  { id: 'leaves', label: 'Leave Management', description: 'Apply, approve, and manage leaves', path: '/leaves', icon: CalendarOff, category: 'Leave', keywords: ['leave', 'apply', 'holiday', 'absence', 'balance', 'sick', 'casual'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
 
-  // Payroll
-  { id: 'payroll', label: 'Payroll', description: 'Salary, payslips, EPF, ESI, TDS', path: '/payroll', icon: DollarSign, category: 'Finance', keywords: ['payroll', 'salary', 'payslip', 'epf', 'esi', 'tds', 'ctc', 'income'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
+  // Payroll — HR and SUPER_ADMIN run payroll; MANAGER/EMPLOYEE/INTERN see own payslips
+  { id: 'payroll', label: 'Payroll', description: 'Salary, payslips, EPF, ESI, TDS', path: '/payroll', icon: DollarSign, category: 'Finance', keywords: ['payroll', 'salary', 'payslip', 'epf', 'esi', 'tds', 'ctc', 'income'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
 
-  // Recruitment
-  { id: 'recruitment', label: 'Recruitment', description: 'Job openings, candidates, Kanban pipeline', path: '/recruitment', icon: Briefcase, category: 'Recruitment', keywords: ['recruitment', 'hiring', 'job', 'candidate', 'interview', 'offer', 'pipeline'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { id: 'hiring-passed', label: 'Hired Candidates', description: 'View candidates who passed hiring', path: '/hiring-passed', icon: Award, category: 'Recruitment', keywords: ['hired', 'passed', 'offer', 'accepted'], roles: [] },
-  { id: 'interview-assignments', label: 'Interview Assignments', description: 'My interview assignments', path: '/interview-assignments', icon: CheckSquare, category: 'Recruitment', keywords: ['interview', 'assignment', 'task', 'panel'], roles: [] },
+  // Recruitment — ADMIN (IT) does not manage recruitment
+  { id: 'recruitment', label: 'Recruitment', description: 'Job openings, candidates, Kanban pipeline', path: '/recruitment', icon: Briefcase, category: 'Recruitment', keywords: ['recruitment', 'hiring', 'job', 'candidate', 'interview', 'offer', 'pipeline'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
+  { id: 'hiring-passed', label: 'Hired Candidates', description: 'View candidates who passed hiring', path: '/hiring-passed', icon: Award, category: 'Recruitment', keywords: ['hired', 'passed', 'offer', 'accepted'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
+  { id: 'interview-assignments', label: 'Interview Assignments', description: 'My interview assignments', path: '/interview-assignments', icon: CheckSquare, category: 'Recruitment', keywords: ['interview', 'assignment', 'task', 'panel'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'GUEST_INTERVIEWER'] },
 
-  // Performance
-  { id: 'performance', label: 'Performance', description: 'Goals, reviews, OKRs, task integration', path: '/performance', icon: Target, category: 'Performance', keywords: ['performance', 'goals', 'okr', 'review', 'kpi', 'rating'], roles: [] },
+  // Performance — ADMIN (IT) does not participate in HR performance reviews
+  { id: 'performance', label: 'Performance', description: 'Goals, reviews, OKRs, task integration', path: '/performance', icon: Target, category: 'Performance', keywords: ['performance', 'goals', 'okr', 'review', 'kpi', 'rating'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
 
-  // Documents & Assets
-  { id: 'my-documents', label: 'My Documents', description: 'Upload and manage your documents', path: '/my-documents', icon: FolderOpen, category: 'Documents & Assets', keywords: ['documents', 'files', 'upload', 'certificate', 'aadhaar', 'pan'], roles: [] },
+  // Documents & Assets — visible to all non-ADMIN roles; ADMIN can view assets (IT manages them)
+  { id: 'my-documents', label: 'My Documents', description: 'Upload and manage your documents', path: '/my-documents', icon: FolderOpen, category: 'Documents & Assets', keywords: ['documents', 'files', 'upload', 'certificate', 'aadhaar', 'pan'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
   { id: 'my-assets', label: 'My Assets', description: 'Company assets assigned to you', path: '/my-assets', icon: Package, category: 'Documents & Assets', keywords: ['assets', 'laptop', 'device', 'equipment', 'assigned'], roles: [] },
   { id: 'policies', label: 'Policies', description: 'Company policies and documents', path: '/policies', icon: FileText, category: 'Documents & Assets', keywords: ['policy', 'policies', 'rules', 'handbook', 'compliance'], roles: [] },
 
-  // Communication
+  // Communication — ADMIN (IT) can use announcements, helpdesk, WhatsApp, bulk-email
   { id: 'announcements', label: 'Announcements', description: 'Company announcements and social wall', path: '/announcements', icon: Megaphone, category: 'Communication', keywords: ['announcement', 'news', 'update', 'post', 'social', 'wall'], roles: [] },
   { id: 'helpdesk', label: 'Helpdesk', description: 'Support tickets and IT issues', path: '/helpdesk', icon: Headphones, category: 'Communication', keywords: ['helpdesk', 'support', 'ticket', 'issue', 'it', 'help'], roles: [] },
-  { id: 'whatsapp', label: 'WhatsApp', description: 'WhatsApp messaging and OTP', path: '/whatsapp', icon: MessageCircle, category: 'Communication', keywords: ['whatsapp', 'message', 'chat', 'otp', 'sms'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { id: 'bulk-email', label: 'Bulk Email', description: 'Send mass emails to employees', path: '/bulk-email', icon: Mail, category: 'Communication', keywords: ['email', 'bulk', 'send', 'mass', 'notification'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { id: 'whatsapp', label: 'WhatsApp', description: 'WhatsApp messaging and OTP', path: '/whatsapp', icon: MessageCircle, category: 'Communication', keywords: ['whatsapp', 'message', 'chat', 'otp', 'sms'], roles: ['SUPER_ADMIN', 'HR'] },
+  { id: 'bulk-email', label: 'Bulk Email', description: 'Send mass emails to employees', path: '/bulk-email', icon: Mail, category: 'Communication', keywords: ['email', 'bulk', 'send', 'mass', 'notification'], roles: ['SUPER_ADMIN', 'HR'] },
 
-  // Analytics
-  { id: 'reports', label: 'Reports & Analytics', description: 'Attendance, payroll, leave reports', path: '/reports', icon: BarChart2, category: 'Analytics', keywords: ['reports', 'analytics', 'export', 'excel', 'attendance', 'payroll', 'charts'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  // Analytics — ADMIN (IT) does not need HR/payroll reports; org-chart is fine for context
+  { id: 'reports', label: 'Reports & Analytics', description: 'Attendance, payroll, leave reports', path: '/reports', icon: BarChart2, category: 'Analytics', keywords: ['reports', 'analytics', 'export', 'excel', 'attendance', 'payroll', 'charts'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
   { id: 'org-chart', label: 'Org Chart', description: 'Company hierarchy visualization', path: '/org-chart', icon: GitBranch, category: 'Analytics', keywords: ['org chart', 'hierarchy', 'tree', 'organization', 'structure'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
 
-  // Settings
+  // Settings — ADMIN (IT) can access settings (IT manages org config)
   { id: 'settings', label: 'Settings', description: 'Organization settings, AI config, audit logs', path: '/settings', icon: Settings, category: 'Settings', keywords: ['settings', 'configuration', 'org', 'ai', 'audit', 'branding', 'policy'], roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
 ];
 

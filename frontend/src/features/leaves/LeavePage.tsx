@@ -82,7 +82,7 @@ export default function LeavePage() {
           }>
           {t('leaves.title')}
         </button>
-        {!isHRAdmin && (
+        {isManagement && (
           <button
             onClick={() => setView('personal')}
             className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -228,12 +228,16 @@ function LeaveManagementView() {
   };
 
   const handleReject = async (id: string, leave?: any) => {
-    if (!window.confirm('Reject this leave request? The employee will be notified.')) return;
     const name = leave?.employee ? `${leave.employee.firstName} ${leave.employee.lastName}` : 'employee';
     const leaveTypeName = leave?.leaveType?.name || 'Leave';
+    const remarks = window.prompt(
+      `Reject ${leaveTypeName} for ${name}?\n\nOptional: enter a reason for the employee (leave blank to skip):`,
+      ''
+    );
+    if (remarks === null) return; // user cancelled
     setActioningLeaveId(id);
     try {
-      await handleAction({ id, action: 'REJECTED' }).unwrap();
+      await handleAction({ id, action: 'REJECTED', remarks: remarks.trim() || undefined }).unwrap();
       toast.success(`${leaveTypeName} for ${name} rejected`);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || t('leaves.failedToReject'));
@@ -379,32 +383,36 @@ function LeaveManagementView() {
             </span>
           )}
         </button>
-        <button
-          role="tab" aria-selected={activeTab === 'employee-leaves'}
-          onClick={() => setActiveTab('employee-leaves')}
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
-            activeTab === 'employee-leaves'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          )}
-        >
-          <Users size={14} />
-          Employee Leaves
-        </button>
-        <button
-          role="tab" aria-selected={activeTab === 'policy'}
-          onClick={() => setActiveTab('policy')}
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
-            activeTab === 'policy'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          )}
-        >
-          <FileText size={14} />
-          Policy Settings
-        </button>
+        {isHRAdmin && (
+          <button
+            role="tab" aria-selected={activeTab === 'employee-leaves'}
+            onClick={() => setActiveTab('employee-leaves')}
+            className={cn(
+              'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
+              activeTab === 'employee-leaves'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            <Users size={14} />
+            Employee Leaves
+          </button>
+        )}
+        {isHRAdmin && (
+          <button
+            role="tab" aria-selected={activeTab === 'policy'}
+            onClick={() => setActiveTab('policy')}
+            className={cn(
+              'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
+              activeTab === 'policy'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            <FileText size={14} />
+            Policy Settings
+          </button>
+        )}
       </div>
 
       {/* Tab Content */}
@@ -823,11 +831,11 @@ function LeaveManagementView() {
       {/* Holidays & Events Tab */}
       {activeTab === 'holidays' && <HolidayManagementTab />}
 
-      {/* Employee Leaves Tab */}
-      {activeTab === 'employee-leaves' && <EmployeeOverviewTab />}
+      {/* Employee Leaves Tab — HR/Admin only */}
+      {activeTab === 'employee-leaves' && isHRAdmin && <EmployeeOverviewTab />}
 
-      {/* Policy Settings Tab */}
-      {activeTab === 'policy' && <PolicySettingsTab />}
+      {/* Policy Settings Tab — HR/Admin only */}
+      {activeTab === 'policy' && isHRAdmin && <PolicySettingsTab />}
 
       {/* Create/Edit Leave Type Modal */}
       <AnimatePresence>

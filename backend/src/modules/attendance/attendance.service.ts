@@ -720,6 +720,14 @@ export class AttendanceService {
 
     // BUG-004 fix: HYBRID clock-out dual-geofence enforcement (mirrors clock-in logic)
     if (isHybridShiftCheckout && data.latitude != null && data.longitude != null) {
+      // MED-004: GPS accuracy gate — same 300m threshold as clock-in
+      if (data.accuracy && data.accuracy > 300) {
+        throw new BadRequestError(
+          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±300m or better). ` +
+          `Move to an open area and try again.`
+        );
+      }
+
       const empWithHomeHybrid = await prisma.employee.findFirst({
         where: { id: employeeId },
         include: { approvedHomeGeofence: true },
@@ -769,6 +777,12 @@ export class AttendanceService {
             );
           }
         }
+      } else {
+        // MED-001: No geofences configured for HYBRID shift — mirror clock-in behavior: alert HR and block
+        setImmediate(() => this._alertHrNoOfficeLocation(employeeId, empStatus?.organizationId || '').catch(() => {}));
+        throw new BadRequestError(
+          'No home or office location configured for your Hybrid shift. Please contact HR to set up your work locations.'
+        );
       }
     }
 

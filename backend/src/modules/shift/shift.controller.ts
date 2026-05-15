@@ -136,7 +136,7 @@ export class ShiftController {
     try {
       const employeeId = req.user!.employeeId;
       if (!employeeId) return res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked.' } });
-      const requests = await shiftService.getMyShiftChangeRequests(employeeId);
+      const requests = await shiftService.getMyShiftChangeRequests(employeeId, req.user!.organizationId);
       res.json({ success: true, data: requests });
     } catch (err) { next(err); }
   }

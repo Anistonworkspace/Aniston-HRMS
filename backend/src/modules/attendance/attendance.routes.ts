@@ -48,7 +48,7 @@ router.get('/gps-consent', requireEmpPerm('canMarkAttendance'), (req, res, next)
 router.get('/geo-locations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   (req, res, next) => attendanceController.getGeoLocations(req, res, next)
 );
-router.patch('/location-visits/:id/name', authenticate,
+router.patch('/location-visits/:id/name',
   (req, res, next) => attendanceController.updateLocationVisitName(req, res, next)
 );
 // Employee tags a stop manually from their current position during field tracking
@@ -677,7 +677,7 @@ router.patch('/overtime/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, R
 // =====================================================================
 // COMP-OFF CREDITS
 // =====================================================================
-router.get('/comp-off/balance', authenticate, async (req, res, next) => {
+router.get('/comp-off/balance', async (req, res, next) => {
   try {
     const employeeId = req.user!.employeeId;
     if (!employeeId) { res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile' } }); return; }
@@ -686,7 +686,7 @@ router.get('/comp-off/balance', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get('/comp-off/credits', authenticate, async (req, res, next) => {
+router.get('/comp-off/credits', async (req, res, next) => {
   try {
     const employeeId = req.user!.employeeId;
     if (!employeeId) { res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile' } }); return; }
@@ -695,7 +695,7 @@ router.get('/comp-off/credits', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get('/comp-off/org', authenticate, requirePermission('attendance', 'read'), async (req, res, next) => {
+router.get('/comp-off/org', requirePermission('attendance', 'read'), async (req, res, next) => {
   try {
     const { status } = req.query as { status?: string };
     const credits = await compOffService.listOrgCredits(req.user!.organizationId, status);
@@ -704,7 +704,7 @@ router.get('/comp-off/org', authenticate, requirePermission('attendance', 'read'
 });
 
 // HR grants a comp-off credit to an employee
-router.post('/comp-off/grant', authenticate, requirePermission('attendance', 'update'), async (req, res, next) => {
+router.post('/comp-off/grant', requirePermission('attendance', 'update'), async (req, res, next) => {
   try {
     const { employeeId, earnedDate, hoursWorked, notes, expiryMonths } = req.body as {
       employeeId: string; earnedDate: string; hoursWorked: number; notes?: string; expiryMonths?: number;
@@ -726,7 +726,7 @@ router.post('/comp-off/grant', authenticate, requirePermission('attendance', 'up
 });
 
 // Employee redeems a comp-off credit (links to a leave request)
-router.post('/comp-off/redeem', authenticate, async (req, res, next) => {
+router.post('/comp-off/redeem', async (req, res, next) => {
   try {
     const employeeId = req.user!.employeeId;
     if (!employeeId) { res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile' } }); return; }

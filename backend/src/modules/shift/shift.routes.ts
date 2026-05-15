@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { validateRequest } from '../../middleware/validate.middleware.js';
 import { Role } from '@aniston/shared';
 import { shiftController } from './shift.controller.js';
+import { createShiftSchema, updateShiftSchema, assignShiftSchema, createLocationSchema, updateLocationSchema } from './shift.validation.js';
 
 const router = Router();
 router.use(authenticate);
@@ -12,14 +14,14 @@ const allStaff = authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER, 
 
 // Shifts CRUD
 router.get('/shifts', hrAuth, (req, res, next) => shiftController.getShifts(req, res, next));
-router.post('/shifts', hrAuth, (req, res, next) => shiftController.createShift(req, res, next));
-router.patch('/shifts/:id', hrAuth, (req, res, next) => shiftController.updateShift(req, res, next));
+router.post('/shifts', hrAuth, validateRequest(createShiftSchema), (req, res, next) => shiftController.createShift(req, res, next));
+router.patch('/shifts/:id', hrAuth, validateRequest(updateShiftSchema), (req, res, next) => shiftController.updateShift(req, res, next));
 router.delete('/shifts/:id', hrAuth, (req, res, next) => shiftController.deleteShift(req, res, next));
 
 // Shift assignments — direct assign restricted to SUPER_ADMIN/ADMIN only (HR must use change request)
 router.get('/shifts/my-history', (req, res, next) => shiftController.getMyShiftHistory(req, res, next));
 router.get('/shifts/assignments', hrAuth, (req, res, next) => shiftController.getAllAssignments(req, res, next));
-router.post('/shifts/assign', superAdminAuth, (req, res, next) => shiftController.assignShift(req, res, next));
+router.post('/shifts/assign', superAdminAuth, validateRequest(assignShiftSchema), (req, res, next) => shiftController.assignShift(req, res, next));
 router.post('/shifts/auto-assign', superAdminAuth, (req, res, next) => shiftController.autoAssignDefault(req, res, next));
 router.get('/shifts/employee/:employeeId', (req, res, next) => {
   const requester = (req as any).user;
@@ -49,8 +51,8 @@ router.patch('/shifts/home-location-request/:id/review', hrAuth, (req, res, next
 
 // Office Locations + Geofence CRUD
 router.get('/locations', hrAuth, (req, res, next) => shiftController.getLocations(req, res, next));
-router.post('/locations', hrAuth, (req, res, next) => shiftController.createLocation(req, res, next));
-router.patch('/locations/:id', hrAuth, (req, res, next) => shiftController.updateLocation(req, res, next));
+router.post('/locations', hrAuth, validateRequest(createLocationSchema), (req, res, next) => shiftController.createLocation(req, res, next));
+router.patch('/locations/:id', hrAuth, validateRequest(updateLocationSchema), (req, res, next) => shiftController.updateLocation(req, res, next));
 router.delete('/locations/:id', hrAuth, (req, res, next) => shiftController.deleteLocation(req, res, next));
 
 export { router as shiftRouter };

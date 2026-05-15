@@ -805,12 +805,9 @@ export class LeaveService {
     let where: any;
     if (isOrgAdmin) {
       // HR/Admin/SuperAdmin see PENDING and MANAGER_APPROVED leaves (both need HR action)
-      const orgEmployees = await prisma.employee.findMany({
-        where: { organizationId, deletedAt: null },
-        select: { id: true },
-      });
+      // Use direct join instead of unbounded employee IN clause for performance at scale
       where = {
-        employeeId: { in: orgEmployees.map((e) => e.id) },
+        employee: { organizationId, deletedAt: null },
         status: { in: ['PENDING', 'MANAGER_APPROVED'] },
       };
     } else {
@@ -2139,10 +2136,10 @@ export class LeaveService {
       await assertHRActionAllowed('HR', request.employeeId, 'canHRManageLeave');
     }
 
-    // Block self-approval: HR/Admin/Manager cannot approve their own leave
-    // (self-rejection/cancellation is allowed so they can withdraw their own requests)
-    if (action !== 'REJECTED' && request.employee.userId && approvedBy === request.employee.userId) {
-      throw new BadRequestError('You cannot approve your own leave request');
+    // Block self-action: approvers cannot approve OR reject their own leave requests.
+    // Employees must use the DELETE /:id cancellation route to withdraw their own requests.
+    if (request.employee.userId && approvedBy === request.employee.userId) {
+      throw new ForbiddenError('You cannot action your own leave request. Use the cancel option to withdraw it.');
     }
 
     // HR cannot approve/reject leave for another HR/Admin/SuperAdmin — only Super Admin or Admin can do that
