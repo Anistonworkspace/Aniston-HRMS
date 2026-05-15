@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError, ConflictError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { enqueueEmail } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
@@ -142,6 +142,9 @@ export class EmployeeDeletionService {
     if (!request) throw new NotFoundError('Deletion request');
     if (request.status !== 'PENDING') {
       throw new BadRequestError(`Cannot approve a request with status "${request.status}"`);
+    }
+    if (request.requestedById === reviewedBy.id) {
+      throw new ForbiddenError('You cannot approve your own employee deletion request');
     }
 
     // Employee might already be gone if manually deleted

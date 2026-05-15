@@ -21,7 +21,7 @@ import toast from 'react-hot-toast';
 import { useEmpPerms } from '../../hooks/useEmpPerms';
 import PermDenied from '../../components/PermDenied';
 
-const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+const ADMIN_ROLES = ['SUPER_ADMIN', 'HR'];
 
 // Gauge color thresholds — mapped to Tailwind token equivalents
 // emerald-500 / amber-500 / orange-500 / red-500 / gray-200

@@ -55,6 +55,7 @@ export const leaveApi = api.injectEndpoints({
         { type: 'Leave' as const, id },
         'Leave',
         'LeaveBalance',
+        'LeaveApproval',
         'Dashboard',
       ],
     }),

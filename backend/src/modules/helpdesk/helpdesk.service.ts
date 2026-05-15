@@ -148,12 +148,27 @@ export class HelpdeskService {
     return ticket;
   }
 
-  async update(id: string, data: { status?: string; assignedTo?: string; resolution?: string }, organizationId: string) {
+  private static readonly VALID_TICKET_TRANSITIONS: Record<string, string[]> = {
+    OPEN: ['IN_PROGRESS', 'CLOSED'],
+    IN_PROGRESS: ['WAITING_ON_USER', 'RESOLVED', 'CLOSED'],
+    WAITING_ON_USER: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+    RESOLVED: ['CLOSED'],
+    CLOSED: [],
+  };
+
+  async update(id: string, data: { status?: string; assignedTo?: string; resolution?: string }, organizationId: string, actorUserId: string) {
     const ticket = await prisma.ticket.findFirst({
       where: { id, organizationId },
       include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true, id: true } } } } },
     });
     if (!ticket) throw new NotFoundError('Ticket');
+
+    if (data.status && data.status !== ticket.status) {
+      const allowed = HelpdeskService.VALID_TICKET_TRANSITIONS[ticket.status] ?? [];
+      if (!allowed.includes(data.status)) {
+        throw new BadRequestError(`Cannot transition ticket from ${ticket.status} to ${data.status}`);
+      }
+    }
 
     const updateData: any = {};
     if (data.status) updateData.status = data.status;
@@ -162,7 +177,7 @@ export class HelpdeskService {
     if (data.status === 'RESOLVED') updateData.resolvedAt = new Date();
 
     const updated = await prisma.ticket.update({ where: { id }, data: updateData });
-    await createAuditLog({ userId: id, organizationId, entity: 'Ticket', entityId: id, action: 'UPDATE', newValue: updateData });
+    await createAuditLog({ userId: actorUserId, organizationId, entity: 'Ticket', entityId: id, action: 'UPDATE', newValue: updateData });
 
     // Notify employee when status changes
     if (data.status && data.status !== ticket.status) {

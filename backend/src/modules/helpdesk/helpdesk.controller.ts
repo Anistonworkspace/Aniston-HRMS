@@ -45,7 +45,7 @@ export class HelpdeskController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateTicketSchema.parse(req.body);
-      const ticket = await helpdeskService.update(req.params.id, data, req.user!.organizationId);
+      const ticket = await helpdeskService.update(req.params.id, data, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: ticket, message: `Ticket ${data.status?.toLowerCase() || 'updated'}` });
     } catch (err) { next(err); }
   }

@@ -77,10 +77,12 @@ logger.info('✅ BullMQ queues initialized');
     });
     // GPS heartbeat monitor — every 10 min, detects force-stopped apps
     await attendanceCronQueue.add('gps-heartbeat-monitor', {}, {
+      jobId: 'gps-heartbeat-monitor',
       repeat: { every: 10 * 60 * 1000 }, // every 10 minutes
     });
     // Shift-end checkout reminder — every 15 min between 16:00–23:59 IST
     await attendanceCronQueue.add('shift-end-reminder', {}, {
+      jobId: 'shift-end-reminder',
       repeat: { every: 15 * 60 * 1000 }, // every 15 minutes
     });
     // GPS trail purge — every Sunday at 02:00 IST (20:30 UTC Saturday)

@@ -164,13 +164,12 @@ export function errorHandler(
     const requestId = (_req.headers?.['x-request-id'] as string) || undefined;
 
     if (prismaErr.code === 'P2002') {
-      const target = prismaErr.meta?.target?.join(', ') || 'field';
       res.status(409).json({
         success: false,
         data: null,
         error: {
           code: 'DUPLICATE_ENTRY',
-          message: `A record with this ${target} already exists`,
+          message: 'A duplicate record already exists',
         },
       });
       return;

@@ -351,7 +351,7 @@ export class AuthController {
       // Update last login timestamp (same as normal login flow)
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-      res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000, path: '/api/auth' });
+      res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000, path: '/api/auth' });
 
       const userData = await authService.getMe(user.id);
       const isNativeAppMfa = req.headers['x-native-app'] === 'true';

@@ -1495,8 +1495,8 @@ export class LeaveService {
    * @param callerEmployeeId - the employeeId of the requesting user (used for BUG-004)
    */
   async getLeaveDetail(requestId: string, organizationId?: string, callerRole?: string, callerEmployeeId?: string) {
-    const request = await prisma.leaveRequest.findUnique({
-      where: { id: requestId },
+    const request = await prisma.leaveRequest.findFirst({
+      where: { id: requestId, ...(organizationId ? { employee: { organizationId } } : {}) },
       include: {
         leaveType: { select: { name: true, code: true, isPaid: true } },
         employee: {
@@ -2166,7 +2166,7 @@ export class LeaveService {
 
       // BUG-001: Manager team scope — manager can only action direct reports' leaves
       const approverEmployee = await prisma.employee.findFirst({
-        where: { userId: approvedBy, deletedAt: null },
+        where: { userId: approvedBy, organizationId, deletedAt: null },
         select: { id: true },
       });
       if (approverEmployee?.id && request.employee.managerId !== approverEmployee.id) {

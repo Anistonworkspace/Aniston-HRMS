@@ -283,6 +283,13 @@ export class DocumentGateService {
     if (gate.kycStatus === 'PROCESSING') {
       throw new BadRequestError('Your documents are still being processed. Please wait a moment, then try again.');
     }
+    const reuploadTypes: string[] = (gate as any).reuploadDocTypes || [];
+    if (gate.kycStatus === 'VERIFIED' && reuploadTypes.length === 0) {
+      throw new BadRequestError('Your KYC is already verified. No re-submission is required.');
+    }
+    if (gate.kycStatus === 'PENDING_HR_REVIEW' && reuploadTypes.length === 0) {
+      throw new BadRequestError('Your documents are already under HR review. Please wait for the outcome.');
+    }
 
     // Photo is always required
     const hasPhoto = !!gate.photoUrl || submitted.includes('PHOTO');

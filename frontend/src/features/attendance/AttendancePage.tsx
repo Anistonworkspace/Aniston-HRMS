@@ -1261,12 +1261,12 @@ function AttendancePersonalView() {
             {!today?.isCheckedIn && !today?.isCheckedOut && (today?.shift as any)?.allowWfh && (
               <div className="mt-2 p-2 bg-teal-50 border border-teal-200 rounded-lg text-center">
                 <p className="text-[10px] text-teal-600 font-medium mb-1">Your shift allows WFH today</p>
-                <a
-                  href={`/leaves/new?type=WFH`}
+                <button
+                  onClick={() => window.location.href = '/leaves'}
                   className="text-[10px] font-semibold text-teal-700 underline hover:text-teal-900"
                 >
                   Submit WFH request →
-                </a>
+                </button>
               </div>
             )}
 

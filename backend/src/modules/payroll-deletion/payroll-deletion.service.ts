@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { enqueueEmail } from '../../jobs/queues.js';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -101,6 +101,9 @@ export class PayrollDeletionService {
     });
     if (!request) throw new NotFoundError('Deletion request');
     if (request.status !== 'PENDING') throw new BadRequestError('This request has already been reviewed.');
+    if (request.requestedById === reviewedById) {
+      throw new ForbiddenError('You cannot approve your own payroll deletion request');
+    }
 
     // Delete all payroll records first (FK), then the run
     if (request.payrollRunId) {

@@ -13,17 +13,15 @@ function getSecret(): string {
   const secret = process.env.ENCRYPTION_KEY;
   if (secret) return secret;
 
-  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+  if (process.env.NODE_ENV === 'development') {
     const fallback = process.env.JWT_SECRET;
     if (fallback) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[WARN] ENCRYPTION_KEY not set — falling back to JWT_SECRET. Set ENCRYPTION_KEY in production.');
-      }
+      console.warn('[WARN] ENCRYPTION_KEY not set — falling back to JWT_SECRET for local dev only. Never reuse JWT_SECRET as ENCRYPTION_KEY.');
       return fallback;
     }
   }
 
-  throw new Error('ENCRYPTION_KEY environment variable must be set');
+  throw new Error('ENCRYPTION_KEY environment variable must be set. Generate with: openssl rand -hex 32');
 }
 
 function deriveKey(secret: string, salt: Buffer): Buffer {

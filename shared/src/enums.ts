@@ -266,6 +266,7 @@ export enum InvitationStatus {
   PENDING = 'PENDING',
   ACCEPTED = 'ACCEPTED',
   EXPIRED = 'EXPIRED',
+  REVOKED = 'REVOKED',
 }
 
 export enum AiProvider {
@@ -351,6 +352,7 @@ export enum AnomalyType {
   GPS_SPOOF = 'GPS_SPOOF',
   GPS_SIGNAL_LOST = 'GPS_SIGNAL_LOST',
   GPS_GAP = 'GPS_GAP',
+  GPS_HEARTBEAT_MISSED = 'GPS_HEARTBEAT_MISSED',
   GPS_NO_DATA = 'GPS_NO_DATA',
 }
 
@@ -581,6 +583,15 @@ export enum BackupCategory {
 export enum BackupType {
   MANUAL = 'MANUAL',
   SCHEDULED = 'SCHEDULED',
+  PRE_MIGRATION = 'PRE_MIGRATION',
+}
+
+export enum TicketStatus {
+  OPEN = 'OPEN',
+  IN_PROGRESS = 'IN_PROGRESS',
+  WAITING_ON_USER = 'WAITING_ON_USER',
+  RESOLVED = 'RESOLVED',
+  CLOSED = 'CLOSED',
 }
 
 export enum BackupStatus {

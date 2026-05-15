@@ -305,7 +305,7 @@ export class AuthService {
     await redis.setex(`${RESET_TOKEN_PREFIX}${resetToken}`, 3600, user.id); // 1 hour
 
     // Send password reset email
-    const resetUrl = `https://hr.anistonav.com/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/reset-password/${resetToken}`;
     await enqueueEmail({
       to: user.email,
       subject: 'Reset Your Aniston HRMS Password',
@@ -385,7 +385,7 @@ export class AuthService {
     // 24-hour window — longer than self-service since employee may not check email immediately
     await redis.setex(`${RESET_TOKEN_PREFIX}${resetToken}`, 86400, target.id);
 
-    const resetUrl = `https://hr.anistonav.com/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/reset-password/${resetToken}`;
     const employeeName = target.employee
       ? `${target.employee.firstName} ${target.employee.lastName}`.trim()
       : target.email.split('@')[0];

@@ -15,14 +15,14 @@ router.patch('/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res
 router.delete('/:id', authorize(Role.SUPER_ADMIN), (req, res, next) => helpdeskController.deleteTicket(req, res, next));
 router.post('/:id/comment', (req, res, next) => helpdeskController.addComment(req, res, next));
 
-router.post('/:id/ai-analyze', authenticate, async (req, res, next) => {
+router.post('/:id/ai-analyze', async (req, res, next) => {
   try {
     const result = await helpdeskService.analyzeTicket(req.params.id, req.user!.organizationId);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
 
-router.post('/:id/ai-suggest-response', authenticate, async (req, res, next) => {
+router.post('/:id/ai-suggest-response', async (req, res, next) => {
   try {
     const result = await helpdeskService.suggestResponse(req.params.id, req.user!.organizationId);
     res.json({ success: true, data: result });

@@ -2869,6 +2869,7 @@ enum InvitationStatus {
   PENDING
   ACCEPTED
   EXPIRED
+  REVOKED
 }
 
 model EmployeeInvitation {
@@ -3726,6 +3727,7 @@ model EmployeeDeletionRequest {
 enum BackupType {
   MANUAL
   SCHEDULED
+  PRE_MIGRATION
 }
 
 enum BackupStatus {

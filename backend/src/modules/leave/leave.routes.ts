@@ -78,7 +78,7 @@ router.post('/draft', requireEmpPerm('canApplyLeaves'), (req, res, next) => leav
 router.post('/:id/submit', requireEmpPerm('canApplyLeaves'), (req, res, next) => leaveController.submitDraft(req, res, next));
 
 // Detail & review (must be before generic /:id routes)
-router.get('/:id/detail', (req, res, next) => leaveController.getLeaveDetail(req, res, next));
+router.get('/:id/detail', requireEmpPerm('canViewLeaveBalance'), (req, res, next) => leaveController.getLeaveDetail(req, res, next));
 router.get('/:id/manager-review',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   (req, res, next) => leaveController.getManagerReview(req, res, next)

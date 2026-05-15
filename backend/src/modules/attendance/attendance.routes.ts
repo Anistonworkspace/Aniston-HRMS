@@ -49,6 +49,7 @@ router.get('/geo-locations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Ro
   (req, res, next) => attendanceController.getGeoLocations(req, res, next)
 );
 router.patch('/location-visits/:id/name',
+  requireEmpPerm('canMarkAttendance'),
   (req, res, next) => attendanceController.updateLocationVisitName(req, res, next)
 );
 // Employee tags a stop manually from their current position during field tracking
@@ -158,6 +159,7 @@ router.get(
 // Project site photo upload (returns URL to use in projectSiteCheckIn body)
 router.post(
   '/project-site/upload-photo',
+  requireEmpPerm('canMarkAttendance'),
   uploadAttendancePhoto.single('photo'),
   (req, res, next) => {
     try {
