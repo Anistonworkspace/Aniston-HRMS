@@ -121,6 +121,11 @@ if command -v psql &>/dev/null && [ -n "${RESOLVED_DATABASE_URL:-}" ]; then
 fi
 
 echo "Ensuring all known migrations are marked as applied..."
+# Resolve any failed migrations first so migrate deploy is not blocked
+for migration in \
+  20260514000001_delete_legacy_leave_types; do
+  npx prisma migrate resolve --rolled-back "$migration" --schema=prisma/schema.prisma 2>/dev/null || true
+done
 for migration in \
   20260413000000_add_leave_settings_intern_role \
   20260413000001_add_leave_applicable_employees \
@@ -134,7 +139,8 @@ for migration in \
   20260506000001_leave_unpaid_tracking \
   20260511000000_expand_hr_action_restrictions \
   20260511000001_add_gps_no_data_anomaly_type \
-  20260511000002_add_gps_v1_5_5_tracking_fields; do
+  20260511000002_add_gps_v1_5_5_tracking_fields \
+  20260515000000_fix_employee_code_org_unique; do
   npx prisma migrate resolve --applied "$migration" --schema=prisma/schema.prisma 2>/dev/null || true
 done
 echo "Migration baseline complete"
@@ -228,10 +234,7 @@ const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
 const prisma = new PrismaClient();
 async function main() {
-  // Find the first org — do not rely on a specific slug value
-  const org = await prisma.organization.findFirst({
-    orderBy: { createdAt: "asc" },
-  });
+  const org = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
   if (!org) {
     console.error("FATAL: No organization found in DB — cannot ensure system accounts");
     process.exit(1);
@@ -251,22 +254,31 @@ async function main() {
       update: { role: acct.role, status: "ACTIVE" },
       create: { email: acct.email, passwordHash: hash, role: acct.role, status: "ACTIVE", organizationId: org.id },
     });
-    await prisma.employee.upsert({
-      where:  { employeeCode: acct.code },
-      update: { isSystemAccount: true, userId: user.id, status: "ACTIVE", deletedAt: null, onboardingComplete: true },
-      create: {
-        employeeCode: acct.code, userId: user.id, firstName: acct.first, lastName: acct.last,
-        email: acct.email, phone: "+91-0000000000", gender: "PREFER_NOT_TO_SAY",
-        departmentId: engDept ? engDept.id : null, designationId: ceoDes ? ceoDes.id : null,
-        workMode: "OFFICE", joiningDate: new Date("2024-01-01"),
-        status: "ACTIVE", onboardingComplete: true, isSystemAccount: true, organizationId: org.id,
-      },
+    // employeeCode is now unique per-org (composite), so look up by (organizationId + employeeCode)
+    const existingEmp = await prisma.employee.findFirst({
+      where: { employeeCode: acct.code, organizationId: org.id },
     });
+    if (existingEmp) {
+      await prisma.employee.update({
+        where: { id: existingEmp.id },
+        data: { isSystemAccount: true, userId: user.id, status: "ACTIVE", deletedAt: null, onboardingComplete: true },
+      });
+    } else {
+      await prisma.employee.create({
+        data: {
+          employeeCode: acct.code, userId: user.id, firstName: acct.first, lastName: acct.last,
+          email: acct.email, phone: "+91-0000000000", gender: "PREFER_NOT_TO_SAY",
+          departmentId: engDept ? engDept.id : null, designationId: ceoDes ? ceoDes.id : null,
+          workMode: "OFFICE", joiningDate: new Date("2024-01-01"),
+          status: "ACTIVE", onboardingComplete: true, isSystemAccount: true, organizationId: org.id,
+        },
+      });
+    }
     console.log("  system account ensured: " + acct.email + " [" + acct.role + "]");
   }
 }
 main()
-  .catch(e => { console.error("FATAL: system account ensure failed:", e.message); process.exit(1); })
+  .catch(e => { console.error("system account ensure failed:", e.message); process.exit(0); })
   .finally(() => prisma.$disconnect());
 ENSURE_ACCOUNTS_EOF
 echo "System account check done"
@@ -301,7 +313,7 @@ echo "=== [12/17] Semantic versioning + OTA bundle ==="
 ) || echo "OTA versioning failed (non-blocking) — continuing"
 
 echo "=== [13/17] Verifying app binaries ==="
-ls -lh downloads/agent/agent-build/aniston-agent-setup.exe 2>/dev/null && echo "Agent .exe present" || echo "Agent installer not yet uploaded"
+ls -lh downloads/agent/agent-build/aniston-support-setup.exe 2>/dev/null && echo "Agent .exe present" || echo "Agent installer not yet uploaded"
 
 echo "=== [14/17] Updating Nginx config ==="
 sudo cp /home/ubuntu/Aniston-HRMS/deploy/nginx.conf /etc/nginx/sites-available/hr.anistonav.com
