@@ -19,7 +19,7 @@ process.env.FRONTEND_URL = 'http://localhost:5173';
 // ── Mocks ────────────────────────────────────────────────────────────────────
 vi.mock('../lib/prisma.js', () => ({
   prisma: {
-    employee: { findUnique: vi.fn(), findMany: vi.fn() },
+    employee: { findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     leaveType: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     leaveBalance: {
       findUnique: vi.fn(),
@@ -403,9 +403,10 @@ describe('LeaveService', () => {
 
     it('allows MANAGER_APPROVED on a PENDING request when actor is MANAGER', async () => {
       vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValueOnce(
-        makeLeaveRequest({ status: 'PENDING' }) as any
+        makeLeaveRequest({ status: 'PENDING', employee: { managerId: 'emp-mgr-001', userId: 'user-leave-001', organizationId: ORG_ID, firstName: 'Jane', lastName: 'Smith' } }) as any
       );
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({ role: 'MANAGER' } as any);
+      vi.mocked(prisma.employee.findFirst).mockResolvedValueOnce({ id: 'emp-mgr-001' } as any);
 
       const updatedRequest = makeLeaveRequest({ status: 'MANAGER_APPROVED' });
       vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
