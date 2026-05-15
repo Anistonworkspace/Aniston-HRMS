@@ -530,8 +530,12 @@ router.get('/my/report/export', requireEmpPerm('canViewAttendanceHistory'), asyn
 router.get('/check-in-map/:attendanceId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const record = await prisma.attendanceRecord.findUnique({
-      where: { id: req.params.attendanceId },
+    // RBAC-01 fix: scope by organizationId to prevent cross-org IDOR
+    const record = await prisma.attendanceRecord.findFirst({
+      where: {
+        id: req.params.attendanceId,
+        employee: { organizationId: req.user!.organizationId },
+      },
       include: { employee: { include: { officeLocation: { include: { geofence: true } } } } },
     });
     if (!record) { res.status(404).json({ success: false, error: { message: 'Record not found' } }); return; }
@@ -595,8 +599,9 @@ router.get('/overtime/my', requireEmpPerm('canViewAttendanceHistory'), async (re
   try {
     const { prisma } = await import('../../lib/prisma.js');
     const employeeId = req.user!.employeeId;
+    // RBAC-02 fix: add organizationId scope
     const requests = await prisma.overtimeRequest.findMany({
-      where: { employeeId: employeeId || '', deletedAt: null },
+      where: { employeeId: employeeId || '', organizationId: req.user!.organizationId, deletedAt: null },
       orderBy: { date: 'desc' },
       take: 50,
     });

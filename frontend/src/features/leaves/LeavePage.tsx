@@ -2355,11 +2355,11 @@ function LeavePersonalView() {
   if (!perms.canViewLeaveBalance) return <PermDenied action="view leave balance" />;
 
   // Status gate — non-eligible employees cannot access leave management
-  const NON_ELIGIBLE_STATUSES = ['ONBOARDING', 'NOTICE_PERIOD', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
+  // NOTICE_PERIOD is intentionally excluded: backend allows eligible leave types during notice period
+  const NON_ELIGIBLE_STATUSES = ['ONBOARDING', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
   if (!balancesLoading && employeeStatus && NON_ELIGIBLE_STATUSES.includes(employeeStatus)) {
     const statusMsg: Record<string, string> = {
       ONBOARDING: 'Complete your onboarding to access leave management.',
-      NOTICE_PERIOD: 'Leave is not available during the notice period.',
       SUSPENDED: 'Leave access has been suspended. Contact HR.',
       INACTIVE: 'Your account is currently inactive. Contact HR.',
       TERMINATED: 'Leave is not available for terminated employees.',
@@ -2510,8 +2510,8 @@ function LeavePersonalView() {
               transition={{ delay: index * 0.05 }}
               className="layer-card p-3 md:p-4 text-center"
             >
-              <span className="text-xl md:text-2xl">{LEAVE_ICONS[bal.leaveType.code] || '📅'}</span>
-              <p className="text-xs md:text-sm font-medium text-gray-700 mt-1 md:mt-2 leading-tight">{bal.leaveType.name}</p>
+              <span className="text-xl md:text-2xl">{LEAVE_ICONS[bal.leaveType?.code] || '📅'}</span>
+              <p className="text-xs md:text-sm font-medium text-gray-700 mt-1 md:mt-2 leading-tight">{bal.leaveType?.name ?? 'Leave'}</p>
               <div className="mt-2 md:mt-3">
                 <p className="text-xl md:text-2xl font-bold font-mono" data-mono style={{ color: 'var(--primary-color)' }}>
                   {bal.remaining}
@@ -2963,7 +2963,7 @@ function LeaveRequestCard({ leave }: { leave: any }) {
               <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
                 <div>
                   <h3 className="text-base font-bold text-gray-900">Conditional Approval</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">{leave.leaveType?.name} · {formatDate(leave.startDate)} – {formatDate(leave.endDate)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{leave.leaveType?.name ?? 'Leave'} · {formatDate(leave.startDate)} – {formatDate(leave.endDate)}</p>
                 </div>
                 <button onClick={() => setShowConditionModal(false)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
                   <X size={18} className="text-gray-400" />

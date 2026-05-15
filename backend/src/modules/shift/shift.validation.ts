@@ -33,9 +33,12 @@ export const createShiftSchema = z.object({
   wfhDays: z.array(z.number().int().min(0).max(6)).default([]),
   // WFH Shift — entire shift is WFH; no geofence or GPS tracking
   isWfhShift: z.boolean().default(false).optional(),
-});
+}).refine(
+  (data) => !data.startTime || !data.endTime || data.startTime !== data.endTime,
+  { message: 'Shift end time must be different from start time', path: ['endTime'] }
+);
 
-export const updateShiftSchema = createShiftSchema.partial();
+export const updateShiftSchema = createShiftSchema.innerType().partial();
 
 export const assignShiftSchema = z.object({
   employeeId: z.string().uuid(),

@@ -15,6 +15,7 @@ export interface JwtPayload {
   mfaPending?: boolean;
   kycCompleted?: boolean;
   deviceId?: string;
+  isAgent?: boolean; // FIX 8: flag set in agent JWTs to enable revocation check
 }
 
 /** Shape of an ExitAccessConfig row (subset used by the middleware). */
@@ -92,6 +93,17 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
         }).catch(() => { /* non-blocking */ });
       }
     }
+    // FIX 8: Check agent JWT revocation flag in Redis.
+    // Only applies to agent tokens (isAgent flag in payload) OR requests to agent data endpoints.
+    // Admin routes (setup, config, report) are excluded — they use regular user tokens.
+    const isAgentDataPath = /^\/api\/agent\/(heartbeat|ping|screenshot|config)/.test(req.path);
+    if ((decoded.isAgent === true || isAgentDataPath) && decoded.employeeId) {
+      const revoked = await redis.get(`revoked:agent:${decoded.employeeId}`);
+      if (revoked) {
+        return next(new UnauthorizedError('Agent token has been revoked — please re-pair'));
+      }
+    }
+
     req.user = decoded;
     next();
   } catch (err) {

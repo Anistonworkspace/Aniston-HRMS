@@ -2766,6 +2766,7 @@ model ActivityLog {
   mouseDistance    Int      @default(0)
   organizationId  String
   createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt // FIX 6: added updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
@@ -2786,6 +2787,7 @@ model AgentScreenshot {
   activeWindow   String?
   organizationId String
   createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt // FIX 6: added updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
@@ -2803,10 +2805,12 @@ model AgentPairingCodeHistory {
   connectedAt    DateTime?                  // when agent first used this code
   revokedAt      DateTime?                  // when it was replaced by a new code
   createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt // FIX 6: added updatedAt
 
   employee       Employee      @relation(fields: [employeeId], references: [id])
-  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade) // FIX 6: explicit Cascade
 
+  @@unique([code]) // FIX 6: prevent duplicate historical codes
   @@index([employeeId])
   @@index([organizationId])
 }

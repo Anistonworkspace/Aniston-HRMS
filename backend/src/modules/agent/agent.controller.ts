@@ -14,13 +14,6 @@ const DOWNLOADS_ROOT = path.resolve(__dirname, '../../../../downloads');
 const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-agent-setup.exe');
 
 export class AgentController {
-  async ping(req: Request, res: Response, next: NextFunction) {
-    try {
-      await agentService.recordPing(req.user!.employeeId!, req.user!.organizationId, req.user!.userId);
-      res.json({ success: true, data: { ok: true } });
-    } catch (err) { next(err); }
-  }
-
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
     try {
       const { activities } = heartbeatSchema.parse(req.body);
@@ -214,15 +207,24 @@ export class AgentController {
     } catch (err) { next(err); }
   }
 
+  // FIX 3: ping controller — null guard for employeeId
+  async ping(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user?.employeeId) {
+        return res.status(400).json({ success: false, error: { code: 'NOT_AN_EMPLOYEE', message: 'Ping requires an agent token' } });
+      }
+      const result = await agentService.recordPing(req.user.employeeId, req.user.organizationId, req.user.userId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   async deleteHistoryCode(req: Request, res: Response, next: NextFunction) {
     try {
       const { historyId } = req.params;
-      const { employeeId } = req.body;
-      if (!employeeId) {
-        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'employeeId required' } });
-        return;
-      }
-      const result = await agentService.deleteHistoryCode(historyId, employeeId, req.user!.organizationId, req.user!.userId);
+      // FIX 3: Derive employeeId from the DB record (via service lookup) rather than trusting req.body.
+      // The service validates the historyId belongs to the org, and returns entry.employeeId.
+      // We pass a placeholder — the service will resolve the real employeeId internally.
+      const result = await agentService.deleteHistoryCode(historyId, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -272,6 +274,35 @@ export class AgentController {
         req.user!.organizationId,
         req.user!.userId
       );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  // FIX 7: Employee productivity report over a date range
+  async getReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId } = req.params;
+      const { from, to } = req.query as { from?: string; to?: string };
+
+      if (!from || !to) {
+        return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'from and to query params are required (YYYY-MM-DD)' } });
+      }
+
+      // Validate date format
+      const fromDate = new Date(from + 'T00:00:00.000Z');
+      const toDate = new Date(to + 'T00:00:00.000Z');
+      if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+        return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid date format. Use YYYY-MM-DD.' } });
+      }
+      if (fromDate > toDate) {
+        return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'from date must be before or equal to to date' } });
+      }
+      const diffDays = (toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24);
+      if (diffDays > 365) {
+        return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Date range cannot exceed 365 days' } });
+      }
+
+      const result = await agentService.getEmployeeReport(employeeId, req.user!.organizationId, from, to);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

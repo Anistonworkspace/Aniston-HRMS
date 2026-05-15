@@ -14,9 +14,10 @@ import {
   useLazyDownloadActivityExcelQuery,
   useGetAgentScreenshotIntervalQuery, useSetAgentScreenshotIntervalMutation, useDeleteAgentActivityByDateMutation,
 } from '../attendance/attendanceApi';
-import { useGetAgentSetupListQuery } from '../settings/settingsApi';
+import { useGetAgentSetupListQuery, useGetEmployeeReportQuery } from '../settings/settingsApi';
 import { getInitials, cn } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
 
@@ -62,6 +63,7 @@ export default function ActivityTrackingPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
   const [fullScreenshot, setFullScreenshot] = useState<string | null>(null);
+  const [reportEmployee, setReportEmployee] = useState<any>(null);
 
   const dateExpired = isExpired(selectedDate);
 
@@ -91,11 +93,10 @@ export default function ActivityTrackingPage() {
     return map;
   }, [agentSetupRes]);
 
-  const [liveConnected, setLiveConnected] = useState<Record<string, boolean>>({});
+  const [liveConnected, setLiveConnected] = useState<Record<string, number>>({});
   useEffect(() => {
-    // Both heartbeat and ping events keep the employee's dot green in real-time
     const handler = (data: any) => {
-      if (data?.employeeId) setLiveConnected(prev => ({ ...prev, [data.employeeId]: true }));
+      if (data?.employeeId) setLiveConnected(prev => ({ ...prev, [data.employeeId]: Date.now() }));
     };
     onSocketEvent('agent:heartbeat', handler);
     onSocketEvent('agent:ping', handler);
@@ -105,10 +106,12 @@ export default function ActivityTrackingPage() {
     };
   }, []);
   useEffect(() => {
-    // Clear liveConnected after 10 minutes with no new heartbeat socket event.
-    // 10min matches the backend's 15min threshold with headroom for poll lag.
     const ticker = setInterval(() => {
-      setLiveConnected(prev => Object.keys(prev).length === 0 ? prev : {});
+      setLiveConnected(prev => {
+        const cutoff = Date.now() - 10 * 60_000;
+        const next = Object.fromEntries(Object.entries(prev).filter(([, ts]) => ts > cutoff));
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
     }, 10 * 60_000);
     return () => clearInterval(ticker);
   }, []);
@@ -229,6 +232,7 @@ export default function ActivityTrackingPage() {
                   agentStatus={agentStatusMap[emp.id]}
                   isLiveConnected={!!liveConnected[emp.id]}
                   onClick={() => setSelectedEmployee(emp)}
+                  onReportClick={() => setReportEmployee(emp)}
                 />
               ))
             )}
@@ -243,6 +247,7 @@ export default function ActivityTrackingPage() {
               date={selectedDate}
               onScreenshotClick={setFullScreenshot}
               agentStatus={agentStatusMap[selectedEmployee.id]}
+              isLiveConnected={!!liveConnected[selectedEmployee.id]}
             />
           ) : (
             <div className="flex items-center justify-center h-full layer-card">
@@ -266,6 +271,13 @@ export default function ActivityTrackingPage() {
           <img src={fullScreenshot} alt="Screenshot" className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" />
         </div>
       )}
+
+      {/* ── Report Card Modal ── */}
+      <AnimatePresence>
+        {reportEmployee && (
+          <ReportCardModal employee={reportEmployee} onClose={() => setReportEmployee(null)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -273,12 +285,13 @@ export default function ActivityTrackingPage() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Employee List Row
 // ─────────────────────────────────────────────────────────────────────────────
-function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveConnected, onClick }: {
+function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveConnected, onClick, onReportClick }: {
   employee: any; isSelected: boolean;
   bulkSummary: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore: number | null }> | undefined;
   agentStatus?: { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null };
   isLiveConnected?: boolean;
   onClick: () => void;
+  onReportClick: () => void;
 }) {
   const summary = bulkSummary?.[employee.id];
   const hasActivity = !!summary && summary.logCount > 0;
@@ -327,7 +340,7 @@ function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveCon
         </div>
       </div>
 
-      {/* Right: score + time */}
+      {/* Right: score + time + report button */}
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0 text-right">
         {hasActivity ? (
           <>
@@ -339,6 +352,13 @@ function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveCon
         ) : (
           <span className="text-[9px] text-gray-300">No data</span>
         )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onReportClick(); }}
+          className="mt-0.5 flex items-center gap-1 px-2 py-0.5 text-[9px] rounded-md bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
+        >
+          <BarChart2 className="w-2.5 h-2.5" />
+          Report
+        </button>
       </div>
     </button>
   );
@@ -347,9 +367,10 @@ function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveCon
 // ─────────────────────────────────────────────────────────────────────────────
 // Activity Detail — full right panel
 // ─────────────────────────────────────────────────────────────────────────────
-function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
+function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLiveConnected }: {
   employee: any; date: string; onScreenshotClick: (url: string) => void;
   agentStatus?: { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null };
+  isLiveConnected?: boolean;
 }) {
   const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'screenshots' | 'live'>('overview');
   const [exporting, setExporting] = useState(false);
@@ -395,7 +416,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
     }
   };
 
-  const isConnected = agentStatus?.isActive;
+  const isConnected = isLiveConnected || agentStatus?.isActive;
   const isPaired = agentStatus?.isPaired;
   const agentDotColor = isConnected ? 'bg-emerald-500 animate-pulse' : isPaired ? 'bg-red-400' : 'bg-gray-300';
   const agentLabel = isConnected ? 'Agent Online' : isPaired ? 'Agent Offline' : 'Not Installed';
@@ -1005,11 +1026,29 @@ function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotCl
     const handleHeartbeat = (data: any) => {
       if (data.employeeId === employeeId) {
         setLiveData(data);
-        setFeedLog(prev => [data, ...prev].slice(0, 50));
+        setFeedLog(prev => [data, ...prev].slice(0, 100));
       }
     };
+    const handlePing = (data: any) => {
+      if (data.employeeId !== employeeId) return;
+      setFeedLog(prev => [{
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        activeApp: '— keepalive —',
+        activeWindow: 'Agent alive (idle)',
+        category: 'NEUTRAL',
+        keystrokes: 0,
+        mouseClicks: 0,
+        mouseDistance: 0,
+        durationSeconds: 0,
+      }, ...prev].slice(0, 100));
+    };
     onSocketEvent('agent:heartbeat', handleHeartbeat);
-    return () => { offSocketEvent('agent:heartbeat', handleHeartbeat); };
+    onSocketEvent('agent:ping', handlePing);
+    return () => {
+      offSocketEvent('agent:heartbeat', handleHeartbeat);
+      offSocketEvent('agent:ping', handlePing);
+    };
   }, [employeeId]);
 
   const latestScreenshot = screenshots.length > 0 ? screenshots[screenshots.length - 1] : null;
@@ -1156,189 +1195,6 @@ function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotCl
           <p className="text-xs text-gray-400 text-center py-6">
             Waiting for live data… Start the agent on the employee's PC and enable Live View above.
           </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// LiveVideoStream removed — WebRTC streaming is no longer supported.
-// The Live Feed tab now shows real-time activity feed + latest screenshots only.
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Screenshot Interval Control (placeholder to preserve line structure)
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WebRTC Live Video Stream — REMOVED
-// ─────────────────────────────────────────────────────────────────────────────
-function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; employeeUserId: string | undefined }) {
-  // WebRTC removed — this component is no longer rendered
-  return null;
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const agentSocketIdRef = useRef<string | null>(null);
-  const signalHandlerRef = useRef<((data: any) => void) | null>(null);
-  const streamErrorHandlerRef = useRef<((data: any) => void) | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [streaming, setStreaming] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const { data: agentStatusRes } = useGetEmployeeAgentStatusQuery(employeeId, { pollingInterval: 15000, skip: !employeeId });
-  const agentIsActive = agentStatusRes?.data?.isActive ?? false;
-  const lastHeartbeat = agentStatusRes?.data?.lastHeartbeat;
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      const socket = getSocket();
-      if (socket) {
-        if (signalHandlerRef.current) socket.off('stream:signal', signalHandlerRef.current);
-        if (streamErrorHandlerRef.current) socket.off('stream:error', streamErrorHandlerRef.current);
-      }
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    };
-  }, []);
-
-  const stopLiveStream = useCallback(() => {
-    const socket = getSocket();
-    if (socket && employeeUserId) socket.emit('stream:stop-request', { employeeUserId });
-    if (socket) {
-      if (signalHandlerRef.current) { socket.off('stream:signal', signalHandlerRef.current); signalHandlerRef.current = null; }
-      if (streamErrorHandlerRef.current) { socket.off('stream:error', streamErrorHandlerRef.current); streamErrorHandlerRef.current = null; }
-    }
-    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setStreaming(false); setConnecting(false);
-  }, [employeeUserId]);
-
-  const startLiveStream = useCallback(() => {
-    if (!employeeUserId) { setError('Employee user account not found'); return; }
-    setConnecting(true); setError(null);
-    const socket = getSocket();
-    if (!socket?.connected) { setError('Real-time connection unavailable. Please refresh.'); setConnecting(false); return; }
-
-    if (signalHandlerRef.current) socket.off('stream:signal', signalHandlerRef.current);
-    if (streamErrorHandlerRef.current) socket.off('stream:error', streamErrorHandlerRef.current);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-
-    const handleStreamError = (data: any) => {
-      if (!data.employeeUserId || data.employeeUserId === employeeUserId) {
-        setError(data.message || 'Agent is not connected'); setConnecting(false);
-      }
-    };
-    streamErrorHandlerRef.current = handleStreamError;
-    socket.on('stream:error', handleStreamError);
-
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] });
-    pcRef.current = pc;
-
-    pc.ontrack = (event) => {
-      if (videoRef.current && event.streams[0]) {
-        videoRef.current.srcObject = event.streams[0];
-        setStreaming(true); setConnecting(false);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      }
-    };
-    pc.onicecandidate = (event) => {
-      if (event.candidate) socket.emit('stream:signal', { type: 'ice-candidate', candidate: event.candidate, targetSocketId: agentSocketIdRef.current });
-    };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        setStreaming(false); setError('Stream disconnected — agent may have gone offline');
-      }
-    };
-
-    const handleSignal = (data: any) => {
-      if (data.type === 'offer' && data.sdp) {
-        agentSocketIdRef.current = data.fromSocketId;
-        pc.setRemoteDescription(data.sdp)
-          .then(() => pc.createAnswer())
-          .then(answer => pc.setLocalDescription(answer))
-          .then(() => socket.emit('stream:signal', { type: 'answer', sdp: pc.localDescription, targetSocketId: data.fromSocketId }))
-          .catch(() => { setError('WebRTC negotiation failed'); setConnecting(false); });
-      } else if (data.type === 'ice-candidate' && data.candidate) {
-        pc.addIceCandidate(data.candidate).catch(() => {});
-      }
-    };
-    signalHandlerRef.current = handleSignal;
-    socket.on('stream:signal', handleSignal);
-    socket.emit('stream:request', { employeeUserId });
-
-    timeoutRef.current = setTimeout(() => {
-      setConnecting(prev => { if (prev) { setError('Agent did not respond. Make sure the desktop agent is running.'); return false; } return prev; });
-    }, 15000);
-  }, [employeeUserId]);
-
-  const lastSeenText = lastHeartbeat
-    ? `Last seen ${fmtTimeShort(lastHeartbeat)}`
-    : 'Never connected';
-
-  return (
-    <div className="layer-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-          <Radio size={12} className={streaming ? 'text-red-500 animate-pulse' : 'text-gray-400'} />
-          Live Screen Stream
-          {streaming && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse ml-1">LIVE</span>}
-          {!streaming && (
-            <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-1',
-              agentIsActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')}>
-              {agentIsActive ? 'Agent Online' : 'Agent Offline'}
-            </span>
-          )}
-        </h4>
-        {!streaming && !connecting ? (
-          <button onClick={startLiveStream} disabled={!agentIsActive}
-            title={!agentIsActive ? `${lastSeenText}` : 'Start live stream'}
-            className={cn('px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 transition-colors',
-              agentIsActive ? 'text-white bg-red-600 hover:bg-red-700' : 'text-gray-400 bg-gray-100 cursor-not-allowed')}>
-            <Radio size={12} /> Start Stream
-          </button>
-        ) : (
-          <button onClick={stopLiveStream}
-            className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
-            Stop Stream
-          </button>
-        )}
-      </div>
-
-      {!agentIsActive && !streaming && (
-        <div className="mb-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          <WifiOff size={12} className="flex-shrink-0" />
-          <span>Desktop agent is not running. {lastSeenText}. Ask the employee to start the Aniston Agent app.</span>
-        </div>
-      )}
-
-      <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
-        <video ref={videoRef} autoPlay playsInline muted
-          className={cn('w-full h-full object-contain', !streaming && 'hidden')} />
-        {!streaming && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            {connecting ? (
-              <div className="text-center">
-                <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                <p className="text-white text-sm">Connecting to screen…</p>
-                <p className="text-gray-400 text-xs mt-1">Waiting for agent to respond</p>
-              </div>
-            ) : error ? (
-              <div className="text-center px-6">
-                <WifiOff size={28} className="mx-auto text-red-400 mb-2" />
-                <p className="text-red-400 text-sm mb-2">{error}</p>
-                {agentIsActive && (
-                  <button onClick={startLiveStream} className="text-xs text-white/70 hover:text-white underline">Try again</button>
-                )}
-              </div>
-            ) : (
-              <div className="text-center">
-                <Monitor size={40} className="mx-auto text-gray-600 mb-2" />
-                <p className="text-gray-400 text-sm">Click "Start Stream" to view the employee's screen</p>
-                <p className="text-gray-500 text-xs mt-1">Requires the desktop agent to be running</p>
-              </div>
-            )}
-          </div>
         )}
       </div>
     </div>
@@ -1613,7 +1469,12 @@ function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose
             </div>
             <div className="flex gap-2">
               <button onClick={onClose} className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200">Cancel</button>
-              <button onClick={() => setConfirming(true)} className="flex-1 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700">
+              <button onClick={() => {
+                const from = new Date(fromDate + 'T00:00:00Z');
+                const to = new Date(toDate + 'T00:00:00Z');
+                if (from > to) { toast.error('From date must be before To date'); return; }
+                setConfirming(true);
+              }} className="flex-1 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700">
                 Review & Delete
               </button>
             </div>
@@ -1701,5 +1562,360 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
         </div>
       )}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Report Card Modal
+// ─────────────────────────────────────────────────────────────────────────────
+function gradeColor(grade: string): string {
+  if (grade === 'A+' || grade === 'A') return 'text-emerald-600 bg-emerald-50';
+  if (grade === 'B+' || grade === 'B') return 'text-blue-600 bg-blue-50';
+  if (grade === 'C') return 'text-amber-600 bg-amber-50';
+  return 'text-red-600 bg-red-50';
+}
+
+function scoreBarColor(score: number): string {
+  if (score >= 80) return 'bg-emerald-500';
+  if (score >= 60) return 'bg-blue-500';
+  if (score >= 50) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
+function barFillColor(score: number): string {
+  if (score >= 80) return '#10b981';
+  if (score >= 60) return '#3b82f6';
+  if (score >= 50) return '#f59e0b';
+  return '#ef4444';
+}
+
+function toDateStr(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function computePeriodDates(period: string, customFrom: string, customTo: string): { from: string; to: string } {
+  const today = new Date();
+  const to = toDateStr(today);
+  if (period === 'today') return { from: to, to };
+  if (period === 'week') {
+    const day = today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
+    return { from: toDateStr(monday), to };
+  }
+  if (period === 'month') {
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: toDateStr(first), to };
+  }
+  if (period === '3months') {
+    const from = new Date(today);
+    from.setDate(today.getDate() - 90);
+    return { from: toDateStr(from), to };
+  }
+  if (period === '6months') {
+    const from = new Date(today);
+    from.setDate(today.getDate() - 180);
+    return { from: toDateStr(from), to };
+  }
+  if (period === 'year') {
+    const from = new Date(today);
+    from.setDate(today.getDate() - 365);
+    return { from: toDateStr(from), to };
+  }
+  return { from: customFrom, to: customTo };
+}
+
+function ReportCardModal({ employee, onClose }: { employee: any; onClose: () => void }) {
+  const today = toDateStr(new Date());
+  const [period, setPeriod] = useState('month');
+  const [customFrom, setCustomFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30); return toDateStr(d);
+  });
+  const [customTo, setCustomTo] = useState(today);
+
+  const { from, to } = computePeriodDates(period, customFrom, customTo);
+
+  const { data, isFetching, isError } = useGetEmployeeReportQuery(
+    { employeeId: employee.id, from, to },
+    { skip: !employee }
+  );
+
+  const report = data;
+  const summary = report?.summary;
+  const dailyBreakdown = report?.dailyBreakdown || [];
+  const topApps = report?.topApps || [];
+
+  const periods = [
+    { key: 'today', label: 'Today' },
+    { key: 'week', label: 'This Week' },
+    { key: 'month', label: 'This Month' },
+    { key: '3months', label: 'Last 3 Months' },
+    { key: '6months', label: 'Last 6 Months' },
+    { key: 'year', label: 'Last Year' },
+    { key: 'custom', label: 'Custom' },
+  ];
+
+  const score = summary?.averageDailyScore ?? 0;
+  const grade = summary?.grade ?? '—';
+  const daysWithData = summary?.daysWithData ?? 0;
+  const totalActiveMins = summary?.totalActiveMins ?? 0;
+  const totalIdleMins = summary?.totalIdleMins ?? 0;
+  const totalProductiveMins = summary?.totalProductiveMins ?? 0;
+  const productivityPct = totalActiveMins > 0 ? Math.round((totalProductiveMins / totalActiveMins) * 100) : 0;
+  const avgDailyActive = daysWithData > 0 ? (totalActiveMins / daysWithData / 60) : 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0, y: 8 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.95, opacity: 0, y: 8 }}
+        transition={{ duration: 0.2 }}
+        className="layer-card w-full max-w-5xl max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-gray-100 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
+              {getInitials(employee.firstName, employee.lastName)}
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-800 leading-tight">{employee.firstName} {employee.lastName} — Report Card</h2>
+              <p className="text-xs text-gray-400">{employee.employeeCode} · {from} → {to}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => window.open(`${(import.meta.env.VITE_API_URL || 'http://localhost:4000/api')}/agent/report/${employee.id}/export?from=${from}&to=${to}&format=excel`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+            >
+              <Download size={12} /> Export Excel
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Period Selector */}
+          <div className="flex flex-wrap gap-2 items-center">
+            {periods.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                className={cn('px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors', period === p.key
+                  ? 'text-white border-transparent'
+                  : 'text-gray-600 border-gray-200 hover:bg-gray-50')}
+                style={period === p.key ? { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } : {}}
+              >
+                {p.label}
+              </button>
+            ))}
+            {period === 'custom' && (
+              <div className="flex items-center gap-2 ml-2">
+                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                  max={today} className="input-glass text-xs py-1 px-2" />
+                <span className="text-xs text-gray-400">→</span>
+                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+                  max={today} className="input-glass text-xs py-1 px-2" />
+              </div>
+            )}
+          </div>
+
+          {isFetching && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
+              <p className="text-sm text-gray-400">Loading report…</p>
+            </div>
+          )}
+
+          {isError && !isFetching && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <WifiOff size={36} className="text-red-300" />
+              <p className="text-sm text-red-500">Failed to load report. Please try again.</p>
+            </div>
+          )}
+
+          {!isFetching && !isError && summary && (
+            <>
+              {/* Score Card + KPIs */}
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                {/* Big Score */}
+                <div className="layer-card p-5 flex flex-col items-center justify-center gap-2 lg:col-span-1">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Avg Daily Score</p>
+                  <p className="text-5xl font-bold font-mono leading-none" style={{ color: barFillColor(score) }} data-mono>
+                    {score}
+                  </p>
+                  <p className="text-sm text-gray-400 font-mono">/100</p>
+                  <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full', gradeColor(grade))}>
+                    Grade {grade}
+                  </span>
+                  <div className="w-full bg-gray-100 rounded-full h-2 mt-1">
+                    <div className={cn('h-2 rounded-full transition-all', scoreBarColor(score))} style={{ width: `${score}%` }} />
+                  </div>
+                  <p className="text-[10px] text-gray-400">{daysWithData} day{daysWithData !== 1 ? 's' : ''} with data</p>
+                </div>
+
+                {/* 4 KPIs */}
+                <div className="lg:col-span-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="layer-card p-4">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center mb-2">
+                      <Clock size={16} className="text-emerald-600" />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">Total Active</p>
+                    <p className="text-xl font-bold font-mono text-gray-800" data-mono>{(totalActiveMins / 60).toFixed(1)}h</p>
+                    <p className="text-[10px] text-gray-400">{totalActiveMins}m total</p>
+                  </div>
+                  <div className="layer-card p-4">
+                    <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center mb-2">
+                      <MinusCircle size={16} className="text-amber-600" />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">Total Idle</p>
+                    <p className="text-xl font-bold font-mono text-gray-800" data-mono>{(totalIdleMins / 60).toFixed(1)}h</p>
+                    <p className="text-[10px] text-gray-400">{totalIdleMins}m total</p>
+                  </div>
+                  <div className="layer-card p-4">
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center mb-2">
+                      <TrendingUp size={16} className="text-blue-600" />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">Productivity</p>
+                    <p className="text-xl font-bold font-mono text-gray-800" data-mono>{productivityPct}%</p>
+                    <p className="text-[10px] text-gray-400">{totalProductiveMins}m productive</p>
+                  </div>
+                  <div className="layer-card p-4">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center mb-2">
+                      <Activity size={16} className="text-indigo-600" />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">Avg Daily Active</p>
+                    <p className="text-xl font-bold font-mono text-gray-800" data-mono>{avgDailyActive.toFixed(1)}h</p>
+                    <p className="text-[10px] text-gray-400">per day with data</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Day-by-day Bar Chart */}
+              {dailyBreakdown.length > 0 && (
+                <div className="layer-card p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <BarChart2 size={14} style={{ color: 'var(--primary-color)' }} /> Daily Score Trend
+                  </h3>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={dailyBreakdown} margin={{ top: 4, right: 4, left: -20, bottom: 4 }}>
+                      <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={d => d.slice(5)} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 9 }} />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0].payload;
+                          return (
+                            <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                              <p className="font-semibold text-gray-700 mb-1">{d.date}</p>
+                              <p className="text-gray-500">Score: <span className="font-bold" style={{ color: barFillColor(d.score) }}>{d.score}/100</span></p>
+                              <p className="text-gray-500">Active: {(d.activeMins / 60).toFixed(1)}h</p>
+                              <p className="text-gray-500">Productive: {d.activeMins > 0 ? Math.round((d.productiveMins / d.activeMins) * 100) : 0}%</p>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Bar dataKey="score" radius={[3, 3, 0, 0]}>
+                        {dailyBreakdown.map((entry, index) => (
+                          <Cell key={index} fill={barFillColor(entry.score)} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Top Apps */}
+              {topApps.length > 0 && (
+                <div className="layer-card p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <Activity size={14} style={{ color: 'var(--primary-color)' }} /> Top Applications
+                  </h3>
+                  <div className="space-y-2">
+                    {topApps.slice(0, 10).map((app, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-[10px] text-gray-300 w-4 text-right font-mono flex-shrink-0" data-mono>{i + 1}</span>
+                        <span className="text-xs text-gray-700 w-32 truncate flex-shrink-0 font-medium">{app.app}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${app.pct}%`, background: 'var(--primary-color)', opacity: 0.7 }} />
+                        </div>
+                        <span className="text-[10px] text-gray-500 w-12 text-right font-mono flex-shrink-0" data-mono>{(app.totalMins / 60).toFixed(1)}h</span>
+                        <span className="text-[10px] text-gray-400 w-10 text-right flex-shrink-0">{app.pct.toFixed(1)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Per-day Scores Table */}
+              {dailyBreakdown.length > 0 && (
+                <div className="layer-card p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <List size={14} style={{ color: 'var(--primary-color)' }} /> Daily Breakdown
+                  </h3>
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-100 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-[10px] font-medium text-gray-400">Date</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-medium text-gray-400">Active</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-medium text-gray-400">Idle</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-medium text-gray-400">Productive %</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-medium text-gray-400">Score</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-medium text-gray-400">Grade</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {dailyBreakdown.map((day, i) => {
+                          const dayProdPct = day.activeMins > 0 ? Math.round((day.productiveMins / day.activeMins) * 100) : 0;
+                          return (
+                            <tr key={i} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-3 py-1.5 font-mono text-gray-600 text-[11px]" data-mono>{day.date}</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-gray-700 text-[11px]" data-mono>{(day.activeMins / 60).toFixed(1)}h</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-gray-500 text-[11px]" data-mono>{(day.idleMins / 60).toFixed(1)}h</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-[11px]" data-mono>
+                                <span className={dayProdPct >= 60 ? 'text-emerald-600' : dayProdPct >= 40 ? 'text-amber-600' : 'text-red-500'}>
+                                  {dayProdPct}%
+                                </span>
+                              </td>
+                              <td className="px-3 py-1.5 text-right font-bold font-mono text-[11px]" style={{ color: barFillColor(day.score) }} data-mono>
+                                {day.score}
+                              </td>
+                              <td className="px-3 py-1.5 text-right">
+                                <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', gradeColor(day.grade))}>
+                                  {day.grade}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {!isFetching && dailyBreakdown.length === 0 && (
+                <div className="layer-card p-10 text-center">
+                  <Activity size={36} className="mx-auto text-gray-200 mb-3" />
+                  <p className="text-sm text-gray-500">No activity data found for this period</p>
+                  <p className="text-xs text-gray-400 mt-1">Try selecting a different date range</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

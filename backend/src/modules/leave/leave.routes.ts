@@ -536,6 +536,12 @@ router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
 router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
+    // RBAC-06 fix: verify policy belongs to this org before mutating
+    const existingPolicy = await prisma.leavePolicy.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+    });
+    if (!existingPolicy) { res.status(404).json({ success: false, error: { message: 'Leave policy not found' } }); return; }
+
     const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, allowUnpaidLeave, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
@@ -616,6 +622,11 @@ router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
 router.delete('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
+    // RBAC-06 fix: verify policy belongs to this org before deactivating
+    const existingPolicy = await prisma.leavePolicy.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+    });
+    if (!existingPolicy) { res.status(404).json({ success: false, error: { message: 'Leave policy not found' } }); return; }
     await prisma.leavePolicy.update({ where: { id: req.params.id }, data: { isActive: false } });
     res.json({ success: true, message: 'Leave policy deactivated' });
   } catch (err) { next(err); }

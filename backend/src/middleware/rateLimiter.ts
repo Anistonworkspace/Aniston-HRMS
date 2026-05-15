@@ -31,6 +31,7 @@ export function rateLimiter(options: RateLimitOptions) {
       res.setHeader('X-RateLimit-Remaining', Math.max(0, max - current));
 
       if (current > max) {
+        res.setHeader('Retry-After', windowSec);
         next(new AppError('Too many requests, please try again later', 429, 'RATE_LIMIT_EXCEEDED'));
         return;
       }

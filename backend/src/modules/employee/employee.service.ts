@@ -103,10 +103,14 @@ export class EmployeeService {
         }
       }
       let bankAccountNumber = emp.bankAccountNumber ?? null;
+      let bankDecryptionFailed = false;
       if (bankAccountNumber) {
         try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
-          // Decryption failed — wrong key (migration from old DB). Signal HR to re-enter.
-          if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = '__REENTRY_REQUIRED__';
+          // Decryption failed — wrong key or corrupted data. Return null and set flag for UI.
+          if (!/^\d{9,18}$/.test(bankAccountNumber)) {
+            bankAccountNumber = null;
+            bankDecryptionFailed = true;
+          }
         }
       }
 
@@ -114,6 +118,7 @@ export class EmployeeService {
         ...emp,
         panNumber,
         bankAccountNumber,
+        bankDecryptionFailed: bankDecryptionFailed || undefined,
         manager,
         hasShift: !!activeAssignment,
         currentShift: activeAssignment?.shift || null,
@@ -219,10 +224,14 @@ export class EmployeeService {
       }
     }
     let bankAccountNumber = (employee as any).bankAccountNumber ?? null;
+    let bankDecryptionFailed = false;
     if (bankAccountNumber) {
       try { bankAccountNumber = decrypt(bankAccountNumber); } catch {
-        // Decryption failed — wrong key (migration from old DB). Signal HR to re-enter.
-        if (!/^\d{9,18}$/.test(bankAccountNumber)) bankAccountNumber = '__REENTRY_REQUIRED__';
+        // Decryption failed — wrong key or corrupted data. Return null and set flag for UI.
+        if (!/^\d{9,18}$/.test(bankAccountNumber)) {
+          bankAccountNumber = null;
+          bankDecryptionFailed = true;
+        }
       }
     }
 
@@ -230,6 +239,7 @@ export class EmployeeService {
       ...employee,
       panNumber,
       bankAccountNumber,
+      bankDecryptionFailed: bankDecryptionFailed || undefined,
       manager,
       hasShift: !!activeAssignment,
       currentShift: activeAssignment?.shift || null,
@@ -1189,11 +1199,8 @@ export class EmployeeService {
       { name: 'Employee(managerId)', fn: () => prisma.employee.updateMany({ where: { managerId: id }, data: { managerId: null } }) },
     ];
 
-    if (existing.userId) {
-      bestEffortDeletions.push(
-        { name: 'AuditLog(user)', fn: () => prisma.auditLog.deleteMany({ where: { userId: existing.userId! } }) },
-      );
-    }
+    // Audit logs are intentionally preserved on employee deletion — they form the immutable audit trail.
+    // Deleting them would destroy the record of all actions taken by or on this employee.
 
     for (const { name, fn } of bestEffortDeletions) {
       try { await fn(); } catch (e: any) {
@@ -1756,13 +1763,14 @@ export class EmployeeService {
   async updateProfilePhoto(employeeId: string, photoUrl: string, organizationId: string) {
     const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
     if (!employee) throw new NotFoundError('Employee');
-    // Delete old photo if it exists
-    if ((employee as any).profilePhotoUrl) {
-      await storageService.deleteFile((employee as any).profilePhotoUrl);
+    // Delete old photo non-blocking (prevents unbounded storage growth on repeated uploads)
+    const oldPhoto = employee.avatar ?? (employee as any).profilePhotoUrl;
+    if (oldPhoto && oldPhoto !== photoUrl) {
+      storageService.deleteFile(oldPhoto).catch(() => {});
     }
     return prisma.employee.update({
       where: { id: employeeId },
-      data: { profilePhotoUrl: photoUrl } as any,
+      data: { avatar: photoUrl },
     });
   }
 }

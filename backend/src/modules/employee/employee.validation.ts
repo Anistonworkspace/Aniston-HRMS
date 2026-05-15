@@ -6,7 +6,7 @@ export const createEmployeeSchema = z.object({
   email: z.string().email('Invalid email address'),
   phone: z.string().min(10, 'Phone number must be at least 10 digits'),
   personalEmail: z.string().email().optional().or(z.literal('')),
-  dateOfBirth: z.string().optional(),
+  dateOfBirth: z.string().refine(v => !v || new Date(v) <= new Date(), { message: 'Date of birth cannot be in the future' }).optional(),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']),
   bloodGroup: z.string().optional(),
   maritalStatus: z.string().optional(),
@@ -22,7 +22,12 @@ export const createEmployeeSchema = z.object({
   officeLocationId: z.string().uuid().optional().nullable(),
   managerId: z.string().uuid().optional().nullable(),
   // joiningDate: contractual employment start — used for payroll pro-ration, leave accrual
-  joiningDate: z.string().min(1, 'Joining date is required'),
+  joiningDate: z.string().min(1, 'Joining date is required').refine(v => {
+    const d = new Date(v);
+    const maxFuture = new Date();
+    maxFuture.setFullYear(maxFuture.getFullYear() + 1);
+    return d <= maxFuture;
+  }, { message: 'Joining date cannot be more than 1 year in the future' }),
   probationEndDate: z.string().optional(),
   ctc: z.number().positive().optional(),
   // address: current residential address (flat JSON: { line1, city, state, pincode })

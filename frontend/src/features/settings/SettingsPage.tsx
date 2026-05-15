@@ -2148,11 +2148,11 @@ function AgentSetupTab() {
   // Auto-fade: mark as disconnected if no event received within AGENT_HEARTBEAT_TIMEOUT_MS (10 min)
   useEffect(() => {
     const interval = setInterval(() => {
-      const twoMinAgo = Date.now() - AGENT_HEARTBEAT_TIMEOUT_MS;
+      const cutoffMs = Date.now() - AGENT_HEARTBEAT_TIMEOUT_MS;
       setLiveStatuses(prev => {
         const next = { ...prev };
         for (const [id, status] of Object.entries(next)) {
-          if (status.isActive && new Date(status.lastHeartbeat).getTime() < twoMinAgo) {
+          if (status.isActive && new Date(status.lastHeartbeat).getTime() < cutoffMs) {
             next[id] = { ...status, isActive: false };
           }
         }

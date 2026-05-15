@@ -2168,11 +2168,11 @@ export class LeaveService {
       }
 
       // BUG-001: Manager team scope — manager can only action direct reports' leaves
-      const approverEmployee = await prisma.user.findUnique({
-        where: { id: approvedBy },
-        select: { employeeId: true },
+      const approverEmployee = await prisma.employee.findFirst({
+        where: { userId: approvedBy, deletedAt: null },
+        select: { id: true },
       });
-      if (approverEmployee?.employeeId && request.employee.managerId !== approverEmployee.employeeId) {
+      if (approverEmployee?.id && request.employee.managerId !== approverEmployee.id) {
         throw new ForbiddenError('You can only action leave requests for your direct reports');
       }
     } else if (!isHRAdmin) {
@@ -2381,12 +2381,16 @@ export class LeaveService {
   /**
    * Cancel a leave request — employee can cancel their own; HR/Admin/SuperAdmin can cancel on behalf of any employee
    */
-  async cancelLeave(requestId: string, employeeId: string, role?: string) {
+  async cancelLeave(requestId: string, employeeId: string, role?: string, organizationId?: string) {
     const isPrivileged = role && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(role);
 
-    // Privileged roles can cancel any employee's leave; employees can only cancel their own
+    // Always scope by organizationId to prevent cross-org IDOR.
+    // Employees can only cancel their own; privileged roles can cancel any within their org.
+    const orgScope = organizationId ? { employee: { organizationId } } : {};
     const request = await prisma.leaveRequest.findFirst({
-      where: isPrivileged ? { id: requestId } : { id: requestId, employeeId },
+      where: isPrivileged
+        ? { id: requestId, ...orgScope }
+        : { id: requestId, employeeId, ...orgScope },
       include: {
         employee: { include: { user: { select: { role: true } } } },
         leaveType: { select: { name: true, code: true } },

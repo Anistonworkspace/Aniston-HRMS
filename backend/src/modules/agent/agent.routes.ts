@@ -28,10 +28,9 @@ const agentDataLimiter = rateLimiter({
 });
 
 // Agent endpoints (employee sends data from desktop agent)
-// Lightweight ping — proves agent is alive, no activity payload, 0 active-time contribution
-// Called every 2 minutes so status stays green during idle/no-activity periods
-router.post('/ping', agentDataLimiter, (req, res, next) => agentController.ping(req, res, next));
 router.post('/heartbeat', agentDataLimiter, (req, res, next) => agentController.submitHeartbeat(req, res, next));
+// FIX 1a: Lightweight ping — stores last-seen in Redis only, no DB insert
+router.post('/ping', agentDataLimiter, (req, res, next) => agentController.ping(req, res, next));
 router.post('/screenshot', agentDataLimiter, uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
 router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
@@ -55,7 +54,15 @@ const setupAuth = authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR);
 router.get('/setup/employees', setupAuth, (req, res, next) => agentController.getAgentSetupList(req, res, next));
 router.post('/setup/generate-code', setupAuth, (req, res, next) => agentController.generateSetupCode(req, res, next));
 router.post('/setup/regenerate-code', setupAuth, (req, res, next) => agentController.regenerateSetupCode(req, res, next));
-router.post('/setup/bulk-generate', setupAuth, (req, res, next) => agentController.bulkGenerateCodes(req, res, next));
+// FIX 5: Rate-limit bulk-generate — this is a heavy operation that calls generatePermanentCode
+// for every employee without a code. Limit to 5 requests per 15 minutes per user.
+const bulkGenerateLimiter = rateLimiter({
+  windowMs: 15 * 60_000,
+  max: 5,
+  keyPrefix: 'bulk-generate',
+  keyFn: (req) => `bulk-generate:${req.user?.userId || req.ip}`,
+});
+router.post('/setup/bulk-generate', setupAuth, bulkGenerateLimiter, (req, res, next) => agentController.bulkGenerateCodes(req, res, next));
 router.get('/setup/code-history/:employeeId', setupAuth, (req, res, next) => agentController.getCodeHistory(req, res, next));
 router.delete('/setup/code-history/:historyId', setupAuth, (req, res, next) => agentController.deleteHistoryCode(req, res, next));
 
@@ -94,5 +101,13 @@ router.get('/screenshot-interval/:employeeId', authorize(Role.SUPER_ADMIN, Role.
 
 // Admin: delete all activity data for a specific date
 router.delete('/activity/:employeeId/:date', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.deleteActivityByDate(req, res, next));
+
+// FIX 7: Employee productivity report over a date range
+// GET /api/agent/report/:employeeId?from=YYYY-MM-DD&to=YYYY-MM-DD
+router.get(
+  '/report/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => agentController.getReport(req, res, next)
+);
 
 export { router as agentRouter };

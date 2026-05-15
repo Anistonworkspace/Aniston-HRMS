@@ -413,7 +413,9 @@ export class DocumentGateService {
           ...(trigger ? { trigger } : {}),
         };
         emitToOrg(emp.organizationId, 'kyc:status-changed', payload);
-        if (emp.userId && (status === 'VERIFIED' || status === 'REUPLOAD_REQUIRED')) {
+        // Emit to the individual employee for all status changes that affect their access:
+        // VERIFIED (grants access), REUPLOAD_REQUIRED and REJECTED (revoke access)
+        if (emp.userId && (status === 'VERIFIED' || status === 'REUPLOAD_REQUIRED' || status === 'REJECTED')) {
           emitToUser(emp.userId, 'kyc:status-changed', payload);
         }
       }

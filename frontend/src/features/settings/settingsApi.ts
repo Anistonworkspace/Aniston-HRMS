@@ -267,6 +267,30 @@ export const settingsApi = api.injectEndpoints({
       query: (body) => ({ url: '/settings/account-activity', method: 'DELETE', body }),
       invalidatesTags: ['Settings'],
     }),
+    getEmployeeReport: builder.query<{
+      summary: {
+        totalActiveMins: number;
+        totalIdleMins: number;
+        totalProductiveMins: number;
+        totalUnproductiveMins: number;
+        averageDailyScore: number;
+        grade: string;
+        daysWithData: number;
+      };
+      dailyBreakdown: Array<{
+        date: string;
+        activeMins: number;
+        idleMins: number;
+        productiveMins: number;
+        unproductiveMins: number;
+        score: number;
+        grade: string;
+      }>;
+      topApps: Array<{ app: string; totalMins: number; pct: number }>;
+    }, { employeeId: string; from: string; to: string }>({
+      query: ({ employeeId, from, to }) => `/agent/report/${employeeId}?from=${from}&to=${to}`,
+      providesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -314,4 +338,5 @@ export const {
   useDeleteDocumentTemplateMutation,
   useGetAccountActivityQuery,
   useDeleteActivityLogsMutation,
+  useGetEmployeeReportQuery,
 } = settingsApi;

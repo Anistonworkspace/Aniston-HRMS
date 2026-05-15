@@ -337,6 +337,7 @@ export class AttendanceService {
     }
 
     // ===== HYBRID SHIFT: must be inside HOME geofence OR OFFICE geofence =====
+    let hybridClockInMode: 'HOME' | 'OFFICE' | null = null; // captured here, used when creating the attendance record
     if (isHybridShift && data.latitude != null && data.longitude != null) {
       // BUG-007 fix: apply GPS accuracy gate for HYBRID (same 300m threshold as OFFICE)
       if (data.accuracy && data.accuracy > 300) {
@@ -391,6 +392,9 @@ export class AttendanceService {
           ` Please clock in from your home or office location.`
         );
       }
+
+      // Capture where the HYBRID employee clocked in — used to set workMode on the attendance record
+      hybridClockInMode = insideHome ? 'HOME' : 'OFFICE';
     }
 
     // ===== WFH HOME GEOFENCE ENFORCEMENT (non-HYBRID shifts with WFH days) =====
@@ -529,7 +533,7 @@ export class AttendanceService {
           workMode: (
             currentShiftType === 'FIELD'  ? 'FIELD_SALES' :
             currentShiftType === 'OFFICE' ? 'OFFICE' :
-            currentShiftType === 'HYBRID' ? (effectiveWfh ? 'HYBRID' : 'OFFICE') :
+            currentShiftType === 'HYBRID' ? (hybridClockInMode ?? 'OFFICE') :
             employee.workMode
           ) as any,
           source: data.source || 'MANUAL_APP',
@@ -587,8 +591,8 @@ export class AttendanceService {
     }
 
     // For PROJECT_SITE mode, also create a site check-in if siteName was provided in the same request
-    // Enforce photo for PROJECT_SITE employees
-    if ((employee.workMode === 'PROJECT_SITE' || currentShiftType === 'PROJECT_SITE') && data.siteName) {
+    // Enforce photo for PROJECT_SITE employees (PROJECT_SITE is a workMode value, not a ShiftType)
+    if (employee.workMode === 'PROJECT_SITE' && data.siteName) {
       if (!data.checkInPhoto) {
         throw new BadRequestError('Photo is required for project site check-in');
       }
@@ -1773,7 +1777,7 @@ export class AttendanceService {
         shiftAssignments: {
           where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
           take: 1,
-          include: { shift: { select: { shiftType: true, trackingIntervalMinutes: true } } },
+          include: { shift: { select: { shiftType: true, trackingIntervalMinutes: true, startTime: true, endTime: true } } },
           orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
         },
       },
@@ -1804,18 +1808,24 @@ export class AttendanceService {
     const trackingIntervalMinutes = activeShift?.trackingIntervalMinutes ?? 60;
     const minIntervalMs = (trackingIntervalMinutes * 60_000) * 0.5; // 50% tolerance
 
-    // Compute shift window bounds for today (with 30-min grace on each side)
+    // Compute shift window bounds for today (with 30-min grace on each side).
+    // Shift times (e.g. "09:00") are in IST. The `today` variable is an
+    // "IST-date as UTC midnight" Date (from getISTToday). To convert an IST
+    // wall-clock hour:minute to a UTC epoch we subtract the IST offset (330 min).
     const SHIFT_WINDOW_GRACE_MS = 30 * 60 * 1000;
     let shiftWindowStart: number | null = null;
     let shiftWindowEnd: number | null = null;
     if (activeShift?.startTime && activeShift?.endTime) {
       const [startH, startM] = activeShift.startTime.split(':').map(Number);
       const [endH, endM] = activeShift.endTime.split(':').map(Number);
-      const todayBase = new Date(today);
-      const startMs = new Date(todayBase).setHours(startH, startM, 0, 0);
-      let endMs = new Date(todayBase).setHours(endH, endM, 0, 0);
-      // Handle night shifts that end past midnight
-      if (endH < startH) endMs = new Date(todayBase).setHours(endH + 24, endM, 0, 0);
+      // today.getTime() is the UTC epoch for IST midnight (00:00 IST = 18:30 UTC prev day).
+      // Adding (hours*60+minutes)*60000 gives the UTC epoch for that IST wall-clock time.
+      // Subtracting IST_OFFSET_MS converts from "IST epoch" to true UTC epoch.
+      const todayUtcMs = today.getTime();
+      let startMs = todayUtcMs + (startH * 60 + startM) * 60_000 - IST_OFFSET_MS;
+      let endMs   = todayUtcMs + (endH   * 60 + endM)   * 60_000 - IST_OFFSET_MS;
+      // Handle night shifts that cross midnight in IST
+      if (endMs <= startMs) endMs += 24 * 60 * 60 * 1000;
       shiftWindowStart = startMs - SHIFT_WINDOW_GRACE_MS;
       shiftWindowEnd = endMs + SHIFT_WINDOW_GRACE_MS;
     }
@@ -2336,6 +2346,13 @@ export class AttendanceService {
       throw new BadRequestError('Cannot submit regularization for future dates.');
     }
 
+    // Enforce look-back window: max 30 days (configurable via AttendancePolicy in future)
+    const MAX_LOOKBACK_DAYS = 30;
+    const oldestAllowed = new Date(today.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    if (new Date(record.date) < oldestAllowed) {
+      throw new BadRequestError(`Regularization can only be submitted for dates within the last ${MAX_LOOKBACK_DAYS} days. Please contact HR for older corrections.`);
+    }
+
     const existing = await prisma.attendanceRegularization.findFirst({
       where: { attendanceId, status: { in: ['PENDING', 'APPROVED'] } },
     });
@@ -2524,11 +2541,18 @@ export class AttendanceService {
       }
     }
 
-    // 2-tier regularization workflow:
-    // PENDING → MANAGER_REVIEWED (by Manager) → APPROVED/REJECTED (by HR/Admin)
-    // Managers can only move to MANAGER_REVIEWED, HR/Admin can approve/reject directly
+    // Manager team-scope guard: managers can only action regularizations for their direct reports
     const isManager = approverRole === 'MANAGER';
     const isHRorAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(approverRole || '');
+    if (isManager && approverEmployeeId) {
+      const targetEmployee = reg.attendance?.employee;
+      if (targetEmployee && (targetEmployee as any).managerId !== approverEmployeeId) {
+        throw new ForbiddenError('You can only action regularization requests for your direct reports');
+      }
+    }
+
+    // 2-tier regularization workflow:
+    // PENDING → MANAGER_REVIEWED (by Manager) → APPROVED/REJECTED (by HR/Admin)
 
     let finalStatus: string;
     if (action === 'REJECTED') {

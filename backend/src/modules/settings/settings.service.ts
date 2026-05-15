@@ -72,6 +72,19 @@ export class SettingsService {
   async deleteLocation(id: string, organizationId: string) {
     const existing = await prisma.officeLocation.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Office location');
+
+    // Guard against FK violations: block deletion if employees or shift assignments reference this location
+    const [empCount, shiftCount] = await Promise.all([
+      prisma.employee.count({ where: { officeLocationId: id, deletedAt: null } }),
+      prisma.shiftAssignment.count({ where: { locationId: id } }),
+    ]);
+    if (empCount > 0) {
+      throw new BadRequestError(`Cannot delete: ${empCount} employee(s) are assigned to this location. Reassign them first.`);
+    }
+    if (shiftCount > 0) {
+      throw new BadRequestError(`Cannot delete: ${shiftCount} shift assignment(s) reference this location. Remove them first.`);
+    }
+
     await prisma.officeLocation.delete({ where: { id } });
   }
 
@@ -623,7 +636,7 @@ export class SettingsService {
 
     const enriched = logs.map((log) => ({
       ...log,
-      actor: userMap[log.userId] || { name: null, email: '' },
+      actor: (log.userId ? userMap[log.userId] : null) || { name: null, email: '' },
     }));
 
     return {

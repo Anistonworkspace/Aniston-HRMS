@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from '.
 import type { CreateShiftInput, AssignShiftInput, CreateLocationInput } from './shift.validation.js';
 import { emitToUser } from '../../sockets/index.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { enqueueNotification } from '../../jobs/queues.js';
 
 export class ShiftService {
   // ===================== SHIFTS =====================
@@ -877,6 +878,13 @@ export class ShiftService {
     organizationId: string,
     data: { latitude: number; longitude: number; accuracy?: number; address?: string },
   ) {
+    // Validate coordinate ranges
+    if (data.latitude < -90 || data.latitude > 90) {
+      throw new BadRequestError('Latitude must be between -90 and 90');
+    }
+    if (data.longitude < -180 || data.longitude > 180) {
+      throw new BadRequestError('Longitude must be between -180 and 180');
+    }
     // Cancel any existing PENDING request first
     await prisma.homeLocationRequest.updateMany({
       where: { employeeId, organizationId, status: 'PENDING', deletedAt: null },
@@ -1024,26 +1032,36 @@ export class ShiftService {
         newValue: { employeeId: request.employeeId, status: 'APPROVED', reviewNotes, hybridShiftAssigned: !!hybridShift },
       });
     } else {
-      // BUG-005 fix: on REJECTION, reset workMode to OFFICE and find default OFFICE shift to reassign
+      // On REJECTION: update the request to REJECTED.
+      // ONLY clear the geofence and reset workMode if the employee had NO previously approved location.
+      // If they already had an approved geofence (from a prior approved request), preserve it —
+      // rejecting a second change request must not destroy the first approved geofence.
+      const employeeBeforeReject = await prisma.employee.findUnique({
+        where: { id: request.employeeId },
+        select: { approvedHomeGeofenceId: true },
+      });
+      const hadApprovedGeofence = !!employeeBeforeReject?.approvedHomeGeofenceId;
+
       await prisma.$transaction(async (tx) => {
         await tx.homeLocationRequest.update({
           where: { id },
           data: { status: 'REJECTED', reviewedBy, reviewedAt: new Date(), reviewNotes },
         });
-        // Always clear home geofence and reset workMode to OFFICE on rejection
-        await tx.employee.update({
-          where: { id: request.employeeId },
-          data: {
-            approvedHomeGeofenceId: null,
-            workMode: 'OFFICE',
-          },
-        });
+        // Only reset to OFFICE if employee had no existing approved home location
+        if (!hadApprovedGeofence) {
+          await tx.employee.update({
+            where: { id: request.employeeId },
+            data: { approvedHomeGeofenceId: null, workMode: 'OFFICE' },
+          });
+        }
       });
 
-      // Reassign employee to default OFFICE shift after rejection
-      const defaultOfficeShift = await prisma.shift.findFirst({
+      // Only reassign to OFFICE shift if employee had no previously approved home geofence.
+      // If they had one, they retain their HYBRID workMode and shift — the rejection was for
+      // a new request, not for the existing approved geofence.
+      const defaultOfficeShift = !hadApprovedGeofence ? await prisma.shift.findFirst({
         where: { organizationId, shiftType: 'OFFICE', isDefault: true, isActive: true },
-      });
+      }) : null;
       if (defaultOfficeShift) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -1079,7 +1097,7 @@ export class ShiftService {
       });
     }
 
-    // Notify employee via socket
+    // Notify employee via socket + in-app notification
     if (request.employee?.userId) {
       const { getIO } = await import('../../sockets/index.js');
       const io = getIO();
@@ -1092,6 +1110,15 @@ export class ShiftService {
           shiftChanged: action === 'APPROVED',
         });
       }
+      enqueueNotification({
+        userId: request.employee.userId,
+        type: action === 'APPROVED' ? 'HOME_LOCATION_APPROVED' : 'HOME_LOCATION_REJECTED',
+        title: action === 'APPROVED' ? 'Home Location Approved' : 'Home Location Request Rejected',
+        message: action === 'APPROVED'
+          ? `Your home office location has been approved with a ${radiusMeters ?? 100}m geofence. You can now clock in from home.`
+          : `Your home location request was rejected.${reviewNotes ? ` Reason: ${reviewNotes}` : ''}`,
+        organizationId,
+      }).catch(() => {});
     }
 
     return result;
