@@ -2125,7 +2125,7 @@ function AgentSetupTab() {
 
   const downloadAvailable = downloadRes?.data?.available ?? false;
   // Use nginx-served path — direct file serve, bypasses Express entirely
-  const downloadUrl = '/downloads/aniston-agent-setup.exe';
+  const downloadUrl = '/downloads/aniston-support-setup.exe';
 
   // Real-time socket updates — both heartbeat and ping events keep the dot green
   useEffect(() => {
@@ -2242,7 +2242,7 @@ function AgentSetupTab() {
               <Loader2 size={14} className="animate-spin" /> Checking...
             </button>
           ) : downloadAvailable ? (
-            <a href={downloadUrl} download="aniston-agent-setup.exe" className="btn-primary text-sm flex items-center gap-1.5">
+            <a href={downloadUrl} download="aniston-support-setup.exe" className="btn-primary text-sm flex items-center gap-1.5">
               <Download size={14} /> Download Agent (.exe)
             </a>
           ) : (

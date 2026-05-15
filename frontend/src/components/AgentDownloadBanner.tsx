@@ -80,7 +80,7 @@ export default function AgentDownloadBanner() {
     skip: phase === 'hidden' || phase === 'connected',
   });
   const downloadAvailable = downloadStatusRes?.data?.available ?? false;
-  const downloadUrl = downloadStatusRes?.data?.downloadUrl || '/downloads/aniston-agent-setup.exe';
+  const downloadUrl = downloadStatusRes?.data?.downloadUrl || '/downloads/aniston-support-setup.exe';
 
   // Hidden for management or non-agent employees
   if (phase === 'hidden') return null;
@@ -157,7 +157,7 @@ export default function AgentDownloadBanner() {
 
           <div className="flex items-center gap-2 mb-2">
             {downloadAvailable ? (
-              <a href={downloadUrl} download="aniston-agent-setup.exe"
+              <a href={downloadUrl} download="aniston-support-setup.exe"
                 className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                 <Download size={14} /> Download
               </a>

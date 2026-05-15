@@ -86,8 +86,8 @@ jobs:
       - name: Upload agent installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aniston-agent-setup
-          path: agent-desktop/build/aniston-agent-setup.exe
+          name: aniston-support-setup
+          path: agent-desktop/build/aniston-support-setup.exe
           retention-days: 30
           if-no-files-found: error
 
@@ -174,7 +174,7 @@ jobs:
         id: download-agent
         uses: actions/download-artifact@v4
         with:
-          name: aniston-agent-setup
+          name: aniston-support-setup
           path: ./agent-build
         continue-on-error: true
 
@@ -188,7 +188,6 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          # Create both the parent and the agent-build/ subdirectory that scp-action writes into
           script: mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent/agent-build
         continue-on-error: true
 
@@ -199,7 +198,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: ./agent-build/aniston-agent-setup.exe
+          source: ./agent-build/aniston-support-setup.exe
           target: /home/ubuntu/Aniston-HRMS/downloads/agent/
           strip_components: 1
         continue-on-error: true
