@@ -904,7 +904,7 @@ function CombinedPdfReviewPanel({
         <div className="layer-card p-4">
           <p className="text-xs font-medium text-gray-500 mb-2">Document Preview</p>
           <button onClick={() => setShowInlinePreview(true)}
-            className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 font-medium">
+            className="text-sm flex items-center gap-1.5 font-medium" style={{ color: 'var(--primary-color)' }}>
             <Eye size={14} /> Open Combined PDF — Verify All Documents Inside
           </button>
         </div>
@@ -1244,7 +1244,7 @@ export default function OcrVerificationPanel({
         {/* Header */}
         <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-3">
-            <ScanLine size={20} className="text-brand-600" />
+            <ScanLine size={20} style={{ color: 'var(--primary-color)' }} />
             <div>
               <h2 className="text-lg font-display font-bold text-gray-900">OCR Verification</h2>
               <p className="text-xs text-gray-400">{documentName} — {documentType?.replace(/_/g, ' ')}</p>
@@ -1358,7 +1358,7 @@ export default function OcrVerificationPanel({
                     setShowInlinePreview(true);
                   }
                 }}
-                className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 font-medium">
+                className="text-sm flex items-center gap-1.5 font-medium" style={{ color: 'var(--primary-color)' }}>
                 <Eye size={14} /> View Original Document
               </button>
             </div>
@@ -1458,11 +1458,11 @@ export default function OcrVerificationPanel({
           {triggering && (
             <div className="layer-card flex flex-col items-center justify-center py-14 gap-3 bg-indigo-50/40 border border-indigo-100">
               <div className="relative">
-                <ScanLine size={32} className="text-brand-400" />
-                <Loader2 size={18} className="animate-spin text-brand-600 absolute -bottom-1 -right-1" />
+                <ScanLine size={32} style={{ color: 'var(--primary-color)', opacity: 0.5 }} />
+                <Loader2 size={18} className="animate-spin absolute -bottom-1 -right-1" style={{ color: 'var(--primary-color)' }} />
               </div>
-              <p className="text-sm font-semibold text-brand-700">Extracting details...</p>
-              <p className="text-xs text-brand-500">Scanning document with AI OCR. This may take 10–30 seconds.</p>
+              <p className="text-sm font-semibold" style={{ color: 'var(--primary-color)' }}>Extracting details...</p>
+              <p className="text-xs" style={{ color: 'var(--primary-color)', opacity: 0.7 }}>Scanning document with AI OCR. This may take 10–30 seconds.</p>
             </div>
           )}
 

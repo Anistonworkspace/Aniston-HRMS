@@ -178,7 +178,7 @@ export default function CommandCenter() {
           <span className="text-xs text-gray-500">Filtered by:</span>
           <button
             onClick={() => handleKpiCardClick(null)}
-            className="flex items-center gap-1 text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-1 rounded-full hover:bg-brand-100 transition-colors"
+            className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)', border: '1px solid' }}
           >
             {kpiFilter?.isLate ? 'LATE ARRIVAL' : kpiFilter?.workMode ? 'FIELD ACTIVE' : filters.status || filters.anomalyType?.replace(/_/g, ' ')}
             <X size={11} />
@@ -195,9 +195,10 @@ export default function CommandCenter() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
+            style={activeTab === tab.key ? { color: 'var(--primary-color)' } : { color: '' }}
             className={`px-3 py-2 text-xs font-medium transition-colors relative ${
               activeTab === tab.key
-                ? 'text-brand-600'
+                ? ''
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -205,7 +206,7 @@ export default function CommandCenter() {
             {activeTab === tab.key && (
               <motion.div
                 layoutId="attendance-tab-indicator"
-                className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600 rounded-full"
+                className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full" style={{ background: 'var(--primary-color)' }}
               />
             )}
             {/* Badge counts */}

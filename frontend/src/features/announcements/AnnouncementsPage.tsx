@@ -138,7 +138,7 @@ function AnnouncementsList() {
     return (
       <div className="max-w-3xl flex items-center justify-center min-h-[400px]">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--primary-color)' }} />
           <p className="text-sm text-gray-400">Loading announcements...</p>
         </div>
       </div>
@@ -224,7 +224,7 @@ function AnnouncementsList() {
               transition={{ delay: i * 0.04 }} className="layer-card p-4 md:p-6">
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center text-brand-700 font-semibold text-sm flex-shrink-0">
+                  <div className="w-9 h-9 rounded-lg font-semibold text-sm flex-shrink-0 flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                     {getAuthorInitials(ann.author)}
                   </div>
                   <div>
@@ -246,7 +246,7 @@ function AnnouncementsList() {
                   </span>
                   {isManagement && (
                     <div className="flex gap-1">
-                      <button onClick={() => handleEdit(ann)} className="text-gray-300 hover:text-brand-600 p-1">
+                      <button onClick={() => handleEdit(ann)} className="text-gray-300 hover:text-gray-600 p-1">
                         <Edit3 size={14} />
                       </button>
                       <button onClick={() => handleDelete(ann.id)} className="text-gray-300 hover:text-red-500 p-1">
@@ -298,7 +298,7 @@ function SocialWall() {
       {/* New post */}
       <div className="layer-card p-4 mb-6">
         <div className="flex gap-3">
-          <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm flex-shrink-0">
+          <div className="w-9 h-9 rounded-lg font-semibold text-sm flex-shrink-0 flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
             {getInitials(user?.firstName, user?.lastName)}
           </div>
           <div className="flex-1">
@@ -391,9 +391,10 @@ function SocialPostCard({ post, user, onLike, onComment, onDelete }: {
       <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-100">
         <button onClick={onLike}
           className={cn('flex items-center gap-1.5 text-xs transition-colors',
-            post.likedByMe ? 'text-brand-600 font-medium' : 'text-gray-400 hover:text-brand-600'
-          )}>
-          <ThumbsUp size={14} className={post.likedByMe ? 'fill-brand-600' : ''} />
+            post.likedByMe ? 'font-medium' : 'text-gray-400'
+          )}
+          style={post.likedByMe ? { color: 'var(--primary-color)' } : undefined}>
+          <ThumbsUp size={14} style={post.likedByMe ? { fill: 'var(--primary-color)' } : undefined} />
           {post._count?.likes || 0} {(post._count?.likes || 0) === 1 ? 'Like' : 'Likes'}
         </button>
         <button onClick={() => setShowComments(!showComments)}
@@ -428,7 +429,7 @@ function SocialPostCard({ post, user, onLike, onComment, onDelete }: {
 
               {/* New comment input */}
               <div className="flex gap-2.5">
-                <div className="w-7 h-7 rounded-md bg-brand-50 flex items-center justify-center text-brand-700 font-medium text-[10px] flex-shrink-0">
+                <div className="w-7 h-7 rounded-md font-medium text-[10px] flex-shrink-0 flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                   {getInitials(user?.firstName, user?.lastName)}
                 </div>
                 <div className="flex-1 flex gap-2">

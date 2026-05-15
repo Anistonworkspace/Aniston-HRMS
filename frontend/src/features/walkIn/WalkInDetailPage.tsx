@@ -88,7 +88,7 @@ export default function WalkInDetailPage() {
   if (isLoading) {
     return (
       <div className="page-container flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--primary-color)' }} />
       </div>
     );
   }
@@ -185,8 +185,8 @@ export default function WalkInDetailPage() {
         <div className="flex-1">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-brand-50 flex items-center justify-center">
-                <span className="text-lg font-bold text-brand-600">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+                <span className="text-lg font-bold" style={{ color: 'var(--primary-color)' }}>
                   {candidate.fullName?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                 </span>
               </div>
@@ -226,9 +226,10 @@ export default function WalkInDetailPage() {
             onClick={() => setActiveTab(tab.key as any)}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab.key
-                ? 'border-brand-600 text-brand-600'
+                ? 'border-transparent'
                 : 'border-transparent text-gray-400 hover:text-gray-600'
             }`}
+            style={activeTab === tab.key ? { borderBottomColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
@@ -260,7 +261,7 @@ export default function WalkInDetailPage() {
         <div className="layer-card p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Brain className="w-5 h-5 text-brand-600" />
+              <Brain className="w-5 h-5" style={{ color: 'var(--primary-color)' }} />
               <h3 className="font-semibold text-gray-800">AI Interview Questions</h3>
             </div>
             <button onClick={handleGenerateAiQuestions} disabled={isGeneratingAi} className="btn-primary flex items-center gap-2 text-sm">
@@ -279,9 +280,9 @@ export default function WalkInDetailPage() {
           {aiQuestions.map((q: any, i: number) => (
             <div key={i} className="border border-gray-200 rounded-xl p-4">
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-50 text-brand-600 text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                <span className="flex-shrink-0 w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{i + 1}</span>
                 <div className="flex-1">
-                  <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full mb-2 inline-block">{q.category}</span>
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full mb-2 inline-block" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}>{q.category}</span>
                   <p className="text-sm text-gray-800 font-medium mb-1">{q.question}</p>
                   {q.followUp && <p className="text-xs text-gray-400 italic">Tip: {q.followUp}</p>}
                 </div>
@@ -409,7 +410,7 @@ function OverviewTab({ candidate, onEdit }: { candidate: any; onEdit: () => void
       <div className="layer-card p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-800 flex items-center gap-2"><User className="w-4 h-4 text-gray-400" /> Personal Details</h3>
-          <button onClick={onEdit} className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
+          <button onClick={onEdit} className="text-xs flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
             <Edit3 className="w-3 h-3" /> Edit
           </button>
         </div>
@@ -472,7 +473,7 @@ function OverviewTab({ candidate, onEdit }: { candidate: any; onEdit: () => void
           </h3>
           <div className="grid sm:grid-cols-3 gap-4 mb-4">
             <div className="text-center p-3 bg-gray-50 rounded-xl">
-              <p className="text-3xl font-bold text-brand-600" data-mono>{Number(candidate.aiScore).toFixed(0)}</p>
+              <p className="text-3xl font-bold" style={{ color: 'var(--primary-color)' }} data-mono>{Number(candidate.aiScore).toFixed(0)}</p>
               <p className="text-xs text-gray-400 mt-1">Overall Score</p>
             </div>
             {candidate.aiScoreDetails?.match_percentage && (
@@ -676,7 +677,7 @@ function InterviewsTab({
       {avgScore && (
         <div className="layer-card p-4 flex items-center gap-6">
           <div className="text-center">
-            <p className="text-2xl font-bold text-brand-600" data-mono>{avgScore}</p>
+            <p className="text-2xl font-bold" style={{ color: 'var(--primary-color)' }} data-mono>{avgScore}</p>
             <p className="text-xs text-gray-400">Avg Score</p>
           </div>
           <div className="flex-1 grid grid-cols-4 gap-3 text-center text-xs">
@@ -887,7 +888,7 @@ function InterviewsTab({
               )}
               {(round.status === 'IN_PROGRESS' || round.status === 'COMPLETED') && (
                 <button onClick={() => { setEditingRound(round.id); setScoreForm(round); }}
-                  className="text-xs text-brand-600 hover:bg-brand-50 px-2 py-1 rounded-lg flex items-center gap-1">
+                  className="text-xs px-2 py-1 rounded-lg flex items-center gap-1" style={{ color: 'var(--primary-color)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
                   <Star className="w-3 h-3" /> {round.status === 'COMPLETED' ? 'Edit Scores' : 'Add Scores & Complete'}
                 </button>
               )}
@@ -963,7 +964,7 @@ function InterviewsTab({
       ) : (
         <button
           onClick={() => setShowAddRound(true)}
-          className="w-full layer-card p-4 text-sm text-brand-600 hover:bg-brand-50 flex items-center justify-center gap-2 transition-colors"
+          className="w-full layer-card p-4 text-sm flex items-center justify-center gap-2 transition-colors" style={{ color: 'var(--primary-color)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')} onMouseLeave={e => (e.currentTarget.style.background = '')}
         >
           <Plus className="w-4 h-4" /> Add Interview Round
         </button>
@@ -1067,7 +1068,7 @@ function InfoField({ label, value }: { label: string; value: string }) {
 function ScoreCell({ label, value, highlight }: { label: string; value?: number; highlight?: boolean }) {
   return (
     <div>
-      <p className={`text-lg font-bold ${highlight ? 'text-brand-600' : 'text-gray-800'}`} data-mono>
+      <p className={`text-lg font-bold ${highlight ? '' : 'text-gray-800'}`} style={highlight ? { color: 'var(--primary-color)' } : {}} data-mono>
         {value ?? '—'}
       </p>
       <p className="text-[10px] text-gray-400 leading-tight">{label}</p>

@@ -37,7 +37,7 @@ export default function OnboardingPortal() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-1">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 size={32} className="animate-spin text-brand-600" />
+          <Loader2 size={32} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
           <p className="text-sm text-gray-400">Loading onboarding portal...</p>
         </div>
       </div>
@@ -108,16 +108,18 @@ export default function OnboardingPortal() {
                   currentStep > step.num
                     ? 'bg-emerald-500 text-white'
                     : currentStep === step.num
-                    ? 'bg-brand-600 text-white'
+                    ? ''
                     : 'bg-gray-200 text-gray-500'
                 )}
+                style={currentStep === step.num ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}
               >
                 {currentStep > step.num ? <Check size={16} /> : step.num}
               </div>
               <span className={cn(
                 'hidden sm:block text-xs ml-2 whitespace-nowrap',
-                currentStep === step.num ? 'text-brand-600 font-medium' : 'text-gray-400'
-              )}>
+                currentStep === step.num ? 'font-medium' : 'text-gray-400'
+              )}
+              style={currentStep === step.num ? { color: 'var(--primary-color)' } : undefined}>
                 {step.title}
               </span>
               {i < STEPS.length - 1 && (
@@ -355,7 +357,7 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
           {state.error && <p className="text-[11px] text-red-500 mt-0.5">{state.error}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {state.status === 'uploading' && <Loader2 size={16} className="animate-spin text-brand-500" />}
+          {state.status === 'uploading' && <Loader2 size={16} className="animate-spin" style={{ color: 'var(--primary-color)' }} />}
           {state.status === 'error' && (
             <button onClick={() => fileInputRefs.current[doc.type]?.click()} className="p-1 text-red-500 hover:bg-red-100 rounded" title="Retry">
               <RefreshCw size={14} />
@@ -401,7 +403,8 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
           <div
-            className={cn('h-full rounded-full transition-all duration-500', uploadedRequiredCount === requiredDocs.length ? 'bg-emerald-500' : 'bg-brand-500')}
+            className={cn('h-full rounded-full transition-all duration-500', uploadedRequiredCount === requiredDocs.length ? 'bg-emerald-500' : '')}
+            style={uploadedRequiredCount !== requiredDocs.length ? { background: 'var(--primary-color)' } : undefined}
             style={{ width: `${requiredDocs.length > 0 ? (uploadedRequiredCount / requiredDocs.length) * 100 : 0}%` }}
           />
         </div>
@@ -410,7 +413,7 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
       {docSections.map((section) => (
         <div key={section.title}>
           <h4 className="text-sm font-semibold text-gray-600 mb-2 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primary-color)' }} />
             {section.title}
           </h4>
           <div className="space-y-2">
@@ -441,7 +444,7 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
               {state.status === 'done' ? (
                 <span className="text-[10px] text-emerald-600 flex items-center gap-1"><CheckCircle2 size={12} /> Done</span>
               ) : state.status === 'uploading' ? (
-                <Loader2 size={14} className="animate-spin text-brand-500" />
+                <Loader2 size={14} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
               ) : null}
               <label className="btn-secondary text-xs cursor-pointer shrink-0">
                 <input
@@ -458,7 +461,7 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
         })}
 
         <button type="button" onClick={addOtherCert}
-          className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 transition-colors">
+          className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 transition-colors">
           + Add Other Certificate
         </button>
       </div>
@@ -573,7 +576,7 @@ function Step7Review({ onComplete, saving }: { onComplete: () => void; saving: b
 
 function CompletionScreen({ orgName }: { orgName?: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-emerald-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-surface-1 p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -585,7 +588,7 @@ function CompletionScreen({ orgName }: { orgName?: string }) {
           animate={{ rotate: 0 }}
           transition={{ delay: 0.3, type: 'spring' }}
         >
-          <PartyPopper size={56} className="mx-auto text-brand-600 mb-4" />
+          <PartyPopper size={56} className="mx-auto mb-4" style={{ color: 'var(--primary-color)' }} />
         </motion.div>
         <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">Welcome to the Team!</h1>
         <p className="text-gray-500 text-sm">

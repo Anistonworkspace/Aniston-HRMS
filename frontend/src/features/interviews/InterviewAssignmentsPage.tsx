@@ -73,7 +73,7 @@ export default function InterviewAssignmentsPage() {
     <div className="page-container">
       <div className="mb-6">
         <h1 className="text-2xl font-display font-bold text-gray-900 flex items-center gap-2">
-          <ClipboardCheck className="text-brand-600" size={28} /> My Interview Assignments
+          <ClipboardCheck size={28} style={{ color: 'var(--primary-color)' }} /> My Interview Assignments
         </h1>
         <p className="text-gray-500 text-sm mt-0.5">Interviews assigned to you -- review candidates and submit scores</p>
       </div>
@@ -88,8 +88,9 @@ export default function InterviewAssignmentsPage() {
           <button key={t.key} onClick={() => setTab(t.key)}
             className={cn(
               'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-              tab === t.key ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
-            )}>
+              tab === t.key ? '' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+            )}
+            style={tab === t.key ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}>
             <t.icon size={16} />
             {t.label}
             {counts[t.key] > 0 && (
@@ -104,7 +105,7 @@ export default function InterviewAssignmentsPage() {
       {/* Content */}
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} />
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 layer-card">
@@ -166,8 +167,8 @@ function WalkInInterviewCard({ round, tab, onScore }: { round: any; tab: string;
 
       {/* Candidate Info */}
       <div className="flex items-start gap-3 mb-4">
-        <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
-          <User className="w-5 h-5 text-brand-600" />
+        <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+          <User className="w-5 h-5" style={{ color: 'var(--primary-color)' }} />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-gray-900">{candidate?.fullName || 'Unknown'}</h3>
@@ -316,8 +317,8 @@ function PublicInterviewCard({ round, tab, isActive, onTogglePanel, onNavigate }
 
         {/* Candidate Info */}
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
-            <User className="w-5 h-5 text-brand-600" />
+          <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <User className="w-5 h-5" style={{ color: 'var(--primary-color)' }} />
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-gray-900">{round.candidateName}</h3>
@@ -353,7 +354,7 @@ function PublicInterviewCard({ round, tab, isActive, onTogglePanel, onNavigate }
           {round.score != null && (
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Score</span>
-              <span className="font-bold text-brand-600" data-mono>{Number(round.score).toFixed(1)}/100</span>
+              <span className="font-bold" data-mono style={{ color: 'var(--primary-color)' }}>{Number(round.score).toFixed(1)}/100</span>
             </div>
           )}
         </div>
@@ -389,7 +390,7 @@ function PublicInterviewCard({ round, tab, isActive, onTogglePanel, onNavigate }
       <AnimatePresence>
         {isActive && !scoreSubmitted && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            className="border-t-2 border-brand-200 bg-brand-50/30 overflow-hidden">
+            className="border-t-2 overflow-hidden" style={{ borderColor: 'var(--ui-border-color)', background: 'var(--primary-highlighted-color)' }}>
             <div className="p-5 space-y-4">
               {/* AI Questions */}
               <div>
@@ -427,7 +428,7 @@ function PublicInterviewCard({ round, tab, isActive, onTogglePanel, onNavigate }
               {/* AI-saved questions from round */}
               {round.aiQuestionsGenerated && Array.isArray(round.aiQuestionsGenerated) && round.aiQuestionsGenerated.length > 0 && (
                 <details className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-                  <summary className="text-xs text-brand-600 cursor-pointer hover:underline px-3 py-2 bg-gray-50">
+                  <summary className="text-xs cursor-pointer hover:underline px-3 py-2 bg-gray-50" style={{ color: 'var(--primary-color)' }}>
                     View Saved Questions ({round.aiQuestionsGenerated.length})
                   </summary>
                   <ul className="px-3 py-2 space-y-1 text-xs text-gray-600 max-h-32 overflow-y-auto">
@@ -452,7 +453,7 @@ function PublicInterviewCard({ round, tab, isActive, onTogglePanel, onNavigate }
                 </div>
                 <input type="range" min={0} max={100} step={1} value={scoreValue}
                   onChange={e => setScoreValue(Number(e.target.value))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand-600 mb-2" />
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer mb-2" />
                 <div className="flex justify-between text-[10px] text-gray-400 mb-3">
                   <span>0 Poor</span><span>25</span><span>50 Avg</span><span>75</span><span>100 Excellent</span>
                 </div>

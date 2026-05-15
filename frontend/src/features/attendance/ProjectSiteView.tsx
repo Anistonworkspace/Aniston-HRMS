@@ -189,7 +189,7 @@ export default function ProjectSiteView() {
             ) : (
               <div
                 onClick={handleCapture}
-                className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all border-gray-200 hover:border-brand-300"
+                className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all border-gray-200"
               >
                 <Camera className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                 <p className="text-sm text-gray-500">Tap to capture site photo</p>
@@ -213,7 +213,8 @@ export default function ProjectSiteView() {
             onClick={handleCheckIn}
             disabled={isLoading || isSubmitting || !siteName}
             className={`w-full py-3 rounded-xl font-medium text-lg flex items-center justify-center gap-2 transition-colors
-              ${siteName ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+              ${siteName ? '' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+            style={siteName ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}
           >
             {(isLoading || isSubmitting) ? <Loader2 className="w-5 h-5 animate-spin" /> : <MapPin className="w-5 h-5" />}
             Check In at Site
@@ -234,8 +235,8 @@ export default function ProjectSiteView() {
                 transition={{ delay: i * 0.05 }}
                 className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg"
               >
-                <div className="w-8 h-8 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
-                  <MapPin className="w-4 h-4 text-brand-600" />
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+                  <MapPin className="w-4 h-4" style={{ color: 'var(--primary-color)' }} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900">{ci.siteName}</p>

@@ -351,7 +351,7 @@ export function CheckInSection({ checkInLoc, geofenceCoords, geofence, geofenceV
     <div className="layer-card overflow-hidden">
       <div className="px-4 pt-3 pb-1.5">
         <h3 className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-          <MapPin size={12} className="text-brand-500" /> Check-in Location
+          <MapPin size={12} style={{ color: 'var(--primary-color)' }} /> Check-in Location
         </h3>
         <div className="flex items-center gap-2 mt-0.5">
           {geofenceViolation ? (
@@ -396,7 +396,7 @@ export function CheckInSection({ checkInLoc, geofenceCoords, geofence, geofenceV
         <div className="fixed inset-0 z-[1000] flex flex-col bg-gray-900">
           <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
             <div className="flex items-center gap-2">
-              <MapPin size={15} className="text-brand-400" />
+              <MapPin size={15} style={{ color: 'var(--primary-highlighted-color)' }} />
               <span className="text-sm font-semibold text-white">Check-in Location</span>
               {geofenceViolation ? (
                 <span className="text-xs px-2 py-0.5 bg-red-900/60 text-red-300 rounded-full border border-red-700">Outside Geofence</span>
@@ -460,7 +460,7 @@ export function CheckInModal({ checkInLoc, geofenceCoords, geofence, geofenceVio
       <div className="fixed inset-0 z-[1100] flex flex-col bg-gray-900">
         <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <MapPin size={15} className="text-brand-400" />
+            <MapPin size={15} style={{ color: 'var(--primary-highlighted-color)' }} />
             <span className="text-sm font-semibold text-white">Check-in Location — {formatDate(date, 'long')}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -501,7 +501,7 @@ export function CheckInModal({ checkInLoc, geofenceCoords, geofence, geofenceVio
         {/* Modal header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            <MapPin size={14} className="text-brand-600" />
+            <MapPin size={14} style={{ color: 'var(--primary-color)' }} />
             <span className="text-sm font-semibold text-gray-800">Check-in Location</span>
             <span className="text-[10px] text-gray-400">{formatDate(date, 'long')}</span>
           </div>

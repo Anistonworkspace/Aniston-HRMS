@@ -215,7 +215,7 @@ export default function ExitDetailPage() {
                   <h3 className="text-base font-semibold text-gray-800">Last Working Day</h3>
                 </div>
                 {emp.lastWorkingDate && !showLwdEdit && (
-                  <button onClick={() => { setLwdValue(emp.lastWorkingDate?.slice(0, 10) || ''); setShowLwdEdit(true); }} className="text-xs text-brand-600 hover:underline">Edit</button>
+                  <button onClick={() => { setLwdValue(emp.lastWorkingDate?.slice(0, 10) || ''); setShowLwdEdit(true); }} className="text-xs hover:underline" style={{ color: 'var(--primary-color)' }}>Edit</button>
                 )}
               </div>
               <p className="text-sm text-gray-500 mb-4 ml-8">
@@ -303,7 +303,7 @@ export default function ExitDetailPage() {
                 {events.map((evt: any) => (
                   <div key={evt.id} className="flex gap-3">
                     <div className="flex flex-col items-center">
-                      <div className="w-2.5 h-2.5 rounded-full bg-brand-400 mt-1.5" />
+                      <div className="w-2.5 h-2.5 rounded-full mt-1.5" style={{ background: 'var(--primary-color)' }} />
                       <div className="w-0.5 flex-1 bg-gray-100 mt-1" />
                     </div>
                     <div className="pb-4">
@@ -405,7 +405,7 @@ function HandoverSection({ employeeId }: { employeeId: string }) {
   };
 
   const categoryIcon: Record<string, any> = { TASK: ClipboardList, DOCUMENT: FileText, KNOWLEDGE: BookOpen };
-  const categoryColor: Record<string, string> = { TASK: 'text-brand-500', DOCUMENT: 'text-purple-500', KNOWLEDGE: 'text-teal-500' };
+  const categoryColor: Record<string, string> = { TASK: '', DOCUMENT: 'text-purple-500', KNOWLEDGE: 'text-teal-500' };
 
   return (
     <div className="layer-card p-6 border-l-4 border-indigo-400">
@@ -467,13 +467,13 @@ function HandoverSection({ employeeId }: { employeeId: string }) {
                 <button
                   onClick={() => handleToggleTask(task.id, !task.isCompleted)}
                   className={cn('mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all',
-                    task.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 hover:border-brand-400')}
+                    task.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300')}
                 >
                   {task.isCompleted && <CheckCircle2 size={10} className="text-white" />}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <Icon size={12} className={categoryColor[task.category] || 'text-gray-400'} />
+                    <Icon size={12} className={categoryColor[task.category] || 'text-gray-400'} style={task.category === 'TASK' ? { color: 'var(--primary-color)' } : undefined} />
                     <p className={cn('text-sm font-medium', task.isCompleted ? 'line-through text-gray-400' : 'text-gray-800')}>
                       {task.title}
                     </p>
@@ -501,7 +501,7 @@ function HandoverSection({ employeeId }: { employeeId: string }) {
           })}
 
           {showAddTask && (
-            <div className="p-3 border border-dashed border-brand-300 rounded-lg bg-brand-50/30 space-y-2">
+            <div className="p-3 border border-dashed rounded-lg space-y-2" style={{ borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}>
               <input
                 type="text"
                 value={newTask.title}
@@ -534,7 +534,7 @@ function HandoverSection({ employeeId }: { employeeId: string }) {
             </div>
           )}
           {!showAddTask && (
-            <button onClick={() => setShowAddTask(true)} className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-xs text-gray-400 hover:text-brand-600 hover:border-brand-300 transition-colors flex items-center justify-center gap-1.5">
+            <button onClick={() => setShowAddTask(true)} className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-xs text-gray-400 transition-colors flex items-center justify-center gap-1.5">
               <Plus size={13} /> Add Handover Task
             </button>
           )}
@@ -680,7 +680,7 @@ function FullFinalSection({ employeeId }: { employeeId: string }) {
                       href={`/api/payroll/records/${slip.id}/pdf`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium px-3 py-1.5 bg-brand-50 rounded-lg hover:bg-brand-100 transition-colors"
+                      className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}
                     >
                       <Download size={12} /> Download
                     </a>

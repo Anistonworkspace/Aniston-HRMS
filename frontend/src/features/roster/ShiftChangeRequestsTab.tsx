@@ -68,8 +68,9 @@ export default function ShiftChangeRequestsTab() {
             onClick={() => setStatusFilter(s)}
             className={cn(
               'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
-              statusFilter === s ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              statusFilter === s ? '' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
             )}
+            style={statusFilter === s ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
           >
             {s === '' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
           </button>
@@ -78,7 +79,7 @@ export default function ShiftChangeRequestsTab() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 size={24} className="animate-spin text-brand-400" />
+          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
         </div>
       ) : requests.length === 0 ? (
         <div className="layer-card p-10 text-center">

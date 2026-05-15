@@ -36,7 +36,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
     return (
       <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center">
         <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl max-h-[90vh] p-8 flex items-center justify-center">
-          <Loader2 size={24} className="animate-spin text-brand-600" />
+          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
         </div>
       </div>
     );
@@ -68,7 +68,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
         <div className="px-6 py-4 overflow-y-auto flex-1 space-y-5">
           {/* Employee Header */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
               {data.employee?.avatar ? (
                 <img src={getUploadUrl(data.employee.avatar)} className="w-full h-full object-cover rounded-xl" />
               ) : (

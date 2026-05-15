@@ -1,4 +1,4 @@
-import { useState, useMemo, lazy, Suspense, useEffect, useRef } from 'react';
+import React, { useState, useMemo, lazy, Suspense, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getUploadUrl } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -410,7 +410,7 @@ export default function EmployeeAttendanceDetailPage() {
           <button onClick={() => navigate('/attendance')} className="p-2 rounded-lg hover:bg-surface-2 flex-shrink-0">
             <ArrowLeft size={18} />
           </button>
-          <div className="w-11 h-11 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-base flex-shrink-0">
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-base flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
             {getInitials(employee.firstName, employee.lastName)}
           </div>
           <div className="flex-1 min-w-0">
@@ -623,7 +623,7 @@ export default function EmployeeAttendanceDetailPage() {
                       href={`https://www.google.com/maps?q=${detail.lastLatitude},${detail.lastLongitude}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1 text-brand-600 hover:underline font-medium"
+                      className="flex items-center gap-1 hover:underline font-medium" style={{ color: 'var(--primary-color)' }}
                     >
                       <MapPin size={10} />
                       {detail.lastLatitude.toFixed(5)}, {detail.lastLongitude.toFixed(5)}
@@ -646,7 +646,7 @@ export default function EmployeeAttendanceDetailPage() {
           {attendanceLogs.length > 0 && (
             <div className="layer-card p-4">
               <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
-                <Clock size={12} className="text-brand-500" /> Attendance Timeline
+                <Clock size={12} style={{ color: 'var(--primary-color)' }} /> Attendance Timeline
               </h3>
               <div className="space-y-0">
                 {attendanceLogs.map((log: any, idx: number) => {
@@ -695,7 +695,7 @@ export default function EmployeeAttendanceDetailPage() {
           {shift && (
             <div className="layer-card p-4">
               <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
-                <Shield size={12} className="text-brand-500" /> Shift & Policy
+                <Shield size={12} style={{ color: 'var(--primary-color)' }} /> Shift & Policy
               </h3>
               {shiftAssignment?.endDate && new Date(shiftAssignment.endDate) < new Date() && (
                 <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mb-2.5 text-[10px] text-amber-700">
@@ -765,13 +765,13 @@ export default function EmployeeAttendanceDetailPage() {
           <div className="layer-card p-3">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xs font-display font-semibold text-gray-800 flex items-center gap-1.5">
-                <Calendar size={12} className="text-brand-500" /> {monthName}
+                <Calendar size={12} style={{ color: 'var(--primary-color)' }} /> {monthName}
               </h2>
               <div className="flex items-center gap-1">
                 <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-1 rounded-md hover:bg-surface-2">
                   <ChevronLeft size={12} />
                 </button>
-                <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-[9px] text-brand-600 px-2 py-0.5 rounded-md hover:bg-brand-50 font-medium">Today</button>
+                <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-[9px] px-2 py-0.5 rounded-md font-medium" style={{ color: 'var(--primary-color)' }}>Today</button>
                 <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-1 rounded-md hover:bg-surface-2">
                   <ChevronRight size={12} />
                 </button>
@@ -807,14 +807,15 @@ export default function EmployeeAttendanceDetailPage() {
                           }
                         }
                       }}
+                      style={(day.isSelected || day.isToday) ? { '--tw-ring-color': 'var(--primary-color)' } as React.CSSProperties : undefined}
                       className={cn(
                         'w-full rounded-md flex flex-col items-center justify-center text-[9px] transition-all py-1.5 px-0.5 relative',
                         day.date === 0 && 'invisible',
-                        day.isSelected && 'ring-1.5 ring-brand-500 ring-offset-1',
-                        day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
+                        day.isSelected && 'ring-1.5 ring-offset-1',
+                        day.isToday && !day.isSelected && 'ring-1',
                         STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50' : ''),
                       )}>
-                      <span className={cn('font-medium leading-none text-[10px]', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
+                      <span style={day.isToday ? { color: 'var(--primary-color)' } : undefined} className={cn('font-medium leading-none text-[10px]', day.isToday ? '' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
                         {day.date > 0 ? day.date : ''}
                       </span>
                       {day.status && day.date > 0 && (
@@ -904,11 +905,11 @@ export default function EmployeeAttendanceDetailPage() {
                   className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-base font-display font-semibold text-gray-900 flex items-center gap-2">
-                      <Calendar size={18} className="text-brand-500" /> {monthName}
+                      <Calendar size={18} style={{ color: 'var(--primary-color)' }} /> {monthName}
                     </h2>
                     <div className="flex items-center gap-2">
                       <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-1.5 rounded-lg hover:bg-gray-100"><ChevronLeft size={16} /></button>
-                      <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-xs text-brand-600 px-3 py-1 rounded-lg hover:bg-brand-50 font-medium">Today</button>
+                      <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-xs px-3 py-1 rounded-lg font-medium" style={{ color: 'var(--primary-color)' }}>Today</button>
                       <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-1.5 rounded-lg hover:bg-gray-100"><ChevronRight size={16} /></button>
                       <button onClick={() => setShowCalendarModal(false)} className="p-1.5 rounded-lg hover:bg-gray-100 ml-2"><X size={16} /></button>
                     </div>
@@ -922,14 +923,15 @@ export default function EmployeeAttendanceDetailPage() {
                     {calendarDays.map((day: any, idx: number) => (
                       <button key={idx} disabled={day.date === 0}
                         onClick={() => { day.dateStr && setSelectedDate(day.dateStr); setShowCalendarModal(false); }}
+                        style={(day.isSelected || day.isToday) ? { '--tw-ring-color': 'var(--primary-color)' } as React.CSSProperties : undefined}
                         className={cn(
                           'aspect-square rounded-xl flex flex-col items-center justify-center text-sm transition-all',
                           day.date === 0 && 'invisible',
-                          day.isSelected && 'ring-2 ring-brand-500 ring-offset-2',
-                          day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
+                          day.isSelected && 'ring-2 ring-offset-2',
+                          day.isToday && !day.isSelected && 'ring-1',
                           STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50 border border-gray-100' : ''),
                         )}>
-                        <span className={cn('font-semibold', day.isToday ? 'text-brand-600' : 'text-gray-800', day.status === 'WEEKEND' && 'text-gray-400')}>
+                        <span style={day.isToday ? { color: 'var(--primary-color)' } : undefined} className={cn('font-semibold', day.isToday ? '' : 'text-gray-800', day.status === 'WEEKEND' && 'text-gray-400')}>
                           {day.date > 0 ? day.date : ''}
                         </span>
                         {day.status && day.date > 0 && (
@@ -1065,7 +1067,7 @@ export default function EmployeeAttendanceDetailPage() {
           {activityData?.summary && activityData.summary.logCount > 0 && (
             <div className="layer-card p-4">
               <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
-                <Activity size={12} className="text-brand-500" /> Desktop Activity — {formatDate(selectedDate)}
+                <Activity size={12} style={{ color: 'var(--primary-color)' }} /> Desktop Activity — {formatDate(selectedDate)}
               </h3>
               <div className="grid grid-cols-4 gap-2 mb-3">
                 <div className="text-center py-1.5 bg-emerald-50 rounded-lg">
@@ -1095,7 +1097,7 @@ export default function EmployeeAttendanceDetailPage() {
                         <div key={i} className="flex items-center gap-2">
                           <span className="text-[10px] text-gray-600 w-24 truncate">{app.app}</span>
                           <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-brand-400 rounded-full" style={{ width: `${Math.max((app.minutes / max) * 100, 5)}%` }} />
+                            <div className="h-full rounded-full" style={{ width: `${Math.max((app.minutes / max) * 100, 5)}%`, background: 'var(--primary-color)' }} />
                           </div>
                           <span className="text-[9px] font-mono text-gray-500 w-8 text-right" data-mono>{app.minutes}m</span>
                         </div>
@@ -1114,7 +1116,7 @@ export default function EmployeeAttendanceDetailPage() {
               <div className="grid grid-cols-4 gap-2">
                 {screenshots.map((s: any) => (
                   <div key={s.id} className="group relative cursor-pointer" onClick={() => window.open(getUploadUrl(s.imageUrl), '_blank')}>
-                    <img src={getUploadUrl(s.imageUrl)} alt={s.activeApp || 'Screenshot'} className="w-full h-20 object-cover rounded-lg border border-gray-200 group-hover:border-brand-300" />
+                    <img src={getUploadUrl(s.imageUrl)} alt={s.activeApp || 'Screenshot'} className="w-full h-20 object-cover rounded-lg border border-gray-200" />
                     <div className="absolute bottom-0 left-0 right-0 bg-black/60 rounded-b-lg px-1.5 py-0.5">
                       <p className="text-[8px] text-white truncate">{s.activeApp || 'Desktop'}</p>
                       <p className="text-[7px] text-gray-300">{formatTime(s.timestamp)}</p>
@@ -1156,7 +1158,7 @@ export default function EmployeeAttendanceDetailPage() {
                           }
                         }}
                         className={cn('border-b border-gray-50 hover:bg-surface-2 cursor-pointer',
-                          rowDate === selectedDate && 'bg-brand-50/50')}>
+                          rowDate === selectedDate && 'bg-surface-2')}>
                         <td className="px-4 py-1.5 text-gray-600">
                           <div className="flex items-center gap-1.5">
                             {formatDate(r.date)}
@@ -1279,7 +1281,7 @@ export default function EmployeeAttendanceDetailPage() {
 
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-display font-semibold text-gray-900 flex items-center gap-2">
-                  <PenSquare size={15} className="text-brand-500" />
+                  <PenSquare size={15} style={{ color: 'var(--primary-color)' }} />
                   {isHR ? 'Regularization Requests' : 'Regularization Request'}
                 </h3>
                 <button onClick={() => setShowRegularizeModal(false)} className="p-1 rounded-lg hover:bg-gray-100">
@@ -1381,19 +1383,19 @@ export default function EmployeeAttendanceDetailPage() {
                     <div>
                       <label className="text-[10px] text-gray-500 font-medium">Requested Check-In</label>
                       <input type="time" value={regCheckIn} onChange={e => setRegCheckIn(e.target.value)}
-                        className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                        className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1" />
                     </div>
                     <div>
                       <label className="text-[10px] text-gray-500 font-medium">Requested Check-Out</label>
                       <input type="time" value={regCheckOut} onChange={e => setRegCheckOut(e.target.value)}
-                        className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                        className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1" />
                     </div>
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-500 font-medium">Reason <span className="text-red-400">*</span></label>
                     <textarea value={regReason} onChange={e => setRegReason(e.target.value)} rows={3}
                       placeholder="Explain why regularization is needed..."
-                      className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none" />
+                      className="w-full mt-0.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 resize-none" />
                   </div>
                   <div className="flex gap-2 pt-1">
                     <button onClick={() => setShowRegularizeModal(false)}
@@ -1415,7 +1417,7 @@ export default function EmployeeAttendanceDetailPage() {
                           setShowRegularizeModal(false);
                         } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to submit regularization'); }
                       }}
-                      className="flex-1 px-3 py-2 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                      className="flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                       <CheckCircle size={11} /> Submit Request
                     </button>
                   </div>

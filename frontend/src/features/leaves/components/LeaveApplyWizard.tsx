@@ -227,7 +227,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
         {/* Step Indicator */}
         <div className="px-4 sm:px-6 py-3 flex gap-1 shrink-0">
           {STEPS.map((s, i) => (
-            <div key={s} className={`h-1 flex-1 rounded-full transition-colors ${i <= step ? 'bg-brand-600' : 'bg-gray-200'}`} />
+            <div key={s} className="h-1 flex-1 rounded-full transition-colors" style={{ background: i <= step ? 'var(--primary-color)' : 'var(--ui-background-color)' }} />
           ))}
         </div>
 
@@ -248,9 +248,11 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                     <button
                       key={m.key}
                       onClick={() => setLeaveMode(m.key as any)}
-                      className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
-                        leaveMode === m.key ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                      }`}
+                      className="flex-1 py-2 px-3 rounded-lg text-xs font-medium border transition-colors"
+                      style={leaveMode === m.key
+                        ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }
+                        : { borderColor: 'var(--ui-border-color)', color: 'var(--secondary-text-color)' }
+                      }
                     >
                       {m.icon} {m.label}
                     </button>
@@ -435,7 +437,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
 
                 {auditLoading ? (
                   <div className="flex items-center justify-center py-10">
-                    <Loader2 size={24} className="animate-spin text-brand-600" />
+                    <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
                     <span className="ml-2 text-sm text-gray-500">Checking task impact...</span>
                   </div>
                 ) : taskIntegrationNotConfigured ? (
@@ -449,7 +451,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose, initia
                       Task impact analysis requires a connected project management tool (Jira, Linear, ClickUp, etc.).<br />
                       Your leave can still be submitted without it.
                     </p>
-                    <p className="text-[11px] text-brand-600 mt-2">Contact your admin to configure task integration in Settings.</p>
+                    <p className="text-[11px] mt-2" style={{ color: 'var(--primary-color)' }}>Contact your admin to configure task integration in Settings.</p>
                   </div>
                 ) : (
                   <>

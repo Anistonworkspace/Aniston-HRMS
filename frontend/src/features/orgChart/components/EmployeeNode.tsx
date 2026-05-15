@@ -20,8 +20,9 @@ export default function EmployeeNode({ data }: NodeProps<Node<EmployeeNodeData>>
         aria-label={`${data.name}, ${designation || 'No designation'}, ${config.label}`}
         className={cn(
           'w-[220px] rounded-xl border-2 px-3 py-2.5 shadow-sm transition-all hover:shadow-md cursor-pointer',
-          selected ? 'ring-2 ring-brand-500 border-brand-400 bg-brand-50/50' : config.border
+          selected ? '' : config.border
         )}
+        style={selected ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' } : undefined}
       >
         <div className="flex items-center gap-2.5">
           <div

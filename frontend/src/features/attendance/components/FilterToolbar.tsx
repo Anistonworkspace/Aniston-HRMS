@@ -130,13 +130,14 @@ export default function FilterToolbar({ filters, onChange, departments }: Filter
           onClick={() => setExpanded(!expanded)}
           className={cn(
             'flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors',
-            expanded ? 'bg-brand-50 text-brand-600 border-brand-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50',
+            expanded ? '' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50',
           )}
+          style={expanded ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)' } : undefined}
         >
           <Filter size={13} />
           More
           {activeFilterCount > 0 && (
-            <span className="bg-brand-600 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+            <span className="text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
               {activeFilterCount}
             </span>
           )}
@@ -174,9 +175,9 @@ export default function FilterToolbar({ filters, onChange, departments }: Filter
       {chips.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap">
           {chips.map(c => (
-            <span key={c.key} className="inline-flex items-center gap-1 px-2 py-0.5 bg-brand-50 text-brand-700 text-[10px] font-medium rounded-full border border-brand-200">
+            <span key={c.key} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full border" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)' }}>
               {c.label}
-              <button onClick={() => updateFilter(c.key as keyof AttendanceFilters, '')} className="hover:text-brand-900">
+              <button onClick={() => updateFilter(c.key as keyof AttendanceFilters, '')}>
                 <X size={10} />
               </button>
             </span>

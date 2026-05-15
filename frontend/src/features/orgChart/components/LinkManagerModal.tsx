@@ -69,7 +69,7 @@ export default function LinkManagerModal({ employees, currentId, currentManagerI
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search employees..."
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
             />
           </div>
         </div>
@@ -86,7 +86,8 @@ export default function LinkManagerModal({ employees, currentId, currentManagerI
                 aria-selected={isCurrent}
                 onClick={() => !isCurrent && onLink(emp.id)}
                 className={cn('w-full flex items-center gap-3 p-2.5 rounded-lg text-left transition-colors',
-                  isCurrent ? 'bg-brand-50 border border-brand-200 cursor-default' : 'hover:bg-gray-50')}
+                  isCurrent ? 'border cursor-default' : 'hover:bg-gray-50')}
+                style={isCurrent ? { background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' } : undefined}
               >
                 <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0', config.avatar)} aria-hidden="true">
                   {getInitials(emp.firstName, emp.lastName)}
@@ -96,7 +97,7 @@ export default function LinkManagerModal({ employees, currentId, currentManagerI
                   <p className="text-xs text-gray-400 truncate">{emp.designation?.name || 'Employee'} {emp.department?.name ? `\u00b7 ${emp.department.name}` : ''}</p>
                 </div>
                 <span className="text-[10px] font-mono text-gray-400" data-mono>{emp.employeeCode}</span>
-                {isCurrent && <span className="text-[10px] text-brand-600 font-medium">Current</span>}
+                {isCurrent && <span className="text-[10px] font-medium" style={{ color: 'var(--primary-color)' }}>Current</span>}
               </button>
             );
           })}

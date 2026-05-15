@@ -46,7 +46,7 @@ export default function PublicJobsPage() {
       <header className="bg-white/80 backdrop-blur-lg border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-brand-600 to-brand-700 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary-color)' }}>
               <span className="text-white font-bold text-lg font-display">A</span>
             </div>
             <div>
@@ -57,14 +57,15 @@ export default function PublicJobsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowStatusCheck(true)}
-              className="text-sm text-brand-600 hover:text-brand-700 font-medium inline-flex items-center gap-1.5 bg-brand-50 hover:bg-brand-100 px-3 py-2 rounded-lg transition-colors"
+              className="text-sm font-medium inline-flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors"
+              style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}
             >
               <Hash className="w-4 h-4" />
               Check Status
             </button>
             <a
               href="/walk-in"
-              className="text-sm text-gray-500 hover:text-brand-600 font-medium hidden sm:inline-flex items-center gap-1"
+              className="text-sm text-gray-500 font-medium hidden sm:inline-flex items-center gap-1"
             >
               Direct Walk-In <ChevronRight className="w-4 h-4" />
             </a>
@@ -88,7 +89,7 @@ export default function PublicJobsPage() {
           </p>
           <p className="text-gray-400 max-w-lg mx-auto text-sm mt-2">
             Select a position and click "Apply" to fill in your details. Already applied?{' '}
-            <button onClick={() => setShowStatusCheck(true)} className="text-brand-600 underline hover:text-brand-700">
+            <button onClick={() => setShowStatusCheck(true)} className="underline" style={{ color: 'var(--primary-color)' }}>
               Check your status
             </button>
           </p>
@@ -104,8 +105,7 @@ export default function PublicJobsPage() {
               onChange={e => setSearch(e.target.value)}
               placeholder="Search positions, departments, locations..."
               className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm
-                focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-400
-                shadow-sm transition-all"
+                focus:outline-none shadow-sm transition-all"
             />
           </div>
         </div>
@@ -115,7 +115,7 @@ export default function PublicJobsPage() {
       <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-24">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
           </div>
         ) : filtered.length === 0 ? (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
@@ -139,7 +139,7 @@ export default function PublicJobsPage() {
                   transition-all hover:-translate-y-0.5 p-6 flex flex-col"
               >
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-50 text-brand-700 text-xs font-medium rounded-lg">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                     <Building2 className="w-3 h-3" />
                     {job.department || 'General'}
                   </span>
@@ -162,9 +162,8 @@ export default function PublicJobsPage() {
                 )}
                 <button
                   onClick={() => navigate(`/walk-in?jobId=${job.id}`)}
-                  className="mt-auto w-full flex items-center justify-center gap-2 px-4 py-2.5
-                    bg-brand-600 text-white rounded-xl text-sm font-medium
-                    hover:bg-brand-700 transition-colors shadow-sm"
+                  className="mt-auto w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+                  style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                 >
                   Apply for Interview <ChevronRight className="w-4 h-4" />
                 </button>
@@ -231,13 +230,14 @@ function StatusCheckModal({ onClose }: { onClose: () => void }) {
             onKeyDown={e => e.key === 'Enter' && handleCheck()}
             placeholder="WALK-IN-2026-0001"
             className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono uppercase
-              focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-400"
+              focus:outline-none"
             autoFocus
           />
           <button
             onClick={handleCheck}
             disabled={isLoading}
-            className="px-5 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-colors flex items-center gap-2"
+            className="px-5 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+            style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
           >
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             Check
@@ -262,8 +262,8 @@ function StatusCheckModal({ onClose }: { onClose: () => void }) {
             {/* Candidate Info */}
             <div className="bg-gray-50 rounded-xl p-4">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center">
-                  <span className="text-sm font-bold text-brand-600">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+                  <span className="text-sm font-bold" style={{ color: 'var(--primary-color)' }}>
                     {candidate.fullName?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                   </span>
                 </div>

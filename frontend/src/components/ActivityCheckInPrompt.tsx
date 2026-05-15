@@ -36,7 +36,8 @@ export default function ActivityCheckInPrompt() {
                 toastIdRef.current = null;
                 toast.success('Activity recorded!', { duration: 2000 });
               }}
-              className="px-3 py-1.5 bg-brand-600 text-white text-xs font-medium rounded-lg hover:bg-brand-500 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+              style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
             >
               Yes, I'm working
             </button>

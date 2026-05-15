@@ -134,7 +134,8 @@ function DocumentCard({ doc, locked, canDownload = true }: { doc: any; locked: b
             target="_blank"
             rel="noopener noreferrer"
             download
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-50 text-brand-600 text-xs font-medium hover:bg-brand-100 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}
           >
             <Download size={14} />
             Download
@@ -399,7 +400,7 @@ export default function MyDocumentsPage() {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-display font-bold text-gray-900 flex items-center gap-2">
-          <FileText className="text-brand-600" size={28} />
+          <FileText size={28} style={{ color: 'var(--primary-color)' }} />
           My Documents
         </h1>
         <p className="text-gray-500 text-sm mt-0.5">
@@ -410,7 +411,7 @@ export default function MyDocumentsPage() {
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} />
         </div>
       )}
 

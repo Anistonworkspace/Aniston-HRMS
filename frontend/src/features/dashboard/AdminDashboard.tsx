@@ -223,7 +223,7 @@ function AdminDashboard() {
             <h2 className="text-sm font-semibold text-gray-600">Today's Attendance</h2>
             <button
               onClick={() => navigate('/attendance')}
-              className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1"
+              className="text-xs flex items-center gap-1" style={{ color: 'var(--primary-color)' }}
             >
               View All <ChevronRight size={12} />
             </button>
@@ -494,7 +494,7 @@ function AdminDashboard() {
                     <div className="px-5 py-3 border-t border-gray-100">
                       <button
                         onClick={() => { navigate(isDocs ? '/employees' : '/helpdesk'); setActionPopup(null); }}
-                        className="w-full text-xs text-brand-600 hover:text-brand-700 flex items-center justify-center gap-1"
+                        className="w-full text-xs flex items-center justify-center gap-1" style={{ color: 'var(--primary-color)' }}
                       >
                         View all in {isDocs ? 'Employees' : 'Helpdesk'} <ChevronRight size={12} />
                       </button>
@@ -605,7 +605,7 @@ function AdminDashboard() {
                   </div>
                 </div>
               ))}
-              <button onClick={() => navigate('/pending-approvals')} className="w-full text-xs text-brand-600 hover:text-brand-700 flex items-center justify-center gap-1 pt-1">
+              <button onClick={() => navigate('/pending-approvals')} className="w-full text-xs flex items-center justify-center gap-1 pt-1" style={{ color: 'var(--primary-color)' }}>
                 View all pending approvals <ChevronRight size={12} />
               </button>
             </div>

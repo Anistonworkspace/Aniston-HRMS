@@ -76,33 +76,46 @@ export default function CenterModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Overlay — dark, no blur for performance */}
+    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 'var(--modal-z-index)' }}>
+      {/* Overlay */}
       <div
         ref={overlayRef}
-        className="absolute inset-0 bg-black/50 transition-opacity"
+        className="absolute inset-0 transition-opacity"
+        style={{ background: 'var(--backdrop-color)' }}
         onClick={onClose}
       />
-      {/* Modal */}
+      {/* Modal box — Monday.com §7.1 spec */}
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="center-modal-title"
-        className={`relative ${maxWidth} w-full bg-white rounded-2xl shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-200 flex flex-col`}
-        style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
+        className={`relative ${maxWidth} w-full flex flex-col animate-scale-in`}
+        style={{
+          background: 'var(--modal-background-color)',
+          borderRadius: 'var(--border-radius-big)',
+          boxShadow: 'var(--box-shadow-large)',
+          border: '1px solid var(--layout-border-color)',
+          maxHeight: 'min(90dvh, calc(100dvh - 2rem))',
+        }}
       >
         {/* Header */}
-        <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+        <div
+          className="flex items-start justify-between px-6 pt-6 pb-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--ui-background-color)' }}
+        >
           <div>
-            <h2 id="center-modal-title" className="text-lg font-display font-bold text-gray-900">{title}</h2>
-            {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+            <h2 id="center-modal-title" className="font-bold" style={{ font: 'var(--font-h3)', color: 'var(--primary-text-color)' }}>{title}</h2>
+            {subtitle && <p className="mt-1" style={{ font: 'var(--font-text2-normal)', color: 'var(--secondary-text-color)' }}>{subtitle}</p>}
           </div>
           {showClose && (
             <button
               aria-label="Close"
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600"
+              className="p-1.5 transition-colors flex-shrink-0"
+              style={{ color: 'var(--icon-color)', borderRadius: 'var(--border-radius-small)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary-background-hover-color)'; e.currentTarget.style.color = 'var(--primary-text-color)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--icon-color)'; }}
             >
               <X size={18} />
             </button>

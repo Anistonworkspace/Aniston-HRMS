@@ -108,7 +108,7 @@ export default function PendingApprovalsPage() {
       {/* Content */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-[3px] border-brand-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-[3px] border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
         </div>
       ) : activeTab === 'leaves' ? (
         <div className="space-y-3">
@@ -127,7 +127,7 @@ export default function PendingApprovalsPage() {
               >
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
+                    <div className="w-10 h-10 rounded-lg font-semibold text-sm flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                       {getInitials(leave.employee?.firstName, leave.employee?.lastName)}
                     </div>
                     <div>
@@ -181,7 +181,7 @@ export default function PendingApprovalsPage() {
                 key={ticket.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="layer-card p-4 cursor-pointer hover:ring-1 hover:ring-brand-200 transition-all"
+                className="layer-card p-4 cursor-pointer hover:ring-1 hover:ring-gray-200 transition-all"
                 onClick={() => navigate(`/helpdesk`)}
               >
                 <div className="flex items-center justify-between flex-wrap gap-3">

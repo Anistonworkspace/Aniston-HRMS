@@ -103,7 +103,7 @@ export default function AgentDownloadBanner() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           className="bg-white rounded-xl shadow-lg border border-gray-200 px-4 py-3 flex items-center gap-3 max-w-xs"
         >
-          <Loader2 size={18} className="text-brand-500 animate-spin flex-shrink-0" />
+          <Loader2 size={18} className="animate-spin flex-shrink-0" style={{ color: 'var(--primary-color)' }} />
           <div>
             <p className="text-sm font-medium text-gray-700">Checking agent status...</p>
             <p className="text-[11px] text-gray-400">Connecting to activity tracker</p>
@@ -139,7 +139,7 @@ export default function AgentDownloadBanner() {
         className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden"
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-brand-600 to-purple-600 text-white px-4 py-3 flex items-center justify-between">
+        <div className="to-purple-600 text-white px-4 py-3 flex items-center justify-between" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
           <div className="flex items-center gap-2">
             <Monitor size={18} />
             <span className="text-sm font-semibold">Activity Agent Required</span>
@@ -158,7 +158,7 @@ export default function AgentDownloadBanner() {
           <div className="flex items-center gap-2 mb-2">
             {downloadAvailable ? (
               <a href={downloadUrl} download="aniston-agent-setup.exe"
-                className="flex-1 inline-flex items-center justify-center gap-2 bg-brand-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
+                className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                 <Download size={14} /> Download
               </a>
             ) : (
@@ -186,9 +186,9 @@ export default function AgentDownloadBanner() {
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-2 text-center">
               <p className="text-[10px] text-gray-400 mb-1">Enter this code in the agent app:</p>
               <div className="flex items-center justify-center gap-2">
-                <span className="text-2xl font-mono font-bold text-brand-700 tracking-widest" data-mono>{pairCode}</span>
+                <span className="text-2xl font-mono font-bold tracking-widest" data-mono style={{ color: 'var(--primary-color)' }}>{pairCode}</span>
                 <button onClick={() => { navigator.clipboard.writeText(pairCode).catch(() => {}); }}
-                  className="text-xs text-brand-600 hover:text-brand-700 underline">Copy</button>
+                  className="text-xs underline" style={{ color: 'var(--primary-color)' }}>Copy</button>
               </div>
               <p className="text-[10px] text-gray-400 mt-1">Expires in 5 minutes</p>
             </div>

@@ -231,22 +231,23 @@ export default function CommandPalette({ open, onClose }: Props) {
                               data-idx={globalIdx}
                               onClick={() => handleSelect(item)}
                               onMouseEnter={() => setSelectedIdx(globalIdx)}
-                              className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors min-w-0 ${
-                                isSelected ? 'bg-brand-50' : 'hover:bg-gray-50'
+                              style={isSelected ? { background: 'var(--primary-highlighted-color)' } : undefined}
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors min-w-0 ${
+                                isSelected ? '' : 'hover:bg-gray-50'
                               }`}
                             >
-                              <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
-                                isSelected ? 'bg-brand-100' : 'bg-gray-100'
+                              <div style={isSelected ? { background: 'var(--primary-highlighted-color)' } : undefined} className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
+                                isSelected ? '' : 'bg-gray-100'
                               }`}>
-                                <Icon size={15} className={isSelected ? 'text-brand-600' : 'text-gray-500'} />
+                                <Icon size={15} style={isSelected ? { color: 'var(--primary-color)' } : undefined} className={isSelected ? '' : 'text-gray-500'} />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium leading-tight truncate ${isSelected ? 'text-brand-700' : 'text-gray-800'}`}>
+                                <p style={isSelected ? { color: 'var(--primary-color)' } : undefined} className={`text-sm font-medium leading-tight truncate ${isSelected ? '' : 'text-gray-800'}`}>
                                   {item.label}
                                 </p>
                                 <p className="text-xs text-gray-400 mt-0.5 truncate">{item.description}</p>
                               </div>
-                              <ChevronRight size={14} className={`shrink-0 transition-colors ${isSelected ? 'text-brand-400' : 'text-gray-300'}`} />
+                              <ChevronRight size={14} style={isSelected ? { color: 'var(--primary-color)' } : undefined} className={`shrink-0 transition-colors ${isSelected ? '' : 'text-gray-300'}`} />
                             </button>
                           );
                         })}

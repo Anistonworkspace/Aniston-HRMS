@@ -117,7 +117,7 @@ export default function InviteAcceptPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center">
-        <Loader2 size={32} className="animate-spin text-brand-600" />
+        <Loader2 size={32} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
       </div>
     );
   }
@@ -161,7 +161,7 @@ export default function InviteAcceptPage() {
                 ? 'Setting up your workspace...'
                 : 'Redirecting to login...'}
           </p>
-          <Loader2 size={20} className="animate-spin text-brand-600 mx-auto" />
+          <Loader2 size={20} className="animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} />
         </motion.div>
       </div>
     );
@@ -174,8 +174,8 @@ export default function InviteAcceptPage() {
         className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full">
         {/* Org Header */}
         <div className="text-center mb-6">
-          <div className="w-14 h-14 rounded-xl bg-brand-100 flex items-center justify-center mx-auto mb-3">
-            <Building2 size={28} className="text-brand-600" />
+          <div className="w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-3" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <Building2 size={28} style={{ color: 'var(--primary-color)' }} />
           </div>
           <h1 className="text-xl font-bold text-gray-900">Join {invitation.organization?.name || 'the team'}</h1>
           <p className="text-sm text-gray-500 mt-1">Set your password to create your account</p>

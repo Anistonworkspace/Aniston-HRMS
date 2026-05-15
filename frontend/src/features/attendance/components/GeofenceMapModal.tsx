@@ -96,7 +96,7 @@ export default function GeofenceMapModal({ isOpen, onClose, checkInData, officeL
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            <MapPin size={18} className="text-brand-500" />
+            <MapPin size={18} style={{ color: 'var(--primary-color)' }} />
             <h3 className="font-display font-bold text-gray-900 text-sm">
               {checkInData?.employeeName ? `${checkInData.employeeName} — Check-in Location` : 'Geofence Map'}
             </h3>
@@ -180,7 +180,7 @@ export default function GeofenceMapModal({ isOpen, onClose, checkInData, officeL
           {/* My Location button */}
           <button onClick={getCurrentLocation} disabled={loadingGPS}
             className="absolute top-3 right-3 z-[1000] bg-white shadow-lg border border-gray-200 rounded-xl p-2.5 hover:bg-gray-50">
-            {loadingGPS ? <Loader2 size={16} className="animate-spin text-gray-400" /> : <Navigation size={16} className="text-brand-600" />}
+            {loadingGPS ? <Loader2 size={16} className="animate-spin text-gray-400" /> : <Navigation size={16} style={{ color: 'var(--primary-color)' }} />}
           </button>
         </div>
 

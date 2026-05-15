@@ -1144,7 +1144,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       {currentPos && (
         <div className="layer-card p-4 text-sm space-y-2">
           <div className="flex items-center gap-2 text-gray-600">
-            <Navigation className="w-4 h-4 text-brand-500" />
+            <Navigation className="w-4 h-4" style={{ color: 'var(--primary-color)' }} />
             <span className="font-mono text-xs" data-mono>
               {currentPos.lat.toFixed(6)}, {currentPos.lng.toFixed(6)}
             </span>
@@ -1178,7 +1178,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
                   }
                 }}
                 placeholder="e.g. Client Visit, Lunch…"
-                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-brand-400 bg-white"
+                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none bg-white"
                 autoFocus
               />
               <button

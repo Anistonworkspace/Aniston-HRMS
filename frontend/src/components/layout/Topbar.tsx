@@ -66,90 +66,130 @@ export default function Topbar() {
   };
 
   return (
-    <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
+    <header
+      className="flex items-center justify-between px-4 md:px-6 sticky top-0 z-30"
+      style={{
+        height: '48px',
+        background: 'var(--primary-background-color)',
+        borderBottom: '1px solid var(--layout-border-color)',
+      }}
+    >
       {/* Left: Search */}
-      <div className="flex items-center gap-4 flex-1">
+      <div className="flex items-center gap-3 flex-1">
         {/* Desktop search bar */}
         <div className="relative max-w-md w-full hidden sm:block">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--icon-color)' }} />
           <button
             onClick={() => setSearchOpen(true)}
-            className="w-full pl-10 pr-16 py-2 bg-surface-2 border-0 rounded-lg text-sm text-gray-400 text-left focus:outline-none focus:ring-2 focus:ring-brand-500/20 transition-all hover:bg-gray-100 cursor-pointer"
+            className="w-full pl-9 pr-14 text-sm text-left focus:outline-none cursor-pointer transition-all"
+            style={{
+              height: '32px',
+              background: 'var(--allgrey-background-color)',
+              border: '1px solid var(--layout-border-color)',
+              borderRadius: 'var(--border-radius-small)',
+              color: 'var(--placeholder-color)',
+              fontSize: '14px',
+            }}
             aria-label="Open search"
           >
             {t('common.searchPlaceholder')}
           </button>
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-200 hidden md:flex items-center gap-1">
+          <kbd
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs hidden md:flex items-center gap-1 px-1.5 py-0.5 rounded"
+            style={{
+              color: 'var(--secondary-text-color)',
+              background: 'var(--primary-background-color)',
+              border: '1px solid var(--ui-border-color)',
+              fontSize: '11px',
+            }}
+          >
             <span>⌘</span><span>K</span>
           </kbd>
         </div>
         {/* Mobile search icon button */}
         <button
           onClick={() => setSearchOpen(true)}
-          className="sm:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+          className="sm:hidden p-1.5 rounded transition-colors"
+          style={{ color: 'var(--icon-color)', borderRadius: 'var(--border-radius-small)' }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-background-hover-color)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
           aria-label="Search"
         >
-          <Search size={20} />
+          <Search size={18} />
         </button>
       </div>
 
       {/* Right: Language + Notifications + Avatar */}
-      <div className="flex items-center gap-2 md:gap-3">
+      <div className="flex items-center gap-1 md:gap-2">
         {/* Language Switcher */}
         <div className="relative" ref={langRef}>
           <button
             onClick={() => setLangOpen(!langOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-surface-2 transition-colors text-gray-500 hover:text-gray-700"
+            className="flex items-center gap-1.5 px-2 py-1 transition-colors rounded"
+            style={{
+              color: 'var(--secondary-text-color)',
+              borderRadius: 'var(--border-radius-small)',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-background-hover-color)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             title={t('language.label')}
             aria-expanded={langOpen}
             aria-haspopup="true"
             aria-label={t('language.label')}
           >
-            <Globe size={18} />
+            <Globe size={16} />
             <span className="text-xs font-semibold hidden sm:inline">
               {currentLang === 'hi' ? 'हि' : 'EN'}
             </span>
-            <ChevronDown size={12} className="hidden sm:block" />
+            <ChevronDown size={11} className="hidden sm:block" />
           </button>
 
           {langOpen && (
             <motion.div
-              initial={{ opacity: 0, y: -5, scale: 0.95 }}
+              initial={{ opacity: 0, y: -4, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.15 }}
-              className="absolute right-0 top-full mt-2 w-44 bg-white rounded-xl shadow-layer-lg border border-gray-100 py-1.5 z-50"
+              transition={{ duration: 0.1, ease: [0, 0, 0.35, 1] }}
+              className="absolute right-0 top-full mt-1 w-44 py-1.5 z-50"
+              style={{
+                background: 'var(--dialog-background-color)',
+                borderRadius: 'var(--border-radius-medium)',
+                boxShadow: 'var(--box-shadow-medium)',
+                border: '1px solid var(--layout-border-color)',
+              }}
             >
-              <div className="px-3 py-2 border-b border-gray-50">
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{t('language.label')}</p>
+              <div className="px-3 py-2" style={{ borderBottom: '1px solid var(--ui-background-color)' }}>
+                <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--secondary-text-color)' }}>{t('language.label')}</p>
               </div>
               <button
                 onClick={() => switchLanguage('en')}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                  currentLang === 'en'
-                    ? 'bg-brand-50 text-brand-700 font-medium'
-                    : 'text-gray-600 hover:bg-surface-2'
-                }`}
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                style={{
+                  background: currentLang === 'en' ? 'var(--primary-selected-color)' : 'transparent',
+                  color: currentLang === 'en' ? 'var(--primary-color)' : 'var(--primary-text-color)',
+                  fontWeight: currentLang === 'en' ? 600 : 400,
+                }}
               >
                 <span className="text-base">🇬🇧</span>
                 <span>English</span>
                 {currentLang === 'en' && (
-                  <svg className="ml-auto w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <svg className="ml-auto w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ color: 'var(--primary-color)' }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 )}
               </button>
               <button
                 onClick={() => switchLanguage('hi')}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                  currentLang === 'hi'
-                    ? 'bg-brand-50 text-brand-700 font-medium'
-                    : 'text-gray-600 hover:bg-surface-2'
-                }`}
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                style={{
+                  background: currentLang === 'hi' ? 'var(--primary-selected-color)' : 'transparent',
+                  color: currentLang === 'hi' ? 'var(--primary-color)' : 'var(--primary-text-color)',
+                  fontWeight: currentLang === 'hi' ? 600 : 400,
+                }}
               >
                 <span className="text-base">🇮🇳</span>
                 <span>हिन्दी</span>
                 {currentLang === 'hi' && (
-                  <svg className="ml-auto w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <svg className="ml-auto w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ color: 'var(--primary-color)' }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 )}
@@ -165,59 +205,80 @@ export default function Topbar() {
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-lg hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-2 pl-2 pr-2 py-1 transition-colors rounded"
+            style={{ borderRadius: 'var(--border-radius-small)' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-background-hover-color)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
           >
             {user?.avatar ? (
-              <img src={getUploadUrl(user.avatar)} alt="" className="w-8 h-8 rounded-lg object-cover" />
+              <img src={getUploadUrl(user.avatar)} alt="" className="w-7 h-7 object-cover" style={{ borderRadius: 'var(--border-radius-small)' }} />
             ) : (
-              <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white text-sm font-semibold">
+              <div
+                className="w-7 h-7 flex items-center justify-center text-white text-xs font-semibold"
+                style={{ background: 'var(--primary-color)', borderRadius: 'var(--border-radius-small)' }}
+              >
                 {getInitials(user?.firstName, user?.lastName)}
               </div>
             )}
             <div className="hidden md:block text-left">
-              <p className="text-sm font-medium text-gray-800 leading-tight">
+              <p className="text-sm font-medium leading-tight" style={{ color: 'var(--primary-text-color)' }}>
                 {user?.firstName} {user?.lastName}
               </p>
-              <p className="text-xs text-gray-400 leading-tight">{user?.role?.replace(/_/g, ' ')}</p>
+              <p className="text-xs leading-tight" style={{ color: 'var(--secondary-text-color)' }}>{user?.role?.replace(/_/g, ' ')}</p>
             </div>
-            <ChevronDown size={14} className="text-gray-400 hidden md:block" />
+            <ChevronDown size={13} className="hidden md:block" style={{ color: 'var(--icon-color)' }} />
           </button>
 
           {/* Dropdown menu */}
           {menuOpen && (
             <motion.div
-              initial={{ opacity: 0, y: -5, scale: 0.95 }}
+              initial={{ opacity: 0, y: -4, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -5 }}
-              transition={{ duration: 0.15 }}
-              className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-layer-lg border border-gray-100 py-1.5 z-50"
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.1, ease: [0, 0, 0.35, 1] }}
+              className="absolute right-0 top-full mt-1 w-56 py-1.5 z-50"
+              style={{
+                background: 'var(--dialog-background-color)',
+                borderRadius: 'var(--border-radius-medium)',
+                boxShadow: 'var(--box-shadow-medium)',
+                border: '1px solid var(--layout-border-color)',
+              }}
             >
-              <div className="px-4 py-2.5 border-b border-gray-50">
-                <p className="text-sm font-medium text-gray-800">
+              <div className="px-4 py-2.5" style={{ borderBottom: '1px solid var(--ui-background-color)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--primary-text-color)' }}>
                   {user?.firstName} {user?.lastName}
                 </p>
-                <p className="text-xs text-gray-400">{user?.email}</p>
+                <p className="text-xs" style={{ color: 'var(--secondary-text-color)' }}>{user?.email}</p>
               </div>
               <button
                 onClick={() => { setMenuOpen(false); navigate('/profile'); }}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-surface-2 transition-colors"
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                style={{ color: 'var(--primary-text-color)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-background-hover-color)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
-                <User size={16} /> {t('topbar.profile')}
+                <User size={15} style={{ color: 'var(--icon-color)' }} /> {t('topbar.profile')}
               </button>
               {['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '') && (
                 <button
                   onClick={() => { setMenuOpen(false); navigate('/settings'); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-surface-2 transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                  style={{ color: 'var(--primary-text-color)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-background-hover-color)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <Settings size={16} /> {t('topbar.settings')}
+                  <Settings size={15} style={{ color: 'var(--icon-color)' }} /> {t('topbar.settings')}
                 </button>
               )}
-              <div className="border-t border-gray-50 my-1" />
+              <div className="my-1" style={{ borderTop: '1px solid var(--ui-background-color)' }} />
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors"
+                style={{ color: 'var(--negative-color)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--negative-color-selected)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
-                <LogOut size={16} /> {t('topbar.signOut')}
+                <LogOut size={15} /> {t('topbar.signOut')}
               </button>
             </motion.div>
           )}

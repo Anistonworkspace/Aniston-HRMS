@@ -20,18 +20,31 @@ export default function App() {
         {(t) => (
           <div
             onClick={() => hotToast.dismiss(t.id)}
-            className={[
-              'flex items-center gap-2 px-4 py-3 rounded-xl shadow-layer text-sm cursor-pointer max-w-[360px] border transition-opacity',
-              t.type === 'error'
-                ? 'bg-red-50 text-red-800 border-red-200'
+            className="flex items-center gap-2 px-4 py-3 text-sm cursor-pointer max-w-[360px] transition-opacity"
+            style={{
+              opacity: t.visible ? 1 : 0,
+              borderRadius: 'var(--border-radius-medium)',
+              boxShadow: 'var(--box-shadow-medium)',
+              border: '1px solid',
+              background: t.type === 'error'
+                ? 'var(--negative-color-selected)'
                 : t.type === 'success'
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  : 'bg-white text-slate-800 border-gray-100',
-            ].join(' ')}
-            style={{ opacity: t.visible ? 1 : 0 }}
+                  ? 'var(--positive-color-selected)'
+                  : 'var(--primary-background-color)',
+              color: t.type === 'error'
+                ? 'var(--negative-color)'
+                : t.type === 'success'
+                  ? 'var(--positive-color)'
+                  : 'var(--primary-text-color)',
+              borderColor: t.type === 'error'
+                ? 'var(--negative-color-selected)'
+                : t.type === 'success'
+                  ? 'var(--positive-color-selected)'
+                  : 'var(--layout-border-color)',
+            }}
           >
-            <span className="flex-1">{resolveValue(t.message, t)}</span>
-            <span className="text-base opacity-50 leading-none flex-shrink-0">✕</span>
+            <span className="flex-1" style={{ font: 'var(--font-text2-normal)' }}>{resolveValue(t.message, t)}</span>
+            <span className="text-base leading-none flex-shrink-0" style={{ opacity: 0.5 }}>✕</span>
           </div>
         )}
       </Toaster>

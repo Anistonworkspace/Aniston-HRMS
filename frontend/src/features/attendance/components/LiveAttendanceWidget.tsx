@@ -41,7 +41,7 @@ export default function LiveAttendanceWidget() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-display font-semibold text-gray-800 text-sm flex items-center gap-2">
-          <Users size={16} className="text-brand-500" />
+          <Users size={16} style={{ color: 'var(--primary-color)' }} />
           Live Attendance
           {pulse && <span className="w-2 h-2 bg-green-500 rounded-full animate-ping" />}
         </h3>
@@ -57,7 +57,7 @@ export default function LiveAttendanceWidget() {
 
       {isLoading ? (
         <div className="flex justify-center py-6">
-          <div className="w-5 h-5 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--primary-highlighted-color)', borderTopColor: 'var(--primary-color)' }} />
         </div>
       ) : (
         <>
@@ -135,7 +135,7 @@ export default function LiveAttendanceWidget() {
 
           {/* Quick link */}
           <button onClick={() => navigate('/attendance')}
-            className="mt-4 w-full text-center text-xs text-brand-600 hover:text-brand-700 font-medium py-2 bg-brand-50 rounded-xl hover:bg-brand-100 transition-colors">
+            className="mt-4 w-full text-center text-xs font-medium py-2 rounded-xl transition-colors" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}>
             View Full Attendance →
           </button>
         </>

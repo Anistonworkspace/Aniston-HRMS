@@ -1,3 +1,4 @@
+import type React from 'react';
 import { cn } from '../../../lib/utils';
 import {
   Users, UserCheck, UserX, UserMinus, Clock, Timer, MapPin, Coffee, CalendarOff,
@@ -79,10 +80,11 @@ export default function KpiStrip({ stats, isLoading, activeFilter, onCardClick }
                 onCardClick(filter);
               }
             }}
+            style={isActive ? { '--tw-ring-color': 'var(--primary-color)' } as React.CSSProperties : undefined}
             className={cn(
               'rounded-xl border p-3 transition-all hover:shadow-sm',
               isClickable ? 'cursor-pointer' : 'cursor-default',
-              isActive ? `${bg} ${border} ring-2 ring-offset-1 ring-brand-400` : isAlert ? `${bg} ${border}` : 'bg-white border-gray-100 hover:border-gray-200',
+              isActive ? `${bg} ${border} ring-2 ring-offset-1` : isAlert ? `${bg} ${border}` : 'bg-white border-gray-100 hover:border-gray-200',
             )}
           >
             <div className="flex items-center gap-1.5 mb-1.5">

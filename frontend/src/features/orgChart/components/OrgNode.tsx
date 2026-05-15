@@ -41,7 +41,8 @@ export default function OrgNode({ node, depth }: OrgNodeProps) {
         aria-level={depth + 1}
         aria-label={`${node.firstName} ${node.lastName}, ${node.designation?.name || 'No designation'}, ${node.children.length} direct reports`}
         tabIndex={0}
-        className={cn('flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-surface-2 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500', depth === 0 && 'bg-brand-50')}
+        className={cn('flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-surface-2 transition-colors cursor-pointer focus:outline-none', depth === 0 ? '' : '')}
+        style={depth === 0 ? { background: 'var(--primary-highlighted-color)' } : undefined}
         style={{ marginLeft: depth * 28 }}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
@@ -49,8 +50,9 @@ export default function OrgNode({ node, depth }: OrgNodeProps) {
         <div className="w-5 flex-shrink-0" aria-hidden="true">
           {hasChildren ? (expanded ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />) : <div className="w-4" />}
         </div>
-        <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center text-sm font-semibold flex-shrink-0',
-          depth === 0 ? 'bg-brand-600 text-white' : 'bg-brand-100 text-brand-700')} aria-hidden="true">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-semibold flex-shrink-0"
+          style={depth === 0 ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}
+          aria-hidden="true">
           {getInitials(node.firstName, node.lastName)}
         </div>
         <div className="flex-1 min-w-0">
@@ -60,7 +62,7 @@ export default function OrgNode({ node, depth }: OrgNodeProps) {
           </p>
         </div>
         <span className="text-xs font-mono text-gray-400 flex-shrink-0" data-mono>{node.employeeCode}</span>
-        {hasChildren && <span className="text-xs bg-brand-50 text-brand-600 px-2 py-0.5 rounded-full font-mono" data-mono>{node.children.length}</span>}
+        {hasChildren && <span className="text-xs px-2 py-0.5 rounded-full font-mono" data-mono style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{node.children.length}</span>}
       </div>
       {expanded && hasChildren && (
         <div className="border-l-2 border-gray-100" style={{ marginLeft: depth * 28 + 22 }} role="group">

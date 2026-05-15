@@ -188,7 +188,7 @@ export default function MyExitPage() {
                         'mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all',
                         item.isReturned ? 'bg-emerald-500 border-emerald-500 cursor-default' :
                         item.employeeConfirmedReturn ? 'bg-blue-500 border-blue-500' :
-                        'border-gray-300 hover:border-brand-400 cursor-pointer'
+                        'border-gray-300 cursor-pointer'
                       )}
                     >
                       {(item.isReturned || item.employeeConfirmedReturn) && (
@@ -294,7 +294,7 @@ export default function MyExitPage() {
                     onClick={() => handleToggleTask(task.id, !task.isCompleted)}
                     className={cn(
                       'mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all',
-                      task.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 hover:border-brand-400'
+                      task.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300'
                     )}
                   >
                     {task.isCompleted && <CheckCircle2 size={10} className="text-white" />}
@@ -436,7 +436,7 @@ export default function MyExitPage() {
                           href={`/api/payroll/records/${slip.id}/pdf`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 text-xs text-brand-600 font-medium px-3 py-1.5 bg-brand-50 rounded-lg hover:bg-brand-100 transition-colors"
+                          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}
                         >
                           <Download size={12} /> Download
                         </a>

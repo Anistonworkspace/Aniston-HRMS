@@ -391,11 +391,12 @@ export default function AppShell() {
   const exitAccess = user?.exitAccess;
 
   return (
-    <div className="flex h-[100dvh] bg-surface-1 overflow-hidden">
+    <div className="flex h-[100dvh] overflow-hidden" style={{ background: 'var(--grey-background-color)' }}>
       {/* Skip-to-main-content — visually hidden, appears on keyboard focus (WCAG 2.4.1) */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[10000] focus:bg-brand-600 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm focus:font-semibold focus:shadow-lg"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[10000] focus:text-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:shadow-lg"
+        style={{ background: 'var(--primary-color)', borderRadius: 'var(--border-radius-small)' }}
       >
         Skip to main content
       </a>
@@ -413,16 +414,19 @@ export default function AppShell() {
           {(ptrProgress > 0 || ptrRefreshing) && (
             <div className="md:hidden fixed top-16 left-1/2 -translate-x-1/2 z-[200] pointer-events-none transition-all duration-200">
               <div
-                className="w-10 h-10 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center"
+                className="w-10 h-10 rounded-full flex items-center justify-center"
                 style={{
+                  background: 'var(--primary-background-color)',
+                  boxShadow: 'var(--box-shadow-small)',
+                  border: '1px solid var(--layout-border-color)',
                   transform: `scale(${ptrRefreshing ? 1 : 0.4 + (ptrProgress / 100) * 0.6})`,
                   opacity: ptrRefreshing ? 1 : Math.max(ptrProgress / 100, 0.3),
                 }}
               >
                 <RefreshCw
                   size={18}
-                  className={`text-brand-600 ${ptrRefreshing ? 'animate-spin' : ''}`}
-                  style={{ transform: `rotate(${ptrProgress * 3.6}deg)` }}
+                  className={ptrRefreshing ? 'animate-spin' : ''}
+                  style={{ color: 'var(--primary-color)', transform: `rotate(${ptrProgress * 3.6}deg)` }}
                 />
               </div>
             </div>
@@ -437,18 +441,18 @@ export default function AppShell() {
                 transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
-                  <WifiOff size={14} className="text-red-500 flex-shrink-0" />
-                  <p className="text-xs text-red-700 font-medium">{t('appShell.offline')}</p>
+                <div className="px-4 py-2 flex items-center gap-2" style={{ background: 'var(--negative-color-selected)', borderBottom: '1px solid var(--negative-color)' }}>
+                  <WifiOff size={14} className="flex-shrink-0" style={{ color: 'var(--negative-color)' }} />
+                  <p className="text-xs font-medium" style={{ color: 'var(--negative-color)' }}>{t('appShell.offline')}</p>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
           {/* Limited access banner for exiting employees */}
           {exitAccess && (
-            <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
-              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600 flex-shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-              <p className="text-xs text-amber-700">{t('appShell.limitedAccess')}</p>
+            <div className="mx-4 mt-3 px-4 py-2.5 flex items-center gap-2" style={{ background: 'var(--warning-color-selected)', border: '1px solid var(--warning-color)', borderRadius: 'var(--border-radius-medium)' }}>
+              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" style={{ color: '#7a5c00' }}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <p className="text-xs" style={{ color: '#7a5c00' }}>{t('appShell.limitedAccess')}</p>
             </div>
           )}
           <motion.div

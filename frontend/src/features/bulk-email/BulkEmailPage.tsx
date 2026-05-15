@@ -314,8 +314,8 @@ export default function BulkEmailPage() {
     <div className="page-container max-w-5xl">
       {/* Header */}
       <div className="mb-6 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-          <Send className="w-5 h-5 text-brand-600" />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+          <Send className="w-5 h-5" style={{ color: 'var(--primary-color)' }} />
         </div>
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Bulk Email</h1>
@@ -358,12 +358,14 @@ export default function BulkEmailPage() {
                   const active = template.value === tpl.value;
                   return (
                     <button key={tpl.value} onClick={() => handleTemplateChange(tpl)}
-                      className={cn('text-left px-3 py-3 rounded-lg border transition-all', active ? 'border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/20' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50')}
+                      className={cn('text-left px-3 py-3 rounded-lg border transition-all', active ? 'ring-2' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50')}
+                      style={active ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' } : undefined}
                     >
-                      <div className={cn('w-7 h-7 rounded-md flex items-center justify-center mb-2', active ? 'bg-brand-100' : 'bg-gray-100')}>
-                        <Icon size={14} className={active ? 'text-brand-600' : 'text-gray-500'} />
+                      <div className={cn('w-7 h-7 rounded-md flex items-center justify-center mb-2', active ? '' : 'bg-gray-100')}
+                        style={active ? { background: 'var(--primary-highlighted-color)' } : undefined}>
+                        <Icon size={14} className={active ? '' : 'text-gray-500'} style={active ? { color: 'var(--primary-color)' } : undefined} />
                       </div>
-                      <p className={cn('text-xs font-semibold', active ? 'text-brand-700' : 'text-gray-800')}>{tpl.label}</p>
+                      <p className={cn('text-xs font-semibold', active ? '' : 'text-gray-800')} style={active ? { color: 'var(--primary-color)' } : undefined}>{tpl.label}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">{tpl.description}</p>
                     </button>
                   );
@@ -379,13 +381,15 @@ export default function BulkEmailPage() {
                   const active = template.value === tpl.value;
                   return (
                     <button key={tpl.value} onClick={() => handleTemplateChange(tpl)}
-                      className={cn('text-left px-3 py-3 rounded-lg border transition-all flex items-start gap-3', active ? 'border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/20' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50')}
+                      className={cn('text-left px-3 py-3 rounded-lg border transition-all flex items-start gap-3', active ? 'ring-2' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50')}
+                      style={active ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' } : undefined}
                     >
-                      <div className={cn('w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5', active ? 'bg-brand-100' : 'bg-gray-100')}>
-                        <Icon size={14} className={active ? 'text-brand-600' : 'text-gray-500'} />
+                      <div className={cn('w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5', active ? '' : 'bg-gray-100')}
+                        style={active ? { background: 'var(--primary-highlighted-color)' } : undefined}>
+                        <Icon size={14} className={active ? '' : 'text-gray-500'} style={active ? { color: 'var(--primary-color)' } : undefined} />
                       </div>
                       <div>
-                        <p className={cn('text-xs font-semibold', active ? 'text-brand-700' : 'text-gray-800')}>{tpl.label}</p>
+                        <p className={cn('text-xs font-semibold', active ? '' : 'text-gray-800')} style={active ? { color: 'var(--primary-color)' } : undefined}>{tpl.label}</p>
                         <p className="text-[10px] text-gray-400 mt-0.5">{tpl.description}</p>
                       </div>
                     </button>
@@ -439,7 +443,7 @@ export default function BulkEmailPage() {
 
             {attachments.length === 0 ? (
               <div
-                className="border-2 border-dashed border-gray-200 rounded-lg py-6 flex flex-col items-center gap-2 cursor-pointer hover:border-brand-300 hover:bg-brand-50/20 transition-colors"
+                className="border-2 border-dashed border-gray-200 rounded-lg py-6 flex flex-col items-center gap-2 cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-colors"
                 onClick={() => attachRef.current?.click()}
               >
                 <Paperclip size={20} className="text-gray-300" />
@@ -488,8 +492,8 @@ export default function BulkEmailPage() {
         <div className="space-y-5">
           {/* Recipient count badge */}
           <div className="layer-card p-5 text-center">
-            <div className="w-12 h-12 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-2">
-              <Users className="w-6 h-6 text-brand-600" />
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2" style={{ background: 'var(--primary-highlighted-color)' }}>
+              <Users className="w-6 h-6" style={{ color: 'var(--primary-color)' }} />
             </div>
             {recipientMode === 'filter' && previewLoading ? (
               <Loader2 className="w-5 h-5 animate-spin text-gray-400 mx-auto" />
@@ -518,9 +522,10 @@ export default function BulkEmailPage() {
                   disabled={disabled}
                   className={cn(
                     'flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-all text-left',
-                    recipientMode === mode ? 'border-brand-500 bg-brand-50 text-brand-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50',
+                    recipientMode === mode ? 'font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50',
                     disabled && 'opacity-40 cursor-not-allowed'
                   )}
+                  style={recipientMode === mode ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}
                 >
                   <Icon size={14} className="flex-shrink-0" />
                   {label}
@@ -537,21 +542,22 @@ export default function BulkEmailPage() {
                     placeholder="Search employees..." className="input-glass w-full pl-8 text-xs py-2" />
                 </div>
                 {empLoading ? (
-                  <div className="flex items-center justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-brand-600" /></div>
+                  <div className="flex items-center justify-center py-6"><Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
                 ) : (
                   <div className="max-h-64 overflow-y-auto custom-scrollbar">
                     <label className="flex items-center gap-2 px-2 py-2 rounded hover:bg-gray-50 cursor-pointer border-b border-gray-100 mb-1">
                       <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                        className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                        className="w-3.5 h-3.5 rounded border-gray-300" />
                       <span className="text-xs font-medium text-gray-700">Select all ({filteredEmps.length})</span>
                     </label>
                     {filteredEmps.map((emp) => {
                       const checked = selectedIds.has(emp.id);
                       return (
-                        <label key={emp.id} className={cn('flex items-center gap-2 px-2 py-2 rounded cursor-pointer transition-colors', checked ? 'bg-brand-50/50' : 'hover:bg-gray-50')}>
+                        <label key={emp.id} className={cn('flex items-center gap-2 px-2 py-2 rounded cursor-pointer transition-colors', checked ? '' : 'hover:bg-gray-50')}
+                          style={checked ? { background: 'var(--primary-highlighted-color)' } : undefined}>
                           <input type="checkbox" checked={checked} onChange={() => toggleEmp(emp.id)}
-                            className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 flex-shrink-0" />
-                          <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0">
+                            className="w-3.5 h-3.5 rounded border-gray-300 flex-shrink-0" />
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                             {getInitials(emp.firstName, emp.lastName)}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -582,7 +588,8 @@ export default function BulkEmailPage() {
                         <div className="flex flex-wrap gap-1">
                           {departments.map((d) => (
                             <button key={d.id} onClick={() => toggleChip(filterDepts, setFilterDepts, d.id)}
-                              className={cn('px-2 py-0.5 text-[10px] rounded-full border transition-all', filterDepts.includes(d.id) ? 'bg-brand-100 border-brand-400 text-brand-700 font-medium' : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300')}>{d.name}</button>
+                              className={cn('px-2 py-0.5 text-[10px] rounded-full border transition-all', filterDepts.includes(d.id) ? 'font-medium' : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300')}
+                            style={filterDepts.includes(d.id) ? { background: 'var(--primary-highlighted-color)', borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : undefined}>{d.name}</button>
                           ))}
                         </div>
                       </div>
@@ -592,7 +599,8 @@ export default function BulkEmailPage() {
                       <div className="flex flex-wrap gap-1">
                         {STATUS_OPTIONS.map((o) => (
                           <button key={o.value} onClick={() => toggleChip(filterStatuses, setFilterStatuses, o.value)}
-                            className={cn('px-2 py-0.5 text-[10px] rounded-full border transition-all', filterStatuses.includes(o.value) ? 'bg-brand-100 border-brand-400 text-brand-700 font-medium' : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300')}>{o.label}</button>
+                            className={cn('px-2 py-0.5 text-[10px] rounded-full border transition-all', filterStatuses.includes(o.value) ? 'font-medium' : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300')}
+                            style={filterStatuses.includes(o.value) ? { background: 'var(--primary-highlighted-color)', borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : undefined}>{o.label}</button>
                         ))}
                       </div>
                     </div>
@@ -601,7 +609,8 @@ export default function BulkEmailPage() {
                       <div className="flex flex-wrap gap-1">
                         {ROLE_OPTIONS.map((o) => (
                           <button key={o.value} onClick={() => toggleChip(filterRoles, setFilterRoles, o.value)}
-                            className={cn('px-2 py-0.5 text-[10px] rounded-full border transition-all', filterRoles.includes(o.value) ? 'bg-brand-100 border-brand-400 text-brand-700 font-medium' : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300')}>{o.label}</button>
+                            className={cn('px-2 py-0.5 text-[10px] rounded-full border transition-all', filterRoles.includes(o.value) ? 'font-medium' : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300')}
+                            style={filterRoles.includes(o.value) ? { background: 'var(--primary-highlighted-color)', borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : undefined}>{o.label}</button>
                         ))}
                       </div>
                     </div>
@@ -618,12 +627,12 @@ export default function BulkEmailPage() {
             {recipientMode === 'manual' && (
               <div className="space-y-3">
                 <div className="flex gap-1.5 flex-col">
-                  <label className="flex items-center justify-center gap-2 px-3 py-2.5 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-brand-400 hover:bg-brand-50/20 transition-colors">
+                  <label className="flex items-center justify-center gap-2 px-3 py-2.5 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors">
                     <input ref={csvRef} type="file" className="hidden" accept=".csv,.txt,.xlsx,.xls" onChange={handleCsvUpload} />
                     <FileSpreadsheet size={14} className="text-gray-400" />
                     <span className="text-xs text-gray-500">Import CSV / Excel</span>
                   </label>
-                  <button onClick={downloadCsvTemplate} className="flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-500 hover:text-brand-600 hover:border-brand-300 transition-colors">
+                  <button onClick={downloadCsvTemplate} className="flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors">
                     <Download size={12} /> Download template
                   </button>
                 </div>
@@ -671,7 +680,7 @@ export default function BulkEmailPage() {
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-display font-semibold text-gray-900 mb-2">Confirm Bulk Email</h3>
             <p className="text-sm text-gray-600 mb-4">
-              Sending <span className="font-semibold text-brand-700">{recipientCount} email{recipientCount !== 1 ? 's' : ''}</span> — template: <span className="font-medium">{template.label}</span>
+              Sending <span className="font-semibold" style={{ color: 'var(--primary-color)' }}>{recipientCount} email{recipientCount !== 1 ? 's' : ''}</span> — template: <span className="font-medium">{template.label}</span>
             </p>
             {template.needsCompose && (
               <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-800 font-medium mb-4">{subject}</div>

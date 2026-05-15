@@ -70,8 +70,8 @@ const formatTime = (dateStr: string | null) => {
 const SortIcon = ({ field, sortBy, sortOrder }: { field: string; sortBy?: string; sortOrder?: string }) => {
   if (sortBy !== field) return <ArrowUpDown size={10} className="text-gray-300 ml-0.5" />;
   return sortOrder === 'desc'
-    ? <ArrowDown size={10} className="text-brand-500 ml-0.5" />
-    : <ArrowUp size={10} className="text-brand-500 ml-0.5" />;
+    ? <ArrowDown size={10} className="ml-0.5" style={{ color: 'var(--primary-color)' }} />
+    : <ArrowUp size={10} className="ml-0.5" style={{ color: 'var(--primary-color)' }} />;
 };
 
 function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy, sortOrder, onSort }: AttendanceTableProps) {
@@ -160,7 +160,7 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
                   {/* Employee */}
                   <td className="px-2.5 py-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-[10px] font-semibold text-brand-700 flex-shrink-0 overflow-hidden">
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0 overflow-hidden" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                         {r.employee?.photoUrl || r.employee?.avatar ? (
                           <img
                             src={getUploadUrl(r.employee.photoUrl || r.employee.avatar)}

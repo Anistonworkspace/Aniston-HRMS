@@ -277,8 +277,8 @@ export default function LoginPage() {
                   <ArrowLeft size={15} /> Back to login
                 </button>
 
-                <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-50 border border-brand-100 mb-6">
-                  <ShieldCheck size={28} className="text-brand-600" />
+                <div className="flex items-center justify-center w-14 h-14 rounded-2xl mb-6" style={{ background: 'var(--primary-highlighted-color)', border: '1px solid var(--ui-border-color)' }}>
+                  <ShieldCheck size={28} style={{ color: 'var(--primary-color)' }} />
                 </div>
 
                 <h1 className="text-2xl font-display font-bold text-gray-900 mb-1">Two-Factor Authentication</h1>
@@ -297,7 +297,7 @@ export default function LoginPage() {
                         placeholder="XXXX-XXXX"
                         maxLength={9}
                         autoFocus
-                        className={`w-full text-center text-xl font-mono tracking-widest border-2 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all ${
+                        className={`w-full text-center text-xl font-mono tracking-widest border-2 rounded-xl px-4 py-3 focus:outline-none transition-all ${
                           mfaError ? 'border-red-400 bg-red-50' : 'border-gray-300 bg-white'
                         }`}
                       />
@@ -323,7 +323,7 @@ export default function LoginPage() {
                               mfaInputRefs.current[5]?.focus();
                             }
                           }}
-                          className={`w-10 h-12 sm:w-12 sm:h-14 text-center text-lg sm:text-xl font-mono font-bold border-2 rounded-xl transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 ${
+                          className={`w-10 h-12 sm:w-12 sm:h-14 text-center text-lg sm:text-xl font-mono font-bold border-2 rounded-xl transition-all focus:outline-none ${
                             mfaError ? 'border-red-400 bg-red-50' : 'border-gray-300 bg-white'
                           }`}
                         />
@@ -340,7 +340,8 @@ export default function LoginPage() {
                     whileTap={{ scale: 0.99 }}
                     type="submit"
                     disabled={verifyingMfa || (!useBackupCode && mfaCode.join('').length < 6) || (useBackupCode && backupCodeInput.length < 9)}
-                    className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                    className="w-full py-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                    style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                   >
                     {verifyingMfa && <Loader2 size={18} className="animate-spin" />}
                     {verifyingMfa ? 'Verifying…' : 'Verify Code'}
@@ -350,7 +351,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => { setUseBackupCode(!useBackupCode); setMfaError(''); setMfaCode(['','','','','','']); setBackupCodeInput(''); }}
-                  className="w-full text-center text-xs text-gray-400 hover:text-brand-600 mt-4 transition-colors"
+                  className="w-full text-center text-xs text-gray-400 mt-4 transition-colors"
                 >
                   {useBackupCode ? '← Use authenticator app instead' : 'Lost access? Use a backup code'}
                 </button>
@@ -402,7 +403,7 @@ export default function LoginPage() {
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); setLoginError(''); setShowForceLogin(false); }}
                       placeholder={t('login.emailPlaceholder')}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
+                      className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none transition-all"
                       required
                     />
                   </div>
@@ -413,7 +414,7 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => { setPassword(e.target.value); setLoginError(''); setShowForceLogin(false); }}
                       placeholder={t('login.passwordPlaceholder')}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
+                      className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none transition-all"
                       required
                     />
                     <button
@@ -427,10 +428,10 @@ export default function LoginPage() {
 
                   <div className="flex items-center justify-between text-sm">
                     <label className="flex items-center text-gray-500 gap-2 cursor-pointer">
-                      <input type="checkbox" className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      <input type="checkbox" className="rounded border-gray-300" />
                       {t('login.rememberMe')}
                     </label>
-                    <button type="button" onClick={() => setShowForgot(true)} className="text-brand-600 hover:text-brand-700 font-medium transition-colors">
+                    <button type="button" onClick={() => setShowForgot(true)} className="font-medium transition-colors" style={{ color: 'var(--primary-color)' }}>
                       {t('login.forgotPassword')}
                     </button>
                   </div>
@@ -440,7 +441,8 @@ export default function LoginPage() {
                     whileTap={{ scale: 0.99 }}
                     type="submit"
                     disabled={isLoading}
-                    className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                    className="w-full py-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                    style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                   >
                     {isLoading && <Loader2 size={18} className="animate-spin" />}
                     {isLoading ? t('login.signingIn') : t('login.signIn')}
@@ -450,7 +452,7 @@ export default function LoginPage() {
                 <p className="text-center text-xs text-gray-400 mt-6">{t('login.contactHR')}</p>
 
                 {import.meta.env.DEV && (
-                  <button onClick={handleDemoLogin} className="w-full text-center text-xs text-gray-400 hover:text-brand-600 mt-4 transition-colors">
+                  <button onClick={handleDemoLogin} className="w-full text-center text-xs text-gray-400 mt-4 transition-colors">
                     {t('login.demoCredentials')}
                   </button>
                 )}
@@ -469,10 +471,11 @@ export default function LoginPage() {
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5, delay: 0.2 }}
-        className="hidden lg:flex lg:flex-1 bg-gradient-to-br from-brand-600 via-brand-700 to-brand-800 flex-col justify-center items-center p-12 xl:p-20 relative overflow-hidden"
+        className="hidden lg:flex lg:flex-1 flex-col justify-center items-center p-12 xl:p-20 relative overflow-hidden"
+        style={{ background: 'var(--primary-color)' }}
       >
         <div className="absolute top-10 right-10 w-72 h-72 bg-white/5 rounded-full blur-2xl" />
-        <div className="absolute bottom-10 left-10 w-56 h-56 bg-brand-400/10 rounded-full blur-2xl" />
+        <div className="absolute bottom-10 left-10 w-56 h-56 bg-white/5 rounded-full blur-2xl" />
         <div className="absolute top-1/2 left-1/3 w-40 h-40 bg-white/5 rounded-full" />
 
         <div className="relative z-10 max-w-md text-center">

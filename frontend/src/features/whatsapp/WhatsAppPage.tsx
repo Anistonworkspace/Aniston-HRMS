@@ -231,7 +231,7 @@ const SOURCE_COLORS: Record<string, string> = {
   MANUAL: 'bg-gray-100 text-gray-600',
   WHATSAPP_IMPORT: 'bg-green-50 text-green-700',
   EMPLOYEE: 'bg-blue-50 text-blue-700',
-  ONBOARDING: 'bg-brand-50 text-brand-700',
+  ONBOARDING: '__primary__',
   APPLICATION: 'bg-amber-50 text-amber-700',
 };
 
@@ -288,7 +288,7 @@ function AddContactModal({
       >
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <UserPlus size={18} className="text-brand-600" />
+            <UserPlus size={18} style={{ color: 'var(--primary-color)' }} />
             <h2 className="text-base font-semibold text-gray-800">Add Contact</h2>
           </div>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close">
@@ -414,7 +414,7 @@ function EditContactModal({
       >
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Edit2 size={18} className="text-brand-600" />
+            <Edit2 size={18} style={{ color: 'var(--primary-color)' }} />
             <h2 className="text-base font-semibold text-gray-800">Edit Contact</h2>
           </div>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close">
@@ -691,7 +691,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
               {leftTab === 'contacts' ? (
                 <button
                   onClick={() => setShowAddContact(true)}
-                  className="w-8 h-8 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors flex items-center justify-center"
+                  className="w-8 h-8 rounded-lg transition-colors flex items-center justify-center" style={{ background: 'var(--primary-color)' }}
                   aria-label="Add contact" title="Add Contact"
                 >
                   <UserPlus size={15} className="text-white" />
@@ -699,7 +699,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
               ) : leftTab === 'groups' ? null : (
                 <button
                   onClick={() => { setShowNewChat(true); setSelectedChat(null); }}
-                  className="w-8 h-8 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors flex items-center justify-center"
+                  className="w-8 h-8 rounded-lg transition-colors flex items-center justify-center" style={{ background: 'var(--primary-color)' }}
                   aria-label="New chat" title="New Chat"
                 >
                   <Plus size={16} className="text-white" />
@@ -713,7 +713,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder={leftTab === 'chats' ? 'Search chats...' : leftTab === 'contacts' ? 'Search contacts...' : 'Search groups...'}
-              className="w-full text-xs bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-300"
+              className="w-full text-xs bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none"
               aria-label="Search"
             />
           </div>
@@ -736,7 +736,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
                     : 'All WhatsApp 1-to-1 conversations appear here. Groups are in the Groups tab.'
                   : undefined}
                 action={!searchQuery && !isSyncing ? (
-                  <button onClick={() => refetchChats()} className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto">
+                  <button onClick={() => refetchChats()} className="text-xs font-medium mt-2 flex items-center gap-1 mx-auto" style={{ color: 'var(--primary-color)' }}>
                     <RefreshCw size={12} /> Refresh
                   </button>
                 ) : undefined}
@@ -837,7 +837,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
                     action={!searchQuery ? (
                       <button
                         onClick={() => setShowAddContact(true)}
-                        className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto"
+                        className="text-xs font-medium mt-2 flex items-center gap-1 mx-auto" style={{ color: 'var(--primary-color)' }}
                       >
                         <UserPlus size={12} /> Add Contact
                       </button>
@@ -950,9 +950,9 @@ const ChatListItem = memo(function ChatListItem({
       onClick={onClick}
       role="listitem"
       className={cn(
-        'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
-        isSelected && 'bg-brand-50 hover:bg-brand-50'
+        'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50'
       )}
+      style={isSelected ? { background: 'var(--primary-highlighted-color)' } : {}}
     >
       <div className={cn('w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0', chat.isGroup ? 'bg-indigo-100' : 'bg-green-100')}>
         {chat.profilePicUrl ? (
@@ -1001,16 +1001,18 @@ const DbContactListItem = memo(function DbContactListItem({
   const [showActions, setShowActions] = useState(false);
   const initials = contact.name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
   const sourceLabel = SOURCE_LABELS[contact.source] || contact.source;
-  const sourceColor = SOURCE_COLORS[contact.source] || 'bg-gray-100 text-gray-600';
+  const sourceColorRaw = SOURCE_COLORS[contact.source] || 'bg-gray-100 text-gray-600';
+  const sourceColor = sourceColorRaw === '__primary__' ? '' : sourceColorRaw;
+  const sourceColorStyle = sourceColorRaw === '__primary__' ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : {};
 
   return (
     <div
       role="listitem"
       className={cn(
         'group relative flex items-center gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer',
-        isSelected && 'bg-brand-50 hover:bg-brand-50',
         isResolving && 'opacity-60'
       )}
+      style={isSelected ? { background: 'var(--primary-highlighted-color)' } : {}}
       onClick={onClick}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
@@ -1020,7 +1022,7 @@ const DbContactListItem = memo(function DbContactListItem({
         contact.hasChat ? 'bg-green-100' : 'bg-blue-100'
       )}>
         {isResolving ? (
-          <Loader2 size={14} className="text-brand-600 animate-spin" />
+          <Loader2 size={14} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
         ) : (
           <span className={cn('text-sm font-bold', contact.hasChat ? 'text-green-700' : 'text-blue-700')}>
             {initials}
@@ -1051,11 +1053,13 @@ const DbContactListItem = memo(function DbContactListItem({
           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
             <button
               onClick={onEdit}
-              className="p-1.5 rounded-lg hover:bg-brand-100 transition-colors"
+              className="p-1.5 rounded-lg transition-colors"
               aria-label="Edit contact"
               title="Edit"
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')}
+              onMouseLeave={e => (e.currentTarget.style.background = '')}
             >
-              <Edit2 size={13} className="text-brand-600" />
+              <Edit2 size={13} style={{ color: 'var(--primary-color)' }} />
             </button>
             <button
               onClick={onDelete}
@@ -1067,7 +1071,7 @@ const DbContactListItem = memo(function DbContactListItem({
             </button>
           </div>
         ) : (
-          <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full', sourceColor)}>
+          <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full', sourceColor)} style={sourceColorStyle}>
             {sourceLabel}
           </span>
         )}
@@ -1096,9 +1100,9 @@ const LiveContactListItem = memo(function LiveContactListItem({
     <button
       role="listitem"
       className={cn(
-        'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
-        isSelected && 'bg-brand-50 hover:bg-brand-50'
+        'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50'
       )}
+      style={isSelected ? { background: 'var(--primary-highlighted-color)' } : {}}
       onClick={onClick}
     >
       <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
@@ -1135,7 +1139,7 @@ function EmptyState({
 
 function LoadingBanner({ text }: { text: string }) {
   return (
-    <div className="px-4 py-1.5 bg-brand-50 text-brand-600 text-[10px] font-medium flex items-center gap-1.5">
+    <div className="px-4 py-1.5 text-[10px] font-medium flex items-center gap-1.5" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
       <Loader2 size={10} className="animate-spin" /> {text}
     </div>
   );
@@ -1188,7 +1192,10 @@ function ContactInfoPanel({
             <span className="text-[10px] px-2 py-0.5 rounded-full mt-1 bg-indigo-50 text-indigo-700">Group</span>
           )}
           {!isGroup && matchedContact && (
-            <span className={cn('text-[10px] px-2 py-0.5 rounded-full mt-1', SOURCE_COLORS[matchedContact.source] || 'bg-gray-100 text-gray-600')}>
+            <span
+              className={cn('text-[10px] px-2 py-0.5 rounded-full mt-1', (SOURCE_COLORS[matchedContact.source] || 'bg-gray-100 text-gray-600') === '__primary__' ? '' : (SOURCE_COLORS[matchedContact.source] || 'bg-gray-100 text-gray-600'))}
+              style={SOURCE_COLORS[matchedContact.source] === '__primary__' ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : {}}
+            >
               {SOURCE_LABELS[matchedContact.source] || matchedContact.source}
             </span>
           )}
@@ -1228,7 +1235,7 @@ function ContactInfoPanel({
         <div className="px-4 py-4">
           <a
             href={`/employees?search=${encodeURIComponent(phoneNumber)}`}
-            className="flex items-center gap-2 px-4 py-2.5 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition-colors text-sm font-medium w-full justify-center"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors text-sm font-medium w-full justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')} onMouseLeave={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')}
           >
             <ExternalLink size={14} /> View Employee Profile
           </a>
@@ -1436,11 +1443,12 @@ function ChatView({
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setShowSearch(s => !s)}
-            className={cn('p-2 rounded-lg hover:bg-gray-200 transition-colors', showSearch && 'bg-brand-100')}
+            className={cn('p-2 rounded-lg hover:bg-gray-200 transition-colors')}
+            style={showSearch ? { background: 'var(--primary-highlighted-color)' } : {}}
             aria-label="Search messages"
             title="Search messages"
           >
-            <Search size={16} className={showSearch ? 'text-brand-600' : 'text-gray-500'} />
+            <Search size={16} className={showSearch ? '' : 'text-gray-500'} style={showSearch ? { color: 'var(--primary-color)' } : {}} />
           </button>
           <button
             onClick={() => refetch()}
@@ -1473,7 +1481,8 @@ function ChatView({
               <button
                 onClick={handleSearch}
                 disabled={chatSearch.trim().length < 2}
-                className="text-xs text-brand-600 font-medium disabled:opacity-40"
+                className="text-xs font-medium disabled:opacity-40"
+                style={{ color: 'var(--primary-color)' }}
               >
                 Search
               </button>
@@ -1532,7 +1541,8 @@ function ChatView({
             </p>
             <button
               onClick={() => refetch()}
-              className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+              className="text-xs font-medium flex items-center gap-1"
+              style={{ color: 'var(--primary-color)' }}
             >
               <RefreshCw size={12} /> Try again
             </button>
@@ -1554,7 +1564,7 @@ function ChatView({
                 </p>
                 <button
                   onClick={() => refetch()}
-                  className="mt-3 text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                  className="mt-3 text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}
                 >
                   <RefreshCw size={12} /> Try loading again
                 </button>
@@ -1662,8 +1672,8 @@ const MessageBubble = memo(function MessageBubble({
         {icon}
         <span>{label}</span>
         {isDownloading
-          ? <Loader2 size={12} className="ml-auto animate-spin text-brand-600" />
-          : <Download size={12} className="ml-auto text-brand-600" />}
+          ? <Loader2 size={12} className="ml-auto animate-spin" style={{ color: 'var(--primary-color)' }} />
+          : <Download size={12} className="ml-auto" style={{ color: 'var(--primary-color)' }} />}
       </button>
     );
 
@@ -1672,7 +1682,7 @@ const MessageBubble = memo(function MessageBubble({
       <a
         href={url}
         download={filename || 'whatsapp-media'}
-        className="flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-700 mt-1 w-fit"
+        className="flex items-center gap-1 text-[10px] mt-1 w-fit" style={{ color: 'var(--primary-color)' }}
         onClick={e => e.stopPropagation()}
       >
         <Download size={10} />Save
@@ -1702,9 +1712,9 @@ const MessageBubble = memo(function MessageBubble({
             className="mb-1 flex items-center gap-2 text-xs bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors"
             onClick={e => e.stopPropagation()}
           >
-            <FileText size={14} className="text-brand-600 flex-shrink-0" />
+            <FileText size={14} className="flex-shrink-0" style={{ color: 'var(--primary-color)' }} />
             <span className="truncate text-gray-700">{msg.mediaFilename || 'Document'}</span>
-            <Download size={12} className="ml-auto text-brand-600 flex-shrink-0" />
+            <Download size={12} className="ml-auto flex-shrink-0" style={{ color: 'var(--primary-color)' }} />
           </a>
         );
       }

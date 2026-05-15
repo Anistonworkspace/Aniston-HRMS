@@ -97,7 +97,7 @@ export default function ExceptionsTab({ selectedDate }: ExceptionsTabProps) {
         <div className="space-y-2">
           {anomalies.map((a: any) => (
             <div key={a.id} className="layer-card p-3 flex items-start gap-3 hover:shadow-sm transition-shadow">
-              <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-[10px] font-semibold text-brand-700 flex-shrink-0">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                 {getInitials(a.employee?.firstName, a.employee?.lastName)}
               </div>
               <div className="flex-1 min-w-0">

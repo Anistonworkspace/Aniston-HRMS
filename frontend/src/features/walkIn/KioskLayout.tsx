@@ -8,7 +8,7 @@ export default function KioskLayout() {
       <header className="bg-white/80 backdrop-blur-lg border-b border-gray-100 px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-brand-600 to-brand-700 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary-color)' }}>
               <span className="text-white font-bold text-lg font-display">A</span>
             </div>
             <div>

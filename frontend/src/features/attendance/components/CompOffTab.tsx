@@ -115,10 +115,10 @@ export function CompOffTab() {
       {/* My Credits */}
       <div className="layer-card p-4 md:p-6">
         <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <Gift size={16} className="text-brand-500" /> My Comp-Off Credits
+          <Gift size={16} style={{ color: 'var(--primary-color)' }} /> My Comp-Off Credits
         </h3>
         {creditsLoading ? (
-          <div className="flex items-center justify-center py-8"><Loader2 size={20} className="animate-spin text-brand-500" /></div>
+          <div className="flex items-center justify-center py-8"><Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
         ) : myCredits.length === 0 ? (
           <p className="text-sm text-gray-400 py-6 text-center">No comp-off credits yet. Work on a weekly off-day to earn one.</p>
         ) : (
@@ -168,7 +168,7 @@ export function CompOffTab() {
             </button>
           </div>
           {orgLoading ? (
-            <div className="flex items-center justify-center py-8"><Loader2 size={20} className="animate-spin text-brand-500" /></div>
+            <div className="flex items-center justify-center py-8"><Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
           ) : orgCredits.length === 0 ? (
             <p className="text-sm text-gray-400 py-6 text-center">No comp-off credits in the org yet.</p>
           ) : (

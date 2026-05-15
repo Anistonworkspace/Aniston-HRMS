@@ -136,20 +136,32 @@ export default function Sidebar() {
   return (
     <>
     <motion.aside
-      animate={{ width: collapsed ? 72 : 260 }}
-      transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="hidden md:flex flex-col bg-white border-r border-gray-200 h-full z-40"
+      animate={{ width: collapsed ? 60 : 230 }}
+      transition={{ duration: 0.15, ease: [0, 0, 0.35, 1] }}
+      className="hidden md:flex flex-col h-full z-40"
+      style={{
+        background: 'var(--primary-background-color)',
+        borderRight: '1px solid var(--layout-border-color)',
+      }}
     >
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-100">
-        <img src="/logo.png" alt="Aniston" className="flex-shrink-0 w-9 h-9 object-contain" />
+      {/* Logo — 48px to match topbar */}
+      <div
+        className="flex items-center gap-2.5 px-3 shrink-0"
+        style={{
+          height: '48px',
+          borderBottom: '1px solid var(--layout-border-color)',
+        }}
+      >
+        <img src="/logo.png" alt="Aniston" className="flex-shrink-0 w-8 h-8 object-contain" />
         <AnimatePresence>
           {!collapsed && (
             <motion.span
-              initial={{ opacity: 0, x: -10 }}
+              initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              className="text-gray-900 font-display font-semibold text-lg whitespace-nowrap"
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.1, ease: [0, 0, 0.35, 1] }}
+              className="whitespace-nowrap font-semibold text-base"
+              style={{ color: 'var(--primary-text-color)', fontFamily: 'var(--title-font-family)' }}
             >
               Aniston
             </motion.span>
@@ -158,7 +170,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto custom-scrollbar py-4 px-2 space-y-1">
+      <nav className="flex-1 overflow-y-auto custom-scrollbar py-2 px-2 space-y-0.5">
         {filteredItems.map((item) => {
           const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
           const label = isManagement && item.managementNameKey ? t(item.managementNameKey) : t(item.nameKey);
@@ -166,22 +178,29 @@ export default function Sidebar() {
             <NavLink
               key={item.path}
               to={item.path}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative',
-                isActive
-                  ? 'bg-brand-50 text-brand-700 font-medium'
-                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
-              )}
+              className={cn('flex items-center gap-2.5 px-2 transition-all group relative', collapsed ? 'justify-center' : '')}
+              style={{
+                height: '36px',
+                borderRadius: 'var(--border-radius-small)',
+                background: isActive ? 'var(--primary-selected-color)' : 'transparent',
+                color: isActive ? 'var(--primary-color)' : 'var(--secondary-text-color)',
+                fontWeight: isActive ? 600 : 400,
+              }}
+              onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--primary-background-hover-color)'; if (!isActive) e.currentTarget.style.color = 'var(--primary-text-color)'; }}
+              onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; if (!isActive) e.currentTarget.style.color = 'var(--secondary-text-color)'; }}
             >
               {isActive && (
                 <motion.div
-                  layoutId="sidebar-active"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-brand-600 rounded-r-full"
+                  layoutId="sidebar-active-indicator"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full"
+                  style={{ width: '3px', height: '20px', background: 'var(--primary-color)' }}
+                  transition={{ duration: 0.15, ease: [0, 0, 0.35, 1] }}
                 />
               )}
               <item.icon
-                size={20}
-                className={cn('flex-shrink-0', isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-600')}
+                size={18}
+                className="flex-shrink-0"
+                style={{ color: isActive ? 'var(--primary-color)' : 'var(--icon-color)' }}
               />
               <AnimatePresence>
                 {!collapsed && (
@@ -189,20 +208,33 @@ export default function Sidebar() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="text-sm whitespace-nowrap flex-1"
+                    transition={{ duration: 0.1 }}
+                    className="whitespace-nowrap flex-1 text-sm"
                   >
                     {label}
                   </motion.span>
                 )}
               </AnimatePresence>
               {item.path === '/whatsapp' && whatsAppUnreadCount > 0 && (
-                <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
+                <span
+                  className="w-4 h-4 text-white text-[9px] flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'var(--positive-color)', borderRadius: '50%' }}
+                >
                   {whatsAppUnreadCount > 99 ? '99+' : whatsAppUnreadCount}
                 </span>
               )}
               {/* Tooltip — only shown when sidebar is collapsed */}
               {collapsed && (
-                <span className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-lg">
+                <span
+                  className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity px-2.5 py-1.5"
+                  style={{
+                    background: 'var(--inverted-color-background)',
+                    color: 'var(--text-color-on-inverted)',
+                    borderRadius: 'var(--border-radius-small)',
+                    boxShadow: 'var(--box-shadow-medium)',
+                    transitionDuration: 'var(--motion-productive-medium)',
+                  }}
+                >
                   {label}
                 </span>
               )}
@@ -217,15 +249,26 @@ export default function Sidebar() {
       )}
 
       {/* Logout + Collapse */}
-      <div className="px-2 py-3 border-t border-gray-100 space-y-1">
+      <div
+        className="px-2 py-2 space-y-0.5"
+        style={{ borderTop: '1px solid var(--layout-border-color)' }}
+      >
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-all"
+          className="w-full flex items-center gap-2.5 px-2 transition-all"
+          style={{
+            height: '36px',
+            borderRadius: 'var(--border-radius-small)',
+            color: 'var(--negative-color)',
+            background: 'transparent',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--negative-color-selected)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
         >
-          <LogOut size={18} className="flex-shrink-0" />
+          <LogOut size={17} className="flex-shrink-0" />
           <AnimatePresence>
             {!collapsed && (
-              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs font-medium">
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} className="text-xs font-medium">
                 {t('nav.logout')}
               </motion.span>
             )}
@@ -233,12 +276,20 @@ export default function Sidebar() {
         </button>
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-all"
+          className="w-full flex items-center justify-center gap-2 px-2 transition-all"
+          style={{
+            height: '32px',
+            borderRadius: 'var(--border-radius-small)',
+            color: 'var(--secondary-text-color)',
+            background: 'transparent',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-background-hover-color)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
         >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           <AnimatePresence>
             {!collapsed && (
-              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs">
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} className="text-xs">
                 {t('nav.collapse')}
               </motion.span>
             )}
@@ -275,37 +326,44 @@ function ProfileCompletionBar({ collapsed }: { collapsed: boolean }) {
 
   if (!employee || completionPct === 100) return null;
 
-  const barColor = completionPct >= 60 ? 'bg-emerald-500' : completionPct >= 40 ? 'bg-amber-500' : 'bg-red-500';
+  const progressColor = completionPct >= 60 ? 'var(--positive-color)' : completionPct >= 40 ? 'var(--warning-color-hover)' : 'var(--negative-color)';
 
   return (
     <div
-      className="mx-2 mb-1 px-3 py-2.5 rounded-lg bg-gray-50 border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
+      className="mx-2 mb-1 px-3 py-2 cursor-pointer transition-colors"
+      style={{
+        borderRadius: 'var(--border-radius-small)',
+        background: 'var(--allgrey-background-color)',
+        border: '1px solid var(--layout-border-color)',
+      }}
       onClick={() => navigate('/profile')}
       title={t('sidebar.profileCompletion')}
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-background-hover-color)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'var(--allgrey-background-color)')}
     >
       {collapsed ? (
         <div className="flex items-center justify-center">
-          <div className="relative w-8 h-8">
-            <svg className="w-8 h-8 -rotate-90" viewBox="0 0 32 32">
-              <circle cx="16" cy="16" r="13" fill="none" stroke="#e5e7eb" strokeWidth="3" />
+          <div className="relative w-7 h-7">
+            <svg className="w-7 h-7 -rotate-90" viewBox="0 0 32 32">
+              <circle cx="16" cy="16" r="13" fill="none" stroke="var(--ui-background-color)" strokeWidth="3" />
               <circle
-                cx="16" cy="16" r="13" fill="none" stroke={completionPct >= 60 ? '#22c55e' : completionPct >= 40 ? '#f59e0b' : '#ef4444'}
+                cx="16" cy="16" r="13" fill="none" stroke={progressColor}
                 strokeWidth="3" strokeDasharray={`${(completionPct / 100) * 81.68} 81.68`} strokeLinecap="round"
               />
             </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold text-gray-600">{completionPct}%</span>
+            <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold" style={{ color: 'var(--secondary-text-color)' }}>{completionPct}%</span>
           </div>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] font-semibold text-gray-600">{t('sidebar.profileCompletion')}</span>
-            <span className="text-[10px] font-mono text-gray-400" data-mono>{completedCount}/{totalCount}</span>
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--secondary-text-color)' }}>{t('sidebar.profileCompletion')}</span>
+            <span className="text-[10px] font-mono" style={{ color: 'var(--icon-color)' }} data-mono>{completedCount}/{totalCount}</span>
           </div>
-          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-            <div className={`h-full ${barColor} rounded-full transition-all duration-500`} style={{ width: `${completionPct}%` }} />
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--ui-background-color)' }}>
+            <div className="h-full rounded-full transition-all" style={{ width: `${completionPct}%`, background: progressColor, transitionDuration: 'var(--motion-expressive-short)' }} />
           </div>
-          <p className="text-[10px] text-gray-400 mt-1">{completionPct}% {t('sidebar.complete')}</p>
+          <p className="text-[10px] mt-1" style={{ color: 'var(--icon-color)' }}>{completionPct}% {t('sidebar.complete')}</p>
         </>
       )}
     </div>

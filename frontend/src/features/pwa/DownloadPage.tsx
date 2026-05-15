@@ -55,9 +55,10 @@ function DownloadButton({ href, icon, platform, subtitle, highlighted, download 
       whileTap={{ scale: 0.97 }}
       className={`flex items-center gap-4 w-full px-5 py-4 rounded-2xl border-2 transition-all
         ${highlighted
-          ? 'bg-brand-600 border-brand-600 text-white shadow-lg shadow-brand-200'
-          : 'bg-white border-gray-200 text-gray-800 hover:border-brand-300 hover:shadow-md'
+          ? 'text-white shadow-lg'
+          : 'bg-white border-gray-200 text-gray-800 hover:border-gray-300 hover:shadow-md'
         }`}
+      style={highlighted ? { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } : undefined}
     >
       <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
         ${highlighted ? 'bg-white/20' : 'bg-gray-50'}`}>
@@ -90,7 +91,7 @@ export default function DownloadPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-gradient-to-br from-brand-50 via-white to-indigo-50 flex flex-col overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col overflow-y-auto">
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-10">
 
         {/* Logo */}
@@ -99,7 +100,7 @@ export default function DownloadPage() {
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center gap-3 mb-10"
         >
-          <div className="w-14 h-14 bg-gradient-to-br from-brand-600 to-brand-700 rounded-2xl flex items-center justify-center shadow-lg shadow-brand-200">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg" style={{ background: 'var(--primary-color)' }}>
             <span className="text-white font-bold text-2xl font-display">A</span>
           </div>
           <div>
@@ -116,8 +117,8 @@ export default function DownloadPage() {
         >
           {/* Card */}
           <div className="bg-white/85 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 p-7">
-            <div className="w-16 h-16 bg-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-5">
-              <Smartphone size={32} className="text-brand-600" />
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5" style={{ background: 'var(--primary-highlighted-color)' }}>
+              <Smartphone size={32} style={{ color: 'var(--primary-color)' }} />
             </div>
 
             <h2 className="text-2xl font-display font-bold text-gray-900 text-center mb-1">
@@ -129,7 +130,7 @@ export default function DownloadPage() {
 
             {/* OS label */}
             {(isAndroid || isIOS) && (
-              <p className="text-xs text-brand-600 font-semibold text-center mb-3 uppercase tracking-wide">
+              <p className="text-xs font-semibold text-center mb-3 uppercase tracking-wide" style={{ color: 'var(--primary-color)' }}>
                 {isAndroid ? 'Android detected — recommended:' : 'iPhone / iPad detected — recommended:'}
               </p>
             )}
@@ -155,7 +156,7 @@ export default function DownloadPage() {
             <div className="mt-5 pt-5 border-t border-gray-100 text-center">
               <a
                 href="/login"
-                className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors"
+                className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <ExternalLink size={13} />
                 Continue in browser instead

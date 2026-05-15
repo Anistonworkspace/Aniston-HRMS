@@ -138,7 +138,7 @@ export default function ActivityTrackingPage() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900 flex items-center gap-2">
-            <Monitor size={24} className="text-brand-600" />
+            <Monitor size={24} style={{ color: 'var(--primary-color)' }} />
             Activity Tracking
           </h1>
           <p className="text-gray-500 text-sm mt-0.5">Desktop agent monitoring — keystrokes, apps, screenshots & productivity</p>
@@ -201,14 +201,14 @@ export default function ActivityTrackingPage() {
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Search by name, code, dept…"
-                className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-300" />
+                className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none" />
             </div>
             <p className="text-[10px] text-gray-400 mt-1.5">{filteredEmployees.length} employees shown</p>
           </div>
           <div className="flex-1 overflow-y-auto">
             {loadingEmps ? (
               <div className="flex items-center justify-center py-12">
-                <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
               </div>
             ) : filteredEmployees.length === 0 ? (
               <p className="text-center text-gray-400 text-xs py-8">No employees found</p>
@@ -293,8 +293,10 @@ function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveCon
     <button onClick={onClick}
       className={cn(
         'w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-gray-50',
-        isSelected ? 'bg-brand-50 border-l-2 border-l-brand-500' : 'hover:bg-gray-50'
-      )}>
+        isSelected ? 'border-l-2' : 'hover:bg-gray-50'
+      )}
+      style={isSelected ? { background: 'var(--primary-highlighted-color)', borderLeftColor: 'var(--primary-color)' } : {}}
+      >
       {/* Avatar */}
       <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
         hasActivity ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')}>
@@ -398,7 +400,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
       <div className="layer-card p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-lg font-bold flex-shrink-0">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
               {getInitials(employee.firstName, employee.lastName)}
             </div>
             <div className="min-w-0">
@@ -458,7 +460,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
               <tab.icon size={13} className={viewMode === tab.key && tab.live ? 'animate-pulse' : ''} />
               {tab.label}
               {'badge' in tab && tab.badge != null && tab.badge > 0 && (
-                <span className="text-[9px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-semibold">{tab.badge}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{tab.badge}</span>
               )}
             </button>
           ))}
@@ -500,7 +502,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
       {/* ── Loading ── */}
       {!dateExpired && viewMode !== 'live' && loadingActivity && (
         <div className="layer-card p-10 text-center">
-          <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
           <p className="text-sm text-gray-400 mt-2">Loading activity data…</p>
         </div>
       )}
@@ -564,15 +566,15 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
             <div className="layer-card p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Camera size={14} className="text-brand-500" /> Recent Screenshots
+                  <Camera size={14} style={{ color: 'var(--primary-color)' }} /> Recent Screenshots
                   <span className="text-xs text-gray-400 font-normal">({screenshots.length} total)</span>
                 </h3>
                 <button onClick={() => setViewMode('screenshots')}
-                  className="text-[11px] text-brand-600 hover:underline">View all</button>
+                  className="text-[11px] hover:underline" style={{ color: 'var(--primary-color)' }}>View all</button>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 {[...screenshots].reverse().slice(0, 4).map((s: any) => (
-                  <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:border-brand-300 hover:shadow-md transition-all"
+                  <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:shadow-md transition-all" onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.borderColor = '')}
                     onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}>
                     <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'} className="w-full h-24 object-cover" loading="lazy" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -698,7 +700,7 @@ function ProductivityBreakdownBar({ productiveMinutes, unproductiveMinutes, tota
     <div className="layer-card p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-          <BarChart2 size={14} className="text-brand-500" /> Productivity Breakdown
+          <BarChart2 size={14} style={{ color: 'var(--primary-color)' }} /> Productivity Breakdown
           <span className="text-[10px] text-gray-400 font-normal">— what this employee did today</span>
         </h3>
         <div className="flex items-center gap-3 text-[10px]">
@@ -770,7 +772,7 @@ function AppDrilldown({ topApps, logs }: { topApps: any[]; logs: any[] }) {
   return (
     <div className="layer-card p-4">
       <h3 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
-        <Activity size={14} className="text-brand-500" /> Top Applications
+        <Activity size={14} style={{ color: 'var(--primary-color)' }} /> Top Applications
       </h3>
       <p className="text-[10px] text-gray-400 mb-3">Click any app to see individual sessions with timestamps and keystrokes</p>
       <div className="space-y-1.5">
@@ -870,7 +872,7 @@ function ActivityTimeline({ logs }: { logs: any[] }) {
     <div className="layer-card p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-          <List size={14} className="text-brand-500" /> Activity Timeline
+          <List size={14} style={{ color: 'var(--primary-color)' }} /> Activity Timeline
           <span className="text-[10px] text-gray-400 font-normal">— most recent first</span>
         </h3>
         <div className="flex items-center gap-3 text-[10px] text-gray-400">
@@ -921,7 +923,10 @@ function ActivityTimeline({ logs }: { logs: any[] }) {
 
       {logs.length > 60 && !showAll && (
         <button onClick={() => setShowAll(true)}
-          className="mt-3 w-full py-2 text-xs font-medium text-brand-600 bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors">
+          className="mt-3 w-full py-2 text-xs font-medium rounded-lg border transition-colors"
+          style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')}>
           Show all {logs.length} entries ({logs.length - 60} more)
         </button>
       )}
@@ -975,7 +980,7 @@ function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotCl
           </div>
           <div className="flex items-center gap-2">
             <select value={interval} onChange={e => setInterval_(Number(e.target.value))}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-300">
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none">
               <option value={10}>Every 10s</option>
               <option value={30}>Every 30s</option>
               <option value={60}>Every 60s</option>
@@ -1048,8 +1053,10 @@ function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotCl
           <Eye size={12} /> Latest Screenshot
         </h4>
         {latestScreenshot ? (
-          <div className="relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:border-brand-300 transition-colors"
-            onClick={() => onScreenshotClick(`${API_BASE}${latestScreenshot.imageUrl}`)}>
+          <div className="relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 transition-colors"
+            onClick={() => onScreenshotClick(`${API_BASE}${latestScreenshot.imageUrl}`)}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
             <img src={`${API_BASE}${latestScreenshot.imageUrl}`} alt="Latest screenshot"
               className="w-full h-auto max-h-96 object-contain bg-gray-900" />
             <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
@@ -1310,10 +1317,10 @@ function ScreenshotIntervalControl({ employeeId }: { employeeId: string }) {
 
   return (
     <div className="layer-card p-3 flex items-center gap-3">
-      <Camera size={14} className="text-brand-500 flex-shrink-0" />
+      <Camera size={14} style={{ color: 'var(--primary-color)' }} className="flex-shrink-0" />
       <span className="text-xs font-medium text-gray-700">Screenshot interval:</span>
       <select value={current} onChange={e => handleChange(Number(e.target.value))} disabled={isLoading}
-        className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-300 disabled:opacity-50">
+        className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none disabled:opacity-50">
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
       <span className="text-[10px] text-gray-400">Current: {options.find(o => o.value === current)?.label ?? `${current}s`}</span>
@@ -1383,7 +1390,7 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
     <div className="layer-card p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-          <Camera size={14} className="text-brand-500" />
+          <Camera size={14} style={{ color: 'var(--primary-color)' }} />
           Screenshots
           <span className="text-xs text-gray-400 font-normal">({loading ? '…' : screenshots.length} captured)</span>
         </h3>
@@ -1395,8 +1402,10 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
         <>
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {shown.map((s: any) => (
-              <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:border-brand-300 hover:shadow-md transition-all"
-                onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}>
+              <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:shadow-md transition-all"
+                onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
                 <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'} className="w-full h-28 object-cover" loading="lazy" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                   <Maximize2 size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -1410,7 +1419,10 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
           </div>
           {hasMore && (
             <button onClick={() => setVisible(v => v + SCREENSHOTS_PER_PAGE)}
-              className="mt-3 w-full py-2 text-xs font-medium text-brand-600 bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors">
+              className="mt-3 w-full py-2 text-xs font-medium rounded-lg border transition-colors"
+              style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
               Load more ({screenshots.length - visible} remaining)
             </button>
           )}

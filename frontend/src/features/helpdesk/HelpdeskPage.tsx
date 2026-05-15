@@ -125,7 +125,8 @@ function HelpdeskManagementView() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {Object.entries(stats).map(([status, count]) => (
           <button key={status} onClick={() => { setStatusFilter(statusFilter === status ? '' : status); setPage(1); }}
-            className={cn('stat-card text-center transition-all', statusFilter === status && 'ring-2 ring-brand-500')}>
+            className={cn('stat-card text-center transition-all')}
+            style={statusFilter === status ? { outline: '2px solid var(--primary-color)', outlineOffset: '0px' } : {}}>
             <p className="text-lg font-bold font-mono text-gray-900" data-mono>{count}</p>
             <p className="text-xs text-gray-500">{status.replace('_', ' ')}</p>
           </button>
@@ -176,7 +177,7 @@ function HelpdeskManagementView() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan={isSuperAdmin ? 8 : 6} className="text-center py-12">
-                  <Loader2 size={24} className="animate-spin mx-auto text-brand-500" />
+                  <Loader2 size={24} className="animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} />
                 </td></tr>
               ) : filteredTickets.length === 0 ? (
                 <tr><td colSpan={isSuperAdmin ? 8 : 6} className="text-center py-12">
@@ -192,7 +193,7 @@ function HelpdeskManagementView() {
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center text-brand-700 font-semibold text-[10px]">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center font-semibold text-[10px]" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                         {getInitials(ticket.employee?.firstName, ticket.employee?.lastName)}
                       </div>
                       <div>
@@ -329,7 +330,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
         role="dialog" aria-modal="true" aria-label="Ticket details"
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl">
         {isLoading || !ticket ? (
-          <div className="p-12 text-center"><Loader2 size={24} className="animate-spin mx-auto text-brand-500" /></div>
+          <div className="p-12 text-center"><Loader2 size={24} className="animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>
         ) : (
           <>
             <div className="flex items-start justify-between p-4 md:p-6 border-b border-gray-100">
@@ -464,7 +465,7 @@ function HelpdeskPersonalView() {
           <p className="text-gray-500 text-xs md:text-sm mt-0.5">Raise and track support tickets</p>
         </div>
         {perms.canRaiseHelpdeskTickets ? (
-          <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 transition-colors">
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
             <Plus size={14} /> Raise Ticket
           </button>
         ) : (

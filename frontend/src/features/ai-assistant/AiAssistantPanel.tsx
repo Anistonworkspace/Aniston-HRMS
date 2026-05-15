@@ -22,7 +22,8 @@ export default function AiAssistantFab({ context, label }: AiAssistantPanelProps
     <>
       {/* FAB button */}
       <button onClick={() => setOpen(!open)}
-        className="fixed bottom-24 right-6 z-40 w-14 h-14 rounded-full bg-brand-600 text-white shadow-lg hover:bg-brand-700 transition-all flex items-center justify-center group"
+        className="fixed bottom-24 right-6 z-40 w-14 h-14 rounded-full shadow-lg transition-all flex items-center justify-center group"
+        style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
         title="AI Assistant">
         <Sparkles size={22} className="group-hover:scale-110 transition-transform" />
       </button>
@@ -88,9 +89,9 @@ function AiAssistantPanel({ context, label, onClose }: AiAssistantPanelProps & {
       className="fixed bottom-44 right-6 z-[45] w-[420px] max-h-[600px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden"
     >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-brand-50 to-purple-50 flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles size={18} className="text-brand-600" />
+          <Sparkles size={18} style={{ color: 'var(--primary-color)' }} />
           <span className="text-sm font-semibold text-gray-800">{label}</span>
         </div>
         <div className="flex items-center gap-1">
@@ -107,7 +108,7 @@ function AiAssistantPanel({ context, label, onClose }: AiAssistantPanelProps & {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-[300px] max-h-[420px]">
         {messages.length === 0 ? (
           <div className="text-center py-8">
-            <Sparkles size={32} className="mx-auto text-brand-300 mb-3" />
+            <Sparkles size={32} className="mx-auto mb-3" style={{ color: 'var(--primary-color)', opacity: 0.5 }} />
             <p className="text-sm text-gray-500 mb-4">Ask me anything about your HRMS</p>
             <div className="space-y-2">
               {(context === 'admin' ? [
@@ -124,7 +125,7 @@ function AiAssistantPanel({ context, label, onClose }: AiAssistantPanelProps & {
                 'Upcoming holidays',
               ]).map((q, i) => (
                 <button key={i} onClick={() => handleSend(q)}
-                  className="w-full text-left text-xs px-3 py-2 bg-gray-50 rounded-lg text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+                  className="w-full text-left text-xs px-3 py-2 bg-gray-50 rounded-lg text-gray-600 transition-colors">
                   {q}
                 </button>
               ))}
@@ -136,9 +137,10 @@ function AiAssistantPanel({ context, label, onClose }: AiAssistantPanelProps & {
               <div className={cn(
                 'max-w-[85%] px-3 py-2 rounded-xl text-sm',
                 msg.role === 'user'
-                  ? 'bg-brand-600 text-white rounded-tr-none'
+                  ? 'rounded-tr-none'
                   : 'bg-gray-100 text-gray-800 rounded-tl-none'
-              )}>
+              )}
+              style={msg.role === 'user' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}>
                 <p className="whitespace-pre-wrap break-words">{msg.content}</p>
               </div>
             </div>
@@ -162,7 +164,8 @@ function AiAssistantPanel({ context, label, onClose }: AiAssistantPanelProps & {
           <div className="flex flex-wrap gap-1.5 pt-1">
             {suggestions.map((s, i) => (
               <button key={i} onClick={() => handleSend(s)}
-                className="text-xs px-2.5 py-1 bg-brand-50 text-brand-700 rounded-full hover:bg-brand-100 transition-colors">
+                className="text-xs px-2.5 py-1 rounded-full transition-colors"
+                style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                 {s}
               </button>
             ))}
@@ -178,10 +181,11 @@ function AiAssistantPanel({ context, label, onClose }: AiAssistantPanelProps & {
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
           placeholder="Ask something..."
           disabled={isLoading}
-          className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-full px-4 py-2 focus:outline-none focus:ring-1 focus:ring-brand-300"
+          className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-full px-4 py-2 focus:outline-none"
         />
         <button onClick={() => handleSend()} disabled={isLoading || !input.trim()}
-          className="w-9 h-9 rounded-full bg-brand-600 text-white flex items-center justify-center hover:bg-brand-700 transition-colors disabled:opacity-50">
+          className="w-9 h-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
+          style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
           {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
         </button>
       </div>

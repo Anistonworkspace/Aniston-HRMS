@@ -32,7 +32,8 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? 'bg-brand-600' : 'bg-gray-300'}`}
+      className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+      style={{ background: checked ? 'var(--primary-color)' : '#d1d5db' }}
     >
       <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
@@ -124,7 +125,7 @@ export default function LeaveSettingsTab() {
   };
 
   if (isLoading) {
-    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-brand-500" /></div>;
+    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>;
   }
 
   const APPLICABILITY_LABELS: Record<string, string> = {
@@ -157,10 +158,10 @@ export default function LeaveSettingsTab() {
 
       {/* Create / Edit Form */}
       {(showCreate || editingId) && (
-        <div className="bg-white border border-brand-200 rounded-2xl p-6 shadow-sm space-y-5">
+        <div className="bg-white border rounded-2xl p-6 shadow-sm space-y-5" style={{ borderColor: 'var(--ui-border-color)' }}>
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-              <CalendarDays size={16} className="text-brand-600" />
+              <CalendarDays size={16} style={{ color: 'var(--primary-color)' }} />
               {editingId ? 'Edit Leave Type' : 'Create Leave Type'}
             </h3>
             <button onClick={cancelEdit} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={16} /></button>
@@ -170,43 +171,43 @@ export default function LeaveSettingsTab() {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
               <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Sick Leave"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Code * <span className="text-gray-400 font-normal">(short, e.g. SL)</span></label>
               <input value={form.code} onChange={e => set('code', e.target.value.toUpperCase())} placeholder="SL"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Default Balance (days/year)</label>
               <input type="number" min={0} step={0.5} value={form.defaultBalance} onChange={e => set('defaultBalance', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Notice Days Required</label>
               <input type="number" min={0} value={form.noticeDays} onChange={e => set('noticeDays', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
               <p className="text-[11px] text-gray-400 mt-1">0 = can apply same day or day-of. 2 = must apply 2 days before.</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Min Days per Application</label>
               <input type="number" min={0.5} step={0.5} value={form.minDays} onChange={e => set('minDays', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Max Days per Application <span className="text-gray-400 font-normal">(leave blank = unlimited)</span></label>
               <input type="number" min={0.5} step={0.5} value={form.maxDays} onChange={e => set('maxDays', e.target.value)} placeholder="—"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Max Applications per Month <span className="text-gray-400 font-normal">(blank = unlimited)</span></label>
               <input type="number" min={1} value={form.maxPerMonth} onChange={e => set('maxPerMonth', e.target.value)} placeholder="—"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Applicable To</label>
               <select value={form.applicableTo} onChange={e => set('applicableTo', e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300">
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300">
                 <option value="ALL">All Employees</option>
                 <optgroup label="Active States">
                   <option value="ONBOARDING">Onboarding</option>
@@ -249,7 +250,7 @@ export default function LeaveSettingsTab() {
               <div className="bg-gray-50 rounded-xl px-4 py-3">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Max Carry Forward Days</label>
                 <input type="number" min={0} step={0.5} value={form.maxCarryForward} onChange={e => set('maxCarryForward', e.target.value)} placeholder="—"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
               </div>
             )}
           </div>
@@ -270,12 +271,12 @@ export default function LeaveSettingsTab() {
           <div className="text-center py-10 text-gray-400 text-sm">No leave types configured yet.</div>
         )}
         {leaveTypes.map((lt: any) => (
-          <div key={lt.id} className={`bg-white border rounded-2xl p-5 ${!lt.isActive ? 'opacity-60 border-gray-200' : 'border-gray-200 hover:border-brand-200'} transition-colors`}>
+          <div key={lt.id} className={`bg-white border border-gray-200 rounded-2xl p-5 transition-colors ${!lt.isActive ? 'opacity-60' : ''}`}>
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-gray-900 text-sm">{lt.name}</span>
-                  <span className="text-[11px] font-mono bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded">{lt.code}</span>
+                  <span className="text-[11px] font-mono px-1.5 py-0.5 rounded" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{lt.code}</span>
                   {lt.isPaid ? (
                     <span className="text-[11px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">Paid</span>
                   ) : (
@@ -297,7 +298,7 @@ export default function LeaveSettingsTab() {
                 <button
                   onClick={() => startEdit(lt)}
                   disabled={!!editingId || showCreate}
-                  className="p-2 hover:bg-brand-50 text-gray-400 hover:text-brand-600 rounded-lg transition-colors disabled:opacity-30"
+                  className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-30"
                   title="Edit"
                 >
                   <Edit2 size={15} />

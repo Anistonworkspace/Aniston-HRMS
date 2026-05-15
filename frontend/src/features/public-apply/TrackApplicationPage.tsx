@@ -48,7 +48,7 @@ export default function TrackApplicationPage() {
           <button onClick={handleSearch} className="btn-primary text-sm">Track</button>
         </div>
 
-        {isLoading && <div className="text-center py-8"><Loader2 className="animate-spin text-brand-600 mx-auto" size={32} /></div>}
+        {isLoading && <div className="text-center py-8"><Loader2 className="animate-spin mx-auto" size={32} style={{ color: 'var(--primary-color)' }} /></div>}
 
         {isError && searchUid && (
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
@@ -61,7 +61,7 @@ export default function TrackApplicationPage() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl shadow-lg p-6">
             <div className="mb-6">
               <p className="text-xs text-gray-400">Application</p>
-              <p className="text-xl font-mono font-bold text-brand-600">{app.uid}</p>
+              <p className="text-xl font-mono font-bold" style={{ color: 'var(--primary-color)' }}>{app.uid}</p>
               <p className="text-sm text-gray-600 mt-1">{app.name}</p>
               <p className="text-xs text-gray-400 flex items-center gap-1 mt-1">
                 <Briefcase size={12} /> {app.jobTitle} · Applied {new Date(app.appliedAt).toLocaleDateString('en-IN')}
@@ -93,8 +93,9 @@ export default function TrackApplicationPage() {
                   <div key={s} className="flex items-center gap-3">
                     <div className={cn(
                       'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0',
-                      i <= currentStepIndex ? 'bg-brand-600 text-white' : 'bg-gray-200 text-gray-400'
-                    )}>
+                      i <= currentStepIndex ? '' : 'bg-gray-200 text-gray-400'
+                    )}
+                    style={i <= currentStepIndex ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}>
                       {i < currentStepIndex ? <CheckCircle2 size={16} /> : <span className="text-xs font-bold">{i + 1}</span>}
                     </div>
                     <div>
@@ -102,7 +103,7 @@ export default function TrackApplicationPage() {
                         {STEP_LABELS[s]}
                       </p>
                       {s === 'INTERVIEW_SCHEDULED' && app.status === 'INTERVIEW_SCHEDULED' && app.interviewDate && (
-                        <p className="text-xs text-brand-600 flex items-center gap-1 mt-0.5">
+                        <p className="text-xs flex items-center gap-1 mt-0.5" style={{ color: 'var(--primary-color)' }}>
                           <Clock size={11} /> {new Date(app.interviewDate).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} at {new Date(app.interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                         </p>
                       )}

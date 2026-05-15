@@ -138,7 +138,7 @@ export default function PerformancePage() {
     return (
       <div className="page-container flex items-center justify-center min-h-[400px]">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--primary-color)' }} />
           <p className="text-sm text-gray-400">Loading performance data...</p>
         </div>
       </div>
@@ -251,9 +251,10 @@ export default function PerformancePage() {
             className={cn(
               'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
               activeTab === key
-                ? 'border-brand-600 text-brand-600'
+                ? 'border-transparent'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             )}
+            style={activeTab === key ? { borderBottomColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}
           >
             <Icon size={14} /> {label}
           </button>
@@ -482,23 +483,23 @@ function ScoreBreakdownCard({ label, score, icon, color }: {
   color: 'brand' | 'emerald' | 'blue' | 'amber';
 }) {
   const colorMap = {
-    brand: { bar: 'bg-brand-500', text: 'text-brand-600', bg: 'bg-brand-50' },
-    emerald: { bar: 'bg-emerald-500', text: 'text-emerald-600', bg: 'bg-emerald-50' },
-    blue: { bar: 'bg-blue-500', text: 'text-blue-600', bg: 'bg-blue-50' },
-    amber: { bar: 'bg-amber-500', text: 'text-amber-600', bg: 'bg-amber-50' },
+    brand: { bar: '', text: '', bg: '', isPrimary: true },
+    emerald: { bar: 'bg-emerald-500', text: 'text-emerald-600', bg: 'bg-emerald-50', isPrimary: false },
+    blue: { bar: 'bg-blue-500', text: 'text-blue-600', bg: 'bg-blue-50', isPrimary: false },
+    amber: { bar: 'bg-amber-500', text: 'text-amber-600', bg: 'bg-amber-50', isPrimary: false },
   };
   const c = colorMap[color];
   return (
-    <div className={cn('rounded-xl p-3', c.bg)}>
-      <div className={cn('flex items-center gap-1 text-xs font-medium mb-1.5', c.text)}>
+    <div className={cn('rounded-xl p-3', c.isPrimary ? '' : c.bg)} style={c.isPrimary ? { background: 'var(--primary-highlighted-color)' } : {}}>
+      <div className={cn('flex items-center gap-1 text-xs font-medium mb-1.5', c.isPrimary ? '' : c.text)} style={c.isPrimary ? { color: 'var(--primary-color)' } : {}}>
         {icon} {label}
       </div>
       <div className="flex items-end justify-between">
-        <span className={cn('text-xl font-bold font-mono', c.text)} data-mono>{score}</span>
+        <span className={cn('text-xl font-bold font-mono', c.isPrimary ? '' : c.text)} style={c.isPrimary ? { color: 'var(--primary-color)' } : {}} data-mono>{score}</span>
         <span className="text-[10px] text-gray-400">/100</span>
       </div>
       <div className="mt-1.5 h-1.5 bg-white/60 rounded-full overflow-hidden">
-        <div className={cn('h-full rounded-full transition-all duration-500', c.bar)} style={{ width: `${score}%` }} />
+        <div className={cn('h-full rounded-full transition-all duration-500', c.isPrimary ? '' : c.bar)} style={{ width: `${score}%`, ...(c.isPrimary ? { background: 'var(--primary-color)' } : {}) }} />
       </div>
     </div>
   );
@@ -519,7 +520,7 @@ function OverviewTab({ summary, goals, reviews, cycles }: any) {
       {/* Quick Stats Row */}
       <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-3">
         <QuickStatCard
-          icon={<Target size={18} className="text-brand-500" />}
+          icon={<Target size={18} style={{ color: 'var(--primary-color)' }} />}
           value={summary.goals.total}
           label="Total Goals"
           sub={`${summary.goals.completed} completed`}
@@ -551,7 +552,7 @@ function OverviewTab({ summary, goals, reviews, cycles }: any) {
       {/* Goals Summary */}
       <div className="layer-card p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-          <Target size={15} className="text-brand-500" /> Goals Progress
+          <Target size={15} style={{ color: 'var(--primary-color)' }} /> Goals Progress
         </h3>
         <div className="space-y-2">
           {[
@@ -681,14 +682,14 @@ function OverviewTab({ summary, goals, reviews, cycles }: any) {
               <div key={label}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs text-gray-500">{label}</span>
-                  <span className={cn('text-xs font-bold font-mono', highlight ? 'text-brand-600' : 'text-gray-700')} data-mono>
+                  <span className={cn('text-xs font-bold font-mono', highlight ? '' : 'text-gray-700')} style={highlight ? { color: 'var(--primary-color)' } : {}} data-mono>
                     {value}/5
                   </span>
                 </div>
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                   <div
-                    className={cn('h-full rounded-full', highlight ? 'bg-brand-500' : 'bg-amber-400')}
-                    style={{ width: `${((value as number) / 5) * 100}%` }}
+                    className={cn('h-full rounded-full', highlight ? '' : 'bg-amber-400')}
+                    style={{ width: `${((value as number) / 5) * 100}%`, ...(highlight ? { background: 'var(--primary-color)' } : {}) }}
                   />
                 </div>
               </div>
@@ -991,8 +992,9 @@ function GoalsTab({ goals, summary, onStatusChange }: { goals: any[]; summary: a
                       <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                         <div
                           className={cn('h-full rounded-full transition-all',
-                            goal.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-brand-500'
+                            goal.status === 'COMPLETED' ? 'bg-emerald-500' : ''
                           )}
+                          style={goal.status !== 'COMPLETED' ? { background: 'var(--primary-color)' } : {}}
                           style={{ width: `${progress}%` }}
                         />
                       </div>
@@ -1046,7 +1048,7 @@ function ReviewsTab({ reviews, cycles }: { reviews: any[]; cycles: any[] }) {
             {[
               { label: 'Self Rating', value: review.selfRating ? Number(review.selfRating) : null, color: 'bg-blue-400' },
               { label: 'Manager Rating', value: review.managerRating ? Number(review.managerRating) : null, color: 'bg-amber-400' },
-              { label: 'Overall Rating', value: review.overallRating ? Number(review.overallRating) : null, color: 'bg-brand-500' },
+              { label: 'Overall Rating', value: review.overallRating ? Number(review.overallRating) : null, color: 'primary' },
             ].map(({ label, value, color }) => value !== null && (
               <div key={label}>
                 <div className="flex items-center justify-between mb-0.5">
@@ -1057,7 +1059,7 @@ function ReviewsTab({ reviews, cycles }: { reviews: any[]; cycles: any[] }) {
                   </div>
                 </div>
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={cn('h-full rounded-full', color)} style={{ width: `${(value / 5) * 100}%` }} />
+                  <div className={cn('h-full rounded-full', color === 'primary' ? '' : color)} style={{ width: `${(value / 5) * 100}%`, ...(color === 'primary' ? { background: 'var(--primary-color)' } : {}) }} />
                 </div>
               </div>
             ))}

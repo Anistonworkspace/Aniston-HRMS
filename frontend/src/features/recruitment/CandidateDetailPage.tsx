@@ -46,7 +46,7 @@ export default function CandidateDetailPage() {
   const [showOfferForm, setShowOfferForm] = useState(false);
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-brand-600" /></div>;
+    return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>;
   }
 
   if (!app) {
@@ -100,8 +100,8 @@ export default function CandidateDetailPage() {
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="layer-card p-5 mb-6">
         <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-full bg-brand-50 flex items-center justify-center">
-            <span className="text-xl font-bold text-brand-600">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <span className="text-xl font-bold" style={{ color: 'var(--primary-color)' }}>
               {app.candidateName?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
             </span>
           </div>
@@ -129,7 +129,7 @@ export default function CandidateDetailPage() {
               </div>
             )}
             <button onClick={handleTriggerAI} disabled={isAIScoring}
-              className="text-xs text-brand-600 hover:underline mt-1">
+              className="text-xs hover:underline mt-1" style={{ color: 'var(--primary-color)' }}>
               {isAIScoring ? 'Scoring...' : 'Run AI Score'}
             </button>
           </div>
@@ -140,8 +140,8 @@ export default function CandidateDetailPage() {
       <div className="flex gap-1 mb-4 border-b border-gray-100">
         {TABS.map((tab, i) => (
           <button key={tab} onClick={() => setActiveTab(i)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
-              ${i === activeTab ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${i === activeTab ? '' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            style={i === activeTab ? { borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}>
             {tab}
           </button>
         ))}
@@ -160,7 +160,7 @@ export default function CandidateDetailPage() {
             </div>
             {app.resumeUrl && (
               <a href={app.resumeUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-brand-600 hover:underline">
+                className="inline-flex items-center gap-2 text-sm hover:underline" style={{ color: 'var(--primary-color)' }}>
                 <Download className="w-4 h-4" /> Download Resume
               </a>
             )}
@@ -182,7 +182,7 @@ export default function CandidateDetailPage() {
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-medium text-gray-900">Round {score.round}</h4>
                     {score.overallScore && (
-                      <span className="text-lg font-bold text-brand-600" data-mono>{Number(score.overallScore).toFixed(1)}/10</span>
+                      <span className="text-lg font-bold" style={{ color: 'var(--primary-color)' }} data-mono>{Number(score.overallScore).toFixed(1)}/10</span>
                     )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
@@ -337,7 +337,7 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
         <span className="font-mono text-gray-700" data-mono>{value.toFixed(1)}</span>
       </div>
       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full bg-brand-500 rounded-full" style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'var(--primary-color)' }} />
       </div>
     </div>
   );

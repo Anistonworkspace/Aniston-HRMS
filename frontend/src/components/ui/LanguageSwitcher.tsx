@@ -17,22 +17,32 @@ export default function LanguageSwitcher({ className }: LanguageSwitcherProps) {
     <button
       onClick={toggle}
       aria-label="Toggle language"
-      className={cn(
-        'inline-flex items-center h-8 rounded-full border border-gray-200 bg-gray-50 text-[11px] font-semibold overflow-hidden select-none',
-        className
-      )}
+      className={cn('inline-flex items-center h-8 text-[11px] font-semibold overflow-hidden select-none', className)}
+      style={{
+        borderRadius: '50px',
+        border: '1px solid var(--ui-border-color)',
+        background: 'var(--allgrey-background-color)',
+      }}
     >
-      <span className={cn(
-        'px-2.5 py-1 transition-colors rounded-l-full',
-        !isHindi ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700'
-      )}>
+      <span
+        className="px-2.5 py-1 transition-colors"
+        style={{
+          borderRadius: '50px 0 0 50px',
+          background: !isHindi ? 'var(--primary-color)' : 'transparent',
+          color: !isHindi ? 'var(--text-color-on-primary)' : 'var(--secondary-text-color)',
+        }}
+      >
         EN
       </span>
-      <span className="text-gray-300 text-xs">|</span>
-      <span className={cn(
-        'px-2.5 py-1 transition-colors rounded-r-full',
-        isHindi ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700'
-      )}>
+      <span style={{ color: 'var(--ui-border-color)', fontSize: '12px' }}>|</span>
+      <span
+        className="px-2.5 py-1 transition-colors"
+        style={{
+          borderRadius: '0 50px 50px 0',
+          background: isHindi ? 'var(--primary-color)' : 'transparent',
+          color: isHindi ? 'var(--text-color-on-primary)' : 'var(--secondary-text-color)',
+        }}
+      >
         हि
       </span>
     </button>

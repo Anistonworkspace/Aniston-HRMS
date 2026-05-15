@@ -23,7 +23,7 @@ const badgeClasses = {
 function DashboardSectionInner({
   title,
   icon: Icon,
-  iconColor = 'text-brand-500',
+  iconColor = '',
   badge,
   badgeVariant = 'info',
   headerAction,

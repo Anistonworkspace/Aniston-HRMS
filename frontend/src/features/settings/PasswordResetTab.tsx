@@ -79,7 +79,7 @@ export default function PasswordResetTab() {
       {/* Header */}
       <div>
         <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-          <KeyRound size={18} className="text-brand-600" />
+          <KeyRound size={18} style={{ color: 'var(--primary-color)' }} />
           Employee Password Reset
         </h2>
         <p className="text-sm text-gray-500 mt-1">
@@ -133,11 +133,11 @@ export default function PasswordResetTab() {
                 className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-100 rounded-xl hover:border-gray-200 transition-colors"
               >
                 {/* Avatar */}
-                <div className="w-9 h-9 rounded-full overflow-hidden bg-brand-100 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
                   {emp.avatar ? (
                     <img src={getUploadUrl(emp.avatar)} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-xs font-semibold text-brand-700">
+                    <span className="text-xs font-semibold" style={{ color: 'var(--primary-color)' }}>
                       {getInitials(`${emp.firstName} ${emp.lastName}`)}
                     </span>
                   )}
@@ -188,7 +188,7 @@ export default function PasswordResetTab() {
                     <button
                       onClick={() => handleResend(userId)}
                       title="Send another reset link"
-                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-brand-600 bg-gray-50 hover:bg-brand-50 px-2.5 py-1.5 rounded-lg transition-colors"
+                      className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2.5 py-1.5 rounded-lg transition-colors"
                     >
                       <RotateCcw size={11} />
                       Re-send
@@ -214,7 +214,7 @@ export default function PasswordResetTab() {
                 ) : (
                   <button
                     onClick={() => setConfirming(userId)}
-                    className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                    className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors shrink-0" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}
                   >
                     <KeyRound size={12} />
                     Reset Password

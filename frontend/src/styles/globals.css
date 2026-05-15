@@ -1,6 +1,183 @@
 /* Google Fonts are loaded via <link> in index.html (non-render-blocking).
    The @import was removed — CSS @import is synchronous and blocks FCP. */
 
+/* ===== Monday.com Design System — CSS Custom Properties ===== */
+:root {
+  /* Motion */
+  --motion-productive-short: 70ms;
+  --motion-productive-medium: 100ms;
+  --motion-productive-long: 150ms;
+  --motion-expressive-short: 250ms;
+  --motion-expressive-long: 400ms;
+  --motion-timing-enter: cubic-bezier(0, 0, 0.35, 1);
+  --motion-timing-exit: cubic-bezier(0.4, 0, 1, 1);
+  --motion-timing-transition: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-timing-emphasize: cubic-bezier(0, 0, 0.2, 1.4);
+
+  /* Spacing (4px grid) */
+  --space-2: 2px;  --space-4: 4px;  --space-8: 8px;  --space-12: 12px;
+  --space-16: 16px; --space-20: 20px; --space-24: 24px; --space-32: 32px;
+  --space-40: 40px; --space-48: 48px; --space-64: 64px; --space-80: 80px;
+
+  /* Border */
+  --border-width: 1px;
+  --border-style: solid;
+  --border-radius-small: 4px;
+  --border-radius-medium: 8px;
+  --border-radius-big: 16px;
+  --disabled-component-opacity: 0.38;
+
+  /* Z-index */
+  --modal-z-index: 10000;
+
+  /* Typography */
+  --font-family: Figtree, "DM Sans", Roboto, "Noto Sans Hebrew", "Noto Kufi Arabic", "Noto Sans JP", sans-serif;
+  --title-font-family: Poppins, Sora, Roboto, "Noto Sans Hebrew", "Noto Kufi Arabic", "Noto Sans JP", sans-serif;
+  --font-weight-very-light: 200;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-bold: 500;
+  --font-h1: 700 32px/40px var(--title-font-family);
+  --font-h2: 700 24px/30px var(--title-font-family);
+  --font-h3: 700 18px/24px var(--title-font-family);
+  --font-text1-normal: 400 16px/22px var(--font-family);
+  --font-text1-medium: 600 16px/22px var(--font-family);
+  --font-text1-bold:   700 16px/22px var(--font-family);
+  --font-text2-normal: 400 14px/20px var(--font-family);
+  --font-text2-medium: 600 14px/20px var(--font-family);
+  --font-text2-bold:   700 14px/20px var(--font-family);
+  --font-text3-normal: 400 12px/16px var(--font-family);
+  --font-text3-medium: 600 12px/16px var(--font-family);
+  --font-text3-bold:   700 12px/16px var(--font-family);
+
+  /* Primary / brand */
+  --primary-color: #0073ea;
+  --primary-hover-color: #0060b9;
+  --primary-selected-color: #cce5ff;
+  --primary-selected-hover-color: #aed4fc;
+  --primary-highlighted-color: #f0f7ff;
+  --primary-surface-color: #eceff8;
+  --brand-color: #0073ea;
+  --brand-hover-color: #0060b9;
+  --link-color: #1f76c2;
+
+  /* Text */
+  --primary-text-color: #323338;
+  --secondary-text-color: #676879;
+  --text-color-on-primary: #ffffff;
+  --text-color-on-inverted: #ffffff;
+  --disabled-text-color: rgba(50, 51, 56, 0.38);
+  --placeholder-color: #676879;
+  --icon-color: #676879;
+
+  /* Backgrounds & surfaces */
+  --primary-background-color: #ffffff;
+  --secondary-background-color: #ffffff;
+  --allgrey-background-color: #f6f7fb;
+  --grey-background-color: #f6f7fb;
+  --primary-background-hover-color: rgba(103, 104, 121, 0.1);
+  --disabled-background-color: #ecedf5;
+  --modal-background-color: #ffffff;
+  --dialog-background-color: #ffffff;
+  --backdrop-color: rgba(41, 47, 76, 0.7);
+  --inverted-color-background: #323338;
+
+  /* Borders */
+  --ui-border-color: #c3c6d4;
+  --layout-border-color: #d0d4e4;
+  --ui-background-color: #e7e9ef;
+  --ui-background-hover-color: #d8d9e0;
+
+  /* Status */
+  --positive-color: #00854d;
+  --positive-color-hover: #007038;
+  --positive-color-selected: #bbdbc9;
+  --negative-color: #d83a52;
+  --negative-color-hover: #b63546;
+  --negative-color-selected: #f4c3cb;
+  --warning-color: #ffcb00;
+  --warning-color-hover: #eaaa15;
+  --warning-color-selected: #fceba1;
+
+  /* Elevation */
+  --box-shadow-xs: 0px 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --box-shadow-small: 0px 4px 8px rgba(0, 0, 0, 0.2);
+  --box-shadow-medium: 0px 6px 20px rgba(0, 0, 0, 0.2);
+  --box-shadow-large: 0px 15px 50px rgba(0, 0, 0, 0.3);
+
+  /* §1.6 Content colour palette — tags, labels, statuses, kanban groups */
+  --color-grass_green: #037f4c; --color-grass_green-hover: #025c37; --color-grass_green-selected: #b3d9c8;
+  --color-done-green: #00c875;  --color-done-green-hover: #00a560;  --color-done-green-selected: #b3f0d9;
+  --color-bright-green: #9cd326; --color-bright-green-hover: #7daa1e; --color-bright-green-selected: #dff0b3;
+  --color-saladish: #cab641;    --color-saladish-hover: #a89135;    --color-saladish-selected: #f0e8b3;
+  --color-egg_yolk: #ffcb00;    --color-egg_yolk-hover: #eaaa15;    --color-egg_yolk-selected: #fceba1;
+  --color-working_orange: #fdab3d; --color-working_orange-hover: #e08b20; --color-working_orange-selected: #fee8c0;
+  --color-dark-orange: #ff6d3b; --color-dark-orange-hover: #e04d1b; --color-dark-orange-selected: #ffd0c0;
+  --color-peach: #ffadad;       --color-peach-hover: #ff8080;       --color-peach-selected: #ffe8e8;
+  --color-sunset: #ff7575;      --color-sunset-hover: #e04040;      --color-sunset-selected: #ffd0d0;
+  --color-stuck-red: #df2f4a;   --color-stuck-red-hover: #b32540;   --color-stuck-red-selected: #f4b3bf;
+  --color-dark-red: #bb3354;    --color-dark-red-hover: #8f2440;    --color-dark-red-selected: #edb3c0;
+  --color-sofia_pink: #e50073;  --color-sofia_pink-hover: #b80060;  --color-sofia_pink-selected: #f4b3d9;
+  --color-lipstick: #ff5ac4;    --color-lipstick-hover: #e030a0;    --color-lipstick-selected: #ffd0ef;
+  --color-bubble: #faa1f1;      --color-bubble-hover: #e070d8;      --color-bubble-selected: #fde0fb;
+  --color-purple: #9d50dd;      --color-purple-hover: #7830bb;      --color-purple-selected: #dfc0f5;
+  --color-dark_purple: #784bd1; --color-dark_purple-hover: #5530a8; --color-dark_purple-selected: #d0c0f0;
+  --color-berry: #7e3b8a;       --color-berry-hover: #5c2866;       --color-berry-selected: #d8b8e0;
+  --color-dark_indigo: #401694; --color-dark_indigo-hover: #2e0f68; --color-dark_indigo-selected: #c0b0e8;
+  --color-indigo: #5559df;      --color-indigo-hover: #3338b8;      --color-indigo-selected: #c8c9f5;
+  --color-navy: #225091;        --color-navy-hover: #163568;        --color-navy-selected: #b8c8e0;
+  --color-bright-blue: #579bfc; --color-bright-blue-hover: #2870e0; --color-bright-blue-selected: #c8defe;
+  --color-dark-blue: #007eb5;   --color-dark-blue-hover: #005c8a;   --color-dark-blue-selected: #b3d8eb;
+  --color-aquamarine: #4eccc6;  --color-aquamarine-hover: #28a8a0;  --color-aquamarine-selected: #c0eceb;
+  --color-chili-blue: #66ccff;  --color-chili-blue-hover: #28a8e8;  --color-chili-blue-selected: #c8eeff;
+  --color-river: #74afcc;       --color-river-hover: #4888aa;       --color-river-selected: #cce4f0;
+  --color-winter: #9aadbd;      --color-winter-hover: #6888a0;      --color-winter-selected: #dce8f0;
+  --color-explosive: #c4c4c4;   --color-explosive-hover: #909090;   --color-explosive-selected: #ebebeb;
+  --color-american_gray: #757575; --color-american_gray-hover: #505050; --color-american_gray-selected: #d8d8d8;
+  --color-blackish: #333333;    --color-blackish-hover: #111111;    --color-blackish-selected: #c0c0c0;
+  --color-brown: #7f5347;       --color-brown-hover: #5c3830;       --color-brown-selected: #d8c0bc;
+  --color-orchid: #e484bd;      --color-orchid-hover: #c05898;      --color-orchid-selected: #f5d0e8;
+  --color-tan: #bca58a;         --color-tan-hover: #907860;         --color-tan-selected: #ecdfd0;
+  --color-sky: #a1e3f6;         --color-sky-hover: #60c8e8;         --color-sky-selected: #d8f4fc;
+  --color-coffee: #cd9282;      --color-coffee-hover: #a86858;      --color-coffee-selected: #f0d8d0;
+  --color-royal: #216edf;       --color-royal-hover: #1450b8;       --color-royal-selected: #b8d0f5;
+  --color-teal: #175a63;        --color-teal-hover: #0e3d44;        --color-teal-selected: #b3ced0;
+  --color-lavender: #bda8f9;    --color-lavender-hover: #8870e0;    --color-lavender-selected: #e8e0fd;
+  --color-steel: #a9bee8;       --color-steel-hover: #7898d0;       --color-steel-selected: #dce8f8;
+  --color-lilac: #9d99b9;       --color-lilac-hover: #706898;       --color-lilac-selected: #dcdaf0;
+  --color-pecan: #563e3e;       --color-pecan-hover: #382828;       --color-pecan-selected: #c8b8b8;
+}
+
+/* Dark theme overrides */
+.theme-dark {
+  --primary-selected-color: #133774;
+  --primary-selected-hover-color: #0d2e65;
+  --primary-highlighted-color: #0d2753;
+  --primary-surface-color: #181b34;
+  --primary-text-color: #d5d8df;
+  --secondary-text-color: #9699a6;
+  --text-color-on-inverted: #323338;
+  --inverted-color-background: #ffffff;
+  --primary-background-color: #181b34;
+  --secondary-background-color: #30324e;
+  --allgrey-background-color: #30324e;
+  --grey-background-color: #181b34;
+  --primary-background-hover-color: rgba(103, 104, 121, 0.3);
+  --disabled-background-color: #3c3f59;
+  --modal-background-color: #181b34;
+  --dialog-background-color: #30324e;
+  --ui-border-color: #797e93;
+  --layout-border-color: #4b4e69;
+  --ui-background-color: #434660;
+  --placeholder-color: #c3c6d4;
+  --icon-color: #c3c6d4;
+  --link-color: #69a7ef;
+  --box-shadow-xs: 0px 4px 6px -4px rgba(9, 11, 25, 0.5);
+  --box-shadow-small: 0px 4px 8px rgba(9, 11, 25, 0.5);
+  --box-shadow-medium: 0px 6px 20px rgba(9, 11, 25, 0.5);
+  --box-shadow-large: 0px 15px 50px rgba(9, 11, 25, 0.5);
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -19,7 +196,10 @@
     height: -webkit-fill-available;
   }
   body {
-    @apply bg-surface-1 text-gray-900 font-body antialiased;
+    background: var(--grey-background-color);
+    color: var(--primary-text-color);
+    font-family: var(--font-family);
+    @apply antialiased;
     min-height: 100%;
     min-height: -webkit-fill-available;
     /* Body scrolls naturally — the AppShell outer container owns the scroll-lock
@@ -32,8 +212,22 @@
     display: flex;
     flex-direction: column;
   }
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-display;
+  /* Heading typography — Monday.com type scale with letter-spacing */
+  h1 {
+    font: var(--font-h1);
+    letter-spacing: -0.5px;
+  }
+  h2 {
+    font: var(--font-h2);
+    letter-spacing: -0.1px;
+  }
+  h3 {
+    font: var(--font-h3);
+    letter-spacing: -0.1px;
+  }
+  h4, h5, h6 {
+    font-family: var(--title-font-family);
+    font-weight: 700;
   }
 
   /* ===== Prevent iOS Safari input auto-zoom (triggered when font-size < 16px) ===== */
@@ -152,73 +346,288 @@
 
   /* Layer cards — Monday.com style depth */
   .layer-card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-layer transition-shadow duration-200 w-full overflow-hidden min-w-0;
+    background: var(--primary-background-color);
+    border-radius: var(--border-radius-medium);
+    border: var(--border-width) var(--border-style) var(--layout-border-color);
+    box-shadow: var(--box-shadow-xs);
+    transition: box-shadow var(--motion-productive-long) var(--motion-timing-transition);
+    @apply w-full overflow-hidden min-w-0;
   }
   .layer-card:hover {
-    @apply shadow-layer-md;
+    box-shadow: var(--box-shadow-small);
   }
 
   /* Sidebar — light theme */
   .glass-sidebar {
-    @apply bg-white border-r border-gray-200;
+    background: var(--primary-background-color);
+    border-right: var(--border-width) var(--border-style) var(--layout-border-color);
   }
 
   /* Stat card */
   .stat-card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-layer p-5 transition-all duration-200;
+    background: var(--primary-background-color);
+    border-radius: var(--border-radius-medium);
+    border: var(--border-width) var(--border-style) var(--layout-border-color);
+    box-shadow: var(--box-shadow-xs);
+    padding: var(--space-20);
+    transition: box-shadow var(--motion-productive-long) var(--motion-timing-transition),
+                transform var(--motion-productive-long) var(--motion-timing-transition);
   }
   .stat-card:hover {
-    @apply shadow-layer-md -translate-y-0.5;
+    box-shadow: var(--box-shadow-small);
+    transform: translateY(-2px);
   }
 
-  /* Input styling */
+  /* Input styling — Monday.com text field spec */
   .input-glass {
-    @apply bg-white/60 backdrop-blur-sm border border-gray-200 rounded-lg px-4 py-2.5
-           focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500
-           transition-all duration-200 placeholder:text-gray-400;
+    background: var(--secondary-background-color);
+    border: var(--border-width) var(--border-style) var(--ui-border-color);
+    border-radius: var(--border-radius-small);
+    color: var(--primary-text-color);
+    padding: var(--space-8) var(--space-12);
+    transition: border-color var(--motion-productive-medium) ease-in;
+    width: 100%;
+    box-sizing: border-box;
+    @apply focus:outline-none placeholder:text-[color:var(--placeholder-color)];
     /* font-size ≥ 16px prevents iOS Safari from auto-zooming on input focus */
     font-size: max(1rem, 16px);
   }
+  .input-glass:hover {
+    border-color: var(--primary-text-color);
+  }
+  .input-glass:focus, .input-glass:focus-within {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px hsla(209, 100%, 50%, 0.2);
+  }
+  .input-glass:disabled {
+    background: var(--disabled-background-color);
+    cursor: not-allowed;
+    pointer-events: none;
+  }
 
-  /* Button variants */
+  /* Button variants — Monday.com button spec */
   .btn-primary {
-    @apply bg-brand-600 text-white px-4 py-2.5 rounded-lg font-medium
-           hover:bg-brand-700 active:bg-brand-800 transition-colors duration-150
-           focus:outline-none focus:ring-2 focus:ring-brand-500/30
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none;
+    background: var(--primary-color);
+    color: var(--text-color-on-primary);
+    padding: var(--space-8) var(--space-16);
+    height: 40px;
+    border-radius: var(--border-radius-small);
+    font: var(--font-text1-normal);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    border: none;
+    cursor: pointer;
+    transition: background var(--motion-productive-medium) var(--motion-timing-transition),
+                transform var(--motion-productive-short) var(--motion-timing-transition);
+    @apply focus:outline-none;
+  }
+  .btn-primary:hover {
+    background: var(--primary-hover-color);
+  }
+  .btn-primary:active {
+    transform: scale(0.95);
+  }
+  .btn-primary:focus-visible {
+    box-shadow: 0 0 0 3px hsla(209, 100%, 50%, 0.5), 0 0 0 1px var(--primary-hover-color) inset;
+  }
+  .btn-primary:disabled {
+    background: var(--disabled-background-color);
+    color: var(--disabled-text-color);
+    cursor: not-allowed;
+    pointer-events: none;
   }
 
   .btn-secondary {
-    @apply bg-white text-gray-700 px-4 py-2.5 rounded-lg font-medium border border-gray-200
-           hover:bg-gray-50 active:bg-gray-100 transition-colors duration-150
-           focus:outline-none focus:ring-2 focus:ring-gray-300/30
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none;
+    background: transparent;
+    color: var(--primary-text-color);
+    padding: var(--space-8) var(--space-16);
+    height: 40px;
+    border-radius: var(--border-radius-small);
+    font: var(--font-text1-normal);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    border: var(--border-width) var(--border-style) var(--ui-border-color);
+    cursor: pointer;
+    transition: background var(--motion-productive-medium) var(--motion-timing-transition),
+                transform var(--motion-productive-short) var(--motion-timing-transition);
+    @apply focus:outline-none;
+  }
+  .btn-secondary:hover {
+    background: var(--primary-background-hover-color);
+  }
+  .btn-secondary:active {
+    transform: scale(0.95);
+  }
+  .btn-secondary:focus-visible {
+    box-shadow: 0 0 0 3px hsla(209, 100%, 50%, 0.5);
+  }
+  .btn-secondary:disabled {
+    color: var(--disabled-text-color);
+    border-color: var(--disabled-text-color);
+    cursor: not-allowed;
+    pointer-events: none;
   }
 
   .btn-ghost {
-    @apply text-gray-600 px-4 py-2.5 rounded-lg font-medium
-           hover:bg-gray-100 active:bg-gray-200 transition-colors duration-150
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none;
+    background: transparent;
+    color: var(--secondary-text-color);
+    padding: var(--space-8) var(--space-16);
+    height: 40px;
+    border-radius: var(--border-radius-small);
+    font: var(--font-text1-normal);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    border: none;
+    cursor: pointer;
+    transition: background var(--motion-productive-medium) var(--motion-timing-transition),
+                transform var(--motion-productive-short) var(--motion-timing-transition);
+    @apply focus:outline-none;
+  }
+  .btn-ghost:hover {
+    background: var(--primary-background-hover-color);
+    color: var(--primary-text-color);
+  }
+  .btn-ghost:active {
+    transform: scale(0.95);
+  }
+  .btn-ghost:focus-visible {
+    box-shadow: 0 0 0 3px hsla(209, 100%, 50%, 0.5);
+  }
+  .btn-ghost:disabled {
+    color: var(--disabled-text-color);
+    cursor: not-allowed;
+    pointer-events: none;
   }
 
-  /* Badge */
+  /* Badge — Monday.com label chips */
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2) var(--space-8);
+    border-radius: var(--border-radius-small);
+    font: var(--font-text3-medium);
+    border: var(--border-width) var(--border-style) transparent;
   }
-  .badge-success { @apply bg-emerald-50 text-emerald-700 border border-emerald-200; }
-  .badge-warning { @apply bg-amber-50 text-amber-700 border border-amber-200; }
-  .badge-danger { @apply bg-red-50 text-red-700 border border-red-200; }
-  .badge-info { @apply bg-blue-50 text-blue-700 border border-blue-200; }
-  .badge-neutral { @apply bg-gray-50 text-gray-600 border border-gray-200; }
+  .badge-success {
+    background: var(--positive-color-selected);
+    color: var(--positive-color);
+    border-color: var(--positive-color-selected);
+  }
+  .badge-warning {
+    background: var(--warning-color-selected);
+    color: #7a5c00;
+    border-color: var(--warning-color-selected);
+  }
+  .badge-danger {
+    background: var(--negative-color-selected);
+    color: var(--negative-color);
+    border-color: var(--negative-color-selected);
+  }
+  .badge-info {
+    background: var(--primary-selected-color);
+    color: var(--primary-color);
+    border-color: var(--primary-selected-color);
+  }
+  .badge-neutral {
+    background: var(--ui-background-color);
+    color: var(--secondary-text-color);
+    border-color: var(--ui-background-color);
+  }
 
   /* Page container */
   .page-container {
-    @apply max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 overflow-x-hidden;
+    max-width: 1600px;
+    margin-inline: auto;
+    padding: var(--space-24);
+    overflow-x: hidden;
   }
 
   /* Table styling */
   .data-table {
-    @apply w-full bg-white rounded-xl border border-gray-100 shadow-layer overflow-hidden;
+    width: 100%;
+    background: var(--primary-background-color);
+    border-radius: var(--border-radius-medium);
+    border: var(--border-width) var(--border-style) var(--layout-border-color);
+    box-shadow: var(--box-shadow-xs);
+    overflow: hidden;
+  }
+
+  /* ===== Global focus-visible — Monday.com double-ring spec (§9) ===== */
+  /* Applied to all interactive elements; overrides any plain outline. */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsla(209, 100%, 50%, 0.5), 0 0 0 1px var(--primary-hover-color) inset;
+  }
+  /* Inputs get focus-visible ring only via border-color change (already in .input-glass) */
+  input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsla(209, 100%, 50%, 0.2);
+  }
+
+  /* ===== Monday.com Tab component (§6) ===== */
+  .monday-tab-list {
+    display: flex;
+    flex-direction: row;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border-bottom: 2px solid var(--ui-background-color);
+  }
+  .monday-tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-16);
+    font: var(--font-text1-normal);
+    color: var(--secondary-text-color);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: color var(--motion-productive-medium) var(--motion-timing-transition);
+    white-space: nowrap;
+    min-height: 40px;
+  }
+  .monday-tab:hover:not([disabled]) {
+    color: var(--primary-text-color);
+  }
+  .monday-tab:hover:not([disabled]) .monday-tab-inner {
+    background: var(--primary-background-hover-color);
+    border-radius: var(--border-radius-small);
+  }
+  .monday-tab[aria-selected="true"] {
+    color: var(--primary-color);
+    font-weight: 600;
+    border-bottom-color: var(--primary-color);
+  }
+  .monday-tab[disabled] {
+    color: var(--disabled-text-color);
+    cursor: not-allowed;
+  }
+  .monday-tab:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsla(209, 100%, 50%, 0.5) inset, 0 0 0 1px var(--primary-hover-color) inset;
+    border-radius: 3px;
+  }
+  .monday-tab-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-8);
+    border-radius: var(--border-radius-small);
+    transition: background var(--motion-productive-medium) var(--motion-timing-transition);
   }
 
   /* Scrollbar */

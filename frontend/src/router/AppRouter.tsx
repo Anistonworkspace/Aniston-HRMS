@@ -112,7 +112,7 @@ function PageLoader() {
         <div className="flex h-full">
           <div className="w-60 bg-white border-r border-gray-200 p-4 space-y-4 hidden md:block">
             <div className="flex items-center gap-2 mb-6">
-              <div className="w-8 h-8 bg-brand-100 rounded-lg animate-pulse" />
+              <div className="w-8 h-8 rounded-lg animate-pulse" style={{ background: 'var(--primary-highlighted-color)' }} />
               <div className="w-20 h-5 bg-gray-100 rounded animate-pulse" />
             </div>
             {[1, 2, 3, 4, 5, 6].map(i => (

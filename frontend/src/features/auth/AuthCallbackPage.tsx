@@ -38,7 +38,7 @@ export default function AuthCallbackPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="flex flex-col items-center gap-3">
-        <Loader2 size={32} className="animate-spin text-brand-600" />
+        <Loader2 size={32} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
         <p className="text-sm text-gray-500">Completing sign in...</p>
       </div>
     </div>

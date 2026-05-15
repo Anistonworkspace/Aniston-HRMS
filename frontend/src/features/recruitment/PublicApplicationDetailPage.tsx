@@ -92,7 +92,7 @@ export default function PublicApplicationDetailPage() {
   const app = data?.data;
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-brand-600" /></div>;
+    return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>;
   }
 
   if (!app) {
@@ -151,8 +151,8 @@ export default function PublicApplicationDetailPage() {
       {/* Header Card */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="layer-card p-5 mb-6">
         <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-full bg-brand-50 flex items-center justify-center">
-            <span className="text-xl font-bold text-brand-600">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <span className="text-xl font-bold" style={{ color: 'var(--primary-color)' }}>
               {app.candidateName?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
             </span>
           </div>
@@ -164,7 +164,7 @@ export default function PublicApplicationDetailPage() {
             </div>
             <div className="flex items-center gap-2 mt-2">
               <span className={`badge ${badge.class}`}>{badge.label}</span>
-              <span className="text-xs font-mono text-brand-600 bg-brand-50 px-2 py-0.5 rounded" data-mono>{app.candidateUid}</span>
+              <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }} data-mono>{app.candidateUid}</span>
               {app.jobOpening && (
                 <span className="text-xs text-gray-400">
                   <Briefcase className="w-3 h-3 inline mr-1" />{app.jobOpening.title} — {app.jobOpening.department}
@@ -240,7 +240,7 @@ export default function PublicApplicationDetailPage() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="layer-card p-5 mb-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-brand-600" /> Resume
+            <FileText className="w-5 h-5" style={{ color: 'var(--primary-color)' }} /> Resume
           </h3>
           <div className="flex items-center gap-2">
             {/* ATS Score Badge */}
@@ -260,7 +260,7 @@ export default function PublicApplicationDetailPage() {
                   {showResumeViewer ? 'Hide Preview' : 'Preview'}
                 </button>
                 <a href={resolvedResumeUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-600 transition-colors">
+                  className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                   <Download size={14} /> Download
                 </a>
               </>
@@ -303,7 +303,7 @@ export default function PublicApplicationDetailPage() {
         {app.atsScoreData && (
           <div className="mt-3 border-t border-gray-100 pt-4">
             <p className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
-              <Shield size={13} className="text-brand-500" /> ATS Compatibility Breakdown
+              <Shield size={13} style={{ color: 'var(--primary-color)' }} /> ATS Compatibility Breakdown
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
               {[
@@ -317,7 +317,7 @@ export default function PublicApplicationDetailPage() {
                   <div className="text-xs font-bold text-gray-800" data-mono>{val ?? '—'}<span className="font-normal text-gray-400">/{max}</span></div>
                   <div className="text-[10px] text-gray-500 mt-0.5">{label}</div>
                   <div className="w-full h-1.5 bg-gray-200 rounded-full mt-1.5 overflow-hidden">
-                    <div className="h-full bg-brand-500 rounded-full" style={{ width: `${val != null ? (val / max) * 100 : 0}%` }} />
+                    <div className="h-full rounded-full" style={{ width: `${val != null ? (val / max) * 100 : 0}%`, background: 'var(--primary-color)' }} />
                   </div>
                 </div>
               ))}
@@ -384,7 +384,7 @@ export default function PublicApplicationDetailPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       {round.score != null && (
-                        <span className="text-lg font-bold text-brand-600" data-mono>{Number(round.score).toFixed(1)}/10</span>
+                        <span className="text-lg font-bold" style={{ color: 'var(--primary-color)' }} data-mono>{Number(round.score).toFixed(1)}/10</span>
                       )}
                     </div>
                   </div>
@@ -397,7 +397,7 @@ export default function PublicApplicationDetailPage() {
                   )}
                   {round.aiQuestionsGenerated && (
                     <details className="mt-2">
-                      <summary className="text-xs text-brand-600 cursor-pointer hover:underline">View AI-Generated Questions</summary>
+                      <summary className="text-xs cursor-pointer hover:underline" style={{ color: 'var(--primary-color)' }}>View AI-Generated Questions</summary>
                       <ul className="mt-2 space-y-1 text-xs text-gray-600">
                         {(Array.isArray(round.aiQuestionsGenerated) ? round.aiQuestionsGenerated : []).map((q: any, i: number) => (
                           <li key={i} className="bg-gray-50 rounded-lg p-2">
@@ -412,7 +412,7 @@ export default function PublicApplicationDetailPage() {
                   {isHR && ['PENDING_ROUND', 'IN_PROGRESS_ROUND'].includes(round.status) && (
                     <div className="flex gap-2 mt-3">
                       <button onClick={() => handleGenerateQuestions(round.id)} disabled={isGenerating}
-                        className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                        className="text-xs flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                         {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Star size={12} />} Generate AI Questions
                       </button>
                       <button onClick={() => setShowScoreModal(round.id)}
@@ -466,7 +466,7 @@ export default function PublicApplicationDetailPage() {
       {(app.resumeScoreData || (app.matchedKeywords?.length > 0) || app.resumeText) && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }} className="layer-card p-5 mb-6">
           <h3 className="font-display font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Target className="w-4 h-4 text-brand-600" /> Resume Intelligence
+            <Target className="w-4 h-4" style={{ color: 'var(--primary-color)' }} /> Resume Intelligence
           </h3>
 
           {/* Parse method + summary */}
@@ -478,7 +478,7 @@ export default function PublicApplicationDetailPage() {
             </p>
           )}
           {app.resumeScoreData?.summary && (
-            <p className="text-sm text-gray-600 mb-4 bg-brand-50/60 rounded-xl p-3 italic border border-brand-100">
+            <p className="text-sm text-gray-600 mb-4 rounded-xl p-3 italic border" style={{ background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}>
               {app.resumeScoreData.summary}
             </p>
           )}
@@ -519,7 +519,7 @@ export default function PublicApplicationDetailPage() {
           {((app.matchedKeywords?.length > 0) || (app.missingKeywords?.length > 0)) && (
             <div className="border-t border-gray-100 pt-4 mb-4">
               <p className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
-                <Tag size={13} className="text-brand-500" /> JD Keyword Match
+                <Tag size={13} style={{ color: 'var(--primary-color)' }} /> JD Keyword Match
               </p>
               <div className="space-y-3">
                 {app.matchedKeywords?.length > 0 && (
@@ -558,7 +558,7 @@ export default function PublicApplicationDetailPage() {
           {app.resumeText && (
             <div className="border-t border-gray-100 pt-4">
               <details>
-                <summary className="text-xs font-semibold text-gray-600 cursor-pointer hover:text-brand-600 flex items-center gap-1.5 select-none">
+                <summary className="text-xs font-semibold text-gray-600 cursor-pointer flex items-center gap-1.5 select-none">
                   <BookOpen size={13} /> View Extracted Resume Text
                 </summary>
                 <div className="mt-3 bg-gray-50 rounded-xl p-4 max-h-64 overflow-y-auto border border-gray-200">
@@ -572,20 +572,20 @@ export default function PublicApplicationDetailPage() {
 
       {/* Already finalized */}
       {app.finalizedAt && (
-        <div className="layer-card p-5 mb-6 border-l-4 border-brand-500">
+        <div className="layer-card p-5 mb-6 border-l-4" style={{ borderLeftColor: 'var(--primary-color)' }}>
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="font-display font-bold text-gray-900 mb-2">Finalized</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-gray-400">Decision:</span> <span className="font-semibold text-gray-800">{app.finalStatus}</span></div>
-                <div><span className="text-gray-400">Final Score:</span> <span className="font-bold text-brand-600" data-mono>{app.finalScore != null ? Number(app.finalScore).toFixed(1) : '\u2014'}</span></div>
+                <div><span className="text-gray-400">Final Score:</span> <span className="font-bold" style={{ color: 'var(--primary-color)' }} data-mono>{app.finalScore != null ? Number(app.finalScore).toFixed(1) : '\u2014'}</span></div>
                 <div><span className="text-gray-400">Finalized At:</span> <span className="text-gray-700">{formatDate(app.finalizedAt)}</span></div>
               </div>
             </div>
             {/* Send Onboarding Invitation button — opens the same invitation form as Manage Employees */}
             {isHR && app.finalStatus === 'SELECTED' && app.email && (
               <button onClick={() => setShowInviteModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-brand-600 text-white hover:bg-brand-700 transition-colors shrink-0">
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                 <UserPlus size={16} />
                 Send Onboarding Invite
               </button>
@@ -736,7 +736,7 @@ function AiInterviewAssistantPanel({ round, candidateName, jobTitle, onQuestions
                           <Copy size={12} /> Copy all questions
                         </button>
                         <button onClick={handleSaveToRound} disabled={isSaving}
-                          className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-600 border border-brand-200 transition-colors disabled:opacity-50">
+                          className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)', border: '1px solid var(--ui-border-color)' }}>
                           {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Save questions to this round
                         </button>
                       </div>
@@ -849,7 +849,7 @@ function ScheduleInterviewModal({ applicationId, onClose, onSuccess }: {
                     return (
                       <button key={iv.id} type="button"
                         onClick={() => selectInterviewer(iv)}
-                        className="w-full text-left px-3 py-2.5 hover:bg-brand-50 transition-colors border-b border-gray-50 last:border-0">
+                        className="w-full text-left px-3 py-2.5 transition-colors border-b border-gray-50 last:border-0 hover:bg-gray-50">
                         <p className="text-sm font-medium text-gray-800">{fullName}</p>
                         <p className="text-xs text-gray-400">{iv.email} · {iv.role}</p>
                       </button>

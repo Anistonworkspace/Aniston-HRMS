@@ -123,7 +123,7 @@ export default function EmployeeDetailPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-surface-1 flex items-center justify-center">
-        <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -156,7 +156,7 @@ export default function EmployeeDetailPage() {
       {/* Top breadcrumb bar */}
       <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3">
         <div className="flex items-center gap-2 text-sm">
-          <button onClick={() => navigate('/employees')} className="text-gray-400 hover:text-brand-600 transition-colors flex items-center gap-1">
+          <button onClick={() => navigate('/employees')} className="text-gray-400 transition-colors flex items-center gap-1" onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.color = '')}>
             <ArrowLeft size={14} /> {t('employees.breadcrumb')}
           </button>
           <ChevronRight size={14} className="text-gray-300" />
@@ -169,7 +169,7 @@ export default function EmployeeDetailPage() {
         {/* Left sidebar — Profile card */}
         <div className="w-64 shrink-0 border-r border-gray-100 bg-white p-5 overflow-y-auto hidden lg:block">
           <div className="flex flex-col items-center mb-5">
-            <div className="w-24 h-24 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display mb-3 overflow-hidden">
+            <div className="w-24 h-24 rounded-xl flex items-center justify-center font-bold text-3xl font-display mb-3 overflow-hidden" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
               {employee.avatar && !avatarError ? (
                 <img
                   src={getUploadUrl(employee.avatar)}
@@ -210,7 +210,7 @@ export default function EmployeeDetailPage() {
               <button
                 onClick={handleSendActivationInvite}
                 disabled={sendingInvite}
-                className="w-full flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg border border-brand-200 text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg border transition-colors disabled:opacity-50" style={{ borderColor: 'var(--ui-border-color)', color: 'var(--primary-color)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')} onMouseLeave={e => (e.currentTarget.style.background = '')}
               >
                 {sendingInvite ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                 {sendingInvite ? 'Sending...' : 'Send Activation Invite'}
@@ -268,7 +268,7 @@ export default function EmployeeDetailPage() {
                       {employee.documents?.map((doc: any) => (
                         <div key={doc.id} className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <FileText size={16} className="text-brand-500 flex-shrink-0" />
+                            <FileText size={16} className="flex-shrink-0" style={{ color: 'var(--primary-color)' }} />
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-gray-700 truncate">{doc.name || doc.type?.replace(/_/g, ' ')}</p>
                               <p className="text-[10px] text-gray-400">{doc.createdAt ? formatDate(doc.createdAt) : ''}</p>
@@ -320,7 +320,7 @@ export default function EmployeeDetailPage() {
           <div className="mt-5 flex items-center gap-3 text-xs text-gray-400">
             <span className="flex items-center gap-1"><Heart size={12} /> 0</span>
             <span className="flex items-center gap-1"><MessageSquare size={12} /> 0</span>
-            <span className="uppercase tracking-wide cursor-pointer hover:text-brand-600">Follow</span>
+            <span className="uppercase tracking-wide cursor-pointer" onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.color = '')}>Follow</span>
           </div>
         </div>
 
@@ -329,7 +329,7 @@ export default function EmployeeDetailPage() {
           {/* Mobile profile header */}
           <div className="lg:hidden p-4 bg-white border-b border-gray-100">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-lg font-display">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg font-display" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                 {getInitials(employee.firstName, employee.lastName)}
               </div>
               <div className="flex-1 min-w-0">
@@ -354,9 +354,10 @@ export default function EmployeeDetailPage() {
                   onClick={() => setActiveTab(tab.key)}
                   className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
                     activeTab === tab.key
-                      ? 'border-brand-600 text-brand-600'
+                      ? 'border-transparent text-gray-900'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
+                  style={activeTab === tab.key ? { borderBottomColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}
                 >
                   {tab.label}
                 </button>
@@ -397,7 +398,7 @@ export default function EmployeeDetailPage() {
                 {/* Personal Information */}
                 <div className="layer-card p-5">
                   <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
-                    <User size={15} className="text-brand-500" /> Personal Information
+                    <User size={15} style={{ color: 'var(--primary-color)' }} /> Personal Information
                   </h3>
                   <dl className="space-y-2.5">
                     <InfoRow label="Full Name" value={`${employee.firstName} ${employee.lastName}`} />
@@ -770,11 +771,11 @@ function ProfileRequestsTab({ employeeId }: { employeeId: string }) {
     }
   };
 
-  if (isLoading) return <div className="flex items-center justify-center py-10"><Loader2 size={20} className="animate-spin text-brand-600" /></div>;
+  if (isLoading) return <div className="flex items-center justify-center py-10"><Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>;
   if (isError) return (
     <div className="text-center py-10">
       <p className="text-sm text-red-500 mb-2">Failed to load profile requests.</p>
-      <button onClick={() => refetch()} className="text-xs text-brand-600 hover:underline">Retry</button>
+      <button onClick={() => refetch()} className="text-xs hover:underline" style={{ color: 'var(--primary-color)' }}>Retry</button>
     </div>
   );
 
@@ -782,7 +783,7 @@ function ProfileRequestsTab({ employeeId }: { employeeId: string }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800">Profile Update Requests ({requests.length})</h3>
-        <button onClick={() => refetch()} className="text-xs text-gray-400 hover:text-brand-600">Refresh</button>
+        <button onClick={() => refetch()} className="text-xs text-gray-400" onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.color = '')}>Refresh</button>
       </div>
       {requests.length === 0 && (
         <div className="text-center py-10 text-sm text-gray-400">No profile update requests from this employee.</div>
@@ -816,7 +817,8 @@ function ProfileRequestsTab({ employeeId }: { employeeId: string }) {
                 {isReviewable && (
                   <button
                     onClick={() => { setReviewingId(isExpanded ? null : req.id); setHrNote(''); }}
-                    className="text-xs text-brand-600 hover:underline"
+                    className="text-xs hover:underline"
+                    style={{ color: 'var(--primary-color)' }}
                   >
                     {isExpanded ? 'Cancel' : 'Review'}
                   </button>
@@ -1632,7 +1634,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
             <select
               value={selectedMonth ?? ''}
               onChange={e => setSelectedMonth(e.target.value === '' ? null : Number(e.target.value))}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none"
             >
               <option value="">Full Year</option>
               {FY_MONTH_OPTIONS.map(opt => (
@@ -1659,10 +1661,10 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
               { v: summary.halfDay, l: 'Half Day', c: 'text-amber-500' },
               { v: summary.onLeave, l: 'On Leave', c: 'text-purple-500' },
               { v: summary.holidays, l: 'Holidays', c: 'text-blue-500' },
-              { v: `${summary.averageHours?.toFixed(1) || '0'}h`, l: 'Avg Hours', c: 'text-brand-600' },
+              { v: `${summary.averageHours?.toFixed(1) || '0'}h`, l: 'Avg Hours', c: 'primary' },
             ].map(s => (
               <div key={s.l} className="stat-card text-center py-3">
-                <p className={`text-xl font-bold font-mono ${s.c}`} data-mono>{s.v || 0}</p>
+                <p className={`text-xl font-bold font-mono ${s.c !== 'primary' ? s.c : ''}`} style={s.c === 'primary' ? { color: 'var(--primary-color)' } : {}} data-mono>{s.v || 0}</p>
                 <p className="text-[11px] text-gray-400">{s.l}</p>
               </div>
             ))}
@@ -1672,7 +1674,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { emp
         {/* ERPNext-style contribution calendar */}
         {isLoading ? (
           <div className="text-center py-12">
-            <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
           </div>
         ) : (
           <div className="overflow-x-auto pb-2">
@@ -2419,7 +2421,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
         </div>
         <div className="layer-card p-3 text-center">
           <p className="text-[10px] text-gray-400 mb-0.5">Monthly Gross</p>
-          <p className="text-lg font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(grossEarnings))}</p>
+          <p className="text-lg font-bold font-mono" style={{ color: 'var(--primary-color)' }} data-mono>{formatCurrency(Math.round(grossEarnings))}</p>
         </div>
         <div className="layer-card p-3 text-center">
           <p className="text-[10px] text-gray-400 mb-0.5">Total Deductions</p>
@@ -2456,7 +2458,8 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
                   if (!editing) setEditing(true);
                 }
               }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${salaryMode === 'default' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${salaryMode === 'default' ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              style={salaryMode === 'default' ? { color: 'var(--primary-color)' } : {}}
             >
               Default
             </button>
@@ -2467,7 +2470,8 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
                   if (!editing) setEditing(true);
                 }
               }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${salaryMode === 'custom' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${salaryMode === 'custom' ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              style={salaryMode === 'custom' ? { color: 'var(--primary-color)' } : {}}
             >
               Customized
             </button>
@@ -2504,7 +2508,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
                       </div>
                       {templates.map((tmpl: any) => (
                         <button key={tmpl.id} onClick={() => applyTemplateToForm(tmpl)}
-                          className="w-full text-left px-3 py-2 hover:bg-brand-50 transition-colors border-b border-gray-50 last:border-0">
+                          className="w-full text-left px-3 py-2 transition-colors border-b border-gray-50 last:border-0" onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
                           <p className="text-xs font-medium text-gray-800">{tmpl.name}</p>
                           <p className="text-[10px] text-gray-500">{tmpl.type.replace(/_/g, ' ')} · CTC: ₹{Number(tmpl.ctc).toLocaleString('en-IN')}</p>
                         </button>
@@ -2523,8 +2527,8 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
           {editing && (
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-gray-400">Tax:</span>
-              <button onClick={() => setTaxRegime('NEW_REGIME')} className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${taxRegime === 'NEW_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600'}`}>New</button>
-              <button onClick={() => setTaxRegime('OLD_REGIME')} className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${taxRegime === 'OLD_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Old</button>
+              <button onClick={() => setTaxRegime('NEW_REGIME')} className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${taxRegime === 'NEW_REGIME' ? '' : 'bg-gray-100 text-gray-600'}`} style={taxRegime === 'NEW_REGIME' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}>New</button>
+              <button onClick={() => setTaxRegime('OLD_REGIME')} className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${taxRegime === 'OLD_REGIME' ? '' : 'bg-gray-100 text-gray-600'}`} style={taxRegime === 'OLD_REGIME' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}>Old</button>
             </div>
           )}
         </div>
@@ -2546,7 +2550,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
                 <button onClick={() => setShowComponentPicker(true)} className="text-[10px] text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-0.5">
                   <Plus size={11} /> Library
                 </button>
-                <button onClick={addEarning} className="text-[10px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-0.5">
+                <button onClick={addEarning} className="text-[10px] font-medium flex items-center gap-0.5" style={{ color: 'var(--primary-color)' }}>
                   <Plus size={11} /> Custom
                 </button>
               </div>
@@ -2593,7 +2597,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
           </div>
           <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between items-center">
             <span className="text-xs font-semibold text-gray-700">Gross Monthly</span>
-            <span className="text-sm font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(grossEarnings))}</span>
+            <span className="text-sm font-bold font-mono" style={{ color: 'var(--primary-color)' }} data-mono>{formatCurrency(Math.round(grossEarnings))}</span>
           </div>
         </div>
 
@@ -2602,7 +2606,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Deductions (Monthly)</h3>
             {editing && salaryMode === 'custom' && (
-              <button onClick={addDeduction} className="text-[10px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-0.5">
+              <button onClick={addDeduction} className="text-[10px] font-medium flex items-center gap-0.5" style={{ color: 'var(--primary-color)' }}>
                 <Plus size={11} /> Add
               </button>
             )}
@@ -2866,7 +2870,7 @@ function SalaryComponentRow({
             onUpdate({ mode: 'fixed' });
           }
         }}
-        className="text-[10px] font-mono px-2 py-1 rounded border border-gray-200 hover:border-brand-400 hover:bg-brand-50 transition-colors whitespace-nowrap"
+        className="text-[10px] font-mono px-2 py-1 rounded border border-gray-200 transition-colors whitespace-nowrap" onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary-color)'; e.currentTarget.style.background = 'var(--primary-highlighted-color)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.background = ''; }}
         title={component.mode === 'percent' ? 'Switch to fixed amount' : 'Switch to % of monthly'}
       >
         {component.mode === 'percent' ? '%' : '₹'}
@@ -3061,10 +3065,13 @@ function HrKycUploadModal({
         <div className="flex gap-4 px-6 pt-4">
           {[{ n: 1, label: 'Employee Profile' }, { n: 2, label: 'Upload Documents' }].map(s => (
             <div key={s.n} className="flex items-center gap-2">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${step === s.n ? 'bg-brand-600 text-white' : step > s.n ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${step > s.n ? 'bg-emerald-500 text-white' : step < s.n ? 'bg-gray-100 text-gray-400' : ''}`}
+                style={step === s.n ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
+              >
                 {step > s.n ? <Check size={12} /> : s.n}
               </div>
-              <span className={`text-xs ${step === s.n ? 'text-brand-600 font-medium' : 'text-gray-400'}`}>{s.label}</span>
+              <span className={`text-xs ${step === s.n ? 'font-medium' : 'text-gray-400'}`} style={step === s.n ? { color: 'var(--primary-color)' } : {}}>{s.label}</span>
               {s.n < 2 && <div className="w-8 h-px bg-gray-200 mx-1" />}
             </div>
           ))}
@@ -3081,7 +3088,10 @@ function HrKycUploadModal({
                     <button
                       key={opt}
                       onClick={() => setExperience(opt)}
-                      className={`p-4 rounded-xl border-2 text-sm font-medium transition-all text-left ${experience === opt ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-100 text-gray-600 hover:border-brand-200'}`}
+                      className={`p-4 rounded-xl border-2 text-sm font-medium transition-all text-left ${experience === opt ? '' : 'border-gray-100 text-gray-600'}`}
+                      style={experience === opt ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : {}}
+                      onMouseEnter={e => { if (experience !== opt) e.currentTarget.style.borderColor = 'var(--primary-color)'; }}
+                      onMouseLeave={e => { if (experience !== opt) e.currentTarget.style.borderColor = ''; }}
                     >
                       {opt === 'FRESHER' ? '🎓 Fresher' : '💼 Experienced'}
                       <p className="text-xs font-normal text-gray-400 mt-1">
@@ -3099,9 +3109,12 @@ function HrKycUploadModal({
                     <button
                       key={val}
                       onClick={() => setQualification(val)}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm transition-all ${qualification === val ? 'border-brand-600 bg-brand-50 text-brand-700 font-medium' : 'border-gray-100 text-gray-600 hover:border-brand-200'}`}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm transition-all ${qualification === val ? 'font-medium' : 'border-gray-100 text-gray-600'}`}
+                      style={qualification === val ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : {}}
+                      onMouseEnter={e => { if (qualification !== val) e.currentTarget.style.borderColor = 'var(--primary-color)'; }}
+                      onMouseLeave={e => { if (qualification !== val) e.currentTarget.style.borderColor = ''; }}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${qualification === val ? 'border-brand-600 bg-brand-600' : 'border-gray-300'}`} />
+                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${qualification === val ? '' : 'border-gray-300'}`} style={qualification === val ? { borderColor: 'var(--primary-color)', background: 'var(--primary-color)' } : {}} />
                       {label}
                     </button>
                   ))}
@@ -3172,7 +3185,7 @@ function HrKycUploadModal({
                           <button
                             onClick={() => fileRefs.current[doc.type]?.click()}
                             disabled={isUploading || uploading}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-60 transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-60 transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                           >
                             {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                             {isUploading ? 'Uploading...' : 'Upload'}
@@ -3186,7 +3199,7 @@ function HrKycUploadModal({
 
               <div className="pt-2 flex items-center justify-between text-xs text-gray-400">
                 <span>{existingTypes.filter(t => requiredDocs.some(d => d.acceptsAnyOf ? d.acceptsAnyOf.includes(t) : d.type === t)).length} / {requiredDocs.length} uploaded</span>
-                <button onClick={onClose} className="text-brand-600 hover:text-brand-700 font-medium">Done</button>
+                <button onClick={onClose} className="font-medium" style={{ color: 'var(--primary-color)' }}>Done</button>
               </div>
             </div>
           )}
@@ -3537,7 +3550,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
 
               {isManagement && doc.fileUrl && (
                 <button onClick={() => handleDocPreview(doc)}
-                  className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
+                  className="text-xs flex items-center gap-1 mb-2" style={{ color: 'var(--primary-color)' }}>
                   <FileText size={12} /> View Document
                 </button>
               )}
@@ -3896,7 +3909,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                     toast.error(err?.data?.error?.message || 'Failed to grant portal access');
                   }
                 }}
-                className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
               >
                 {grantingAccess ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
                 Grant Portal Access
@@ -4233,7 +4246,7 @@ function ConnectionsTab({ employee, isManagement, navigate }: { employee: any; i
               <div key={lb.id} className="bg-white rounded-lg p-2.5">
                 <p className="text-xs font-medium text-gray-700">{lb.leaveType?.name || 'Leave'}</p>
                 <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-sm font-bold font-mono text-brand-600" data-mono>{Number(lb.allocated) + Number(lb.carriedForward || 0) - Number(lb.used) - Number(lb.pending || 0)}</span>
+                  <span className="text-sm font-bold font-mono" style={{ color: 'var(--primary-color)' }} data-mono>{Number(lb.allocated) + Number(lb.carriedForward || 0) - Number(lb.used) - Number(lb.pending || 0)}</span>
                   <span className="text-[10px] text-gray-400">of {Number(lb.allocated)} available</span>
                 </div>
                 {(() => {
@@ -4449,7 +4462,7 @@ function InternProfileTab({ employeeId, employee, isManagement }: { employeeId: 
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to issue letter'); }
   };
 
-  if (profileLoading) return <div className="py-8 text-center"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>;
+  if (profileLoading) return <div className="py-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>;
 
   return (
     <div className="space-y-6">
@@ -4488,7 +4501,7 @@ function InternProfileTab({ employeeId, employee, isManagement }: { employeeId: 
         </div>
 
         {lettersLoading ? (
-          <div className="py-4 text-center"><Loader2 className="w-5 h-5 animate-spin text-brand-600 mx-auto" /></div>
+          <div className="py-4 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>
         ) : letters.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-6">No achievement letters issued yet</p>
         ) : (
@@ -4513,7 +4526,7 @@ function InternProfileTab({ employeeId, employee, isManagement }: { employeeId: 
                     <td className="py-2.5 px-4 text-gray-500 font-mono text-xs" data-mono>{formatDate(letter.issuedAt)}</td>
                     <td className="py-2.5 px-4 text-right">
                       {letter.pdfUrl ? (
-                        <a href={letter.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:text-brand-700 text-xs font-medium">
+                        <a href={letter.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-medium" style={{ color: 'var(--primary-color)' }}>
                           Download PDF
                         </a>
                       ) : (

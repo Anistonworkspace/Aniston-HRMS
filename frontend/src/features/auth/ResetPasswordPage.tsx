@@ -93,8 +93,8 @@ export default function ResetPasswordPage() {
         className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full"
       >
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
-            <KeyRound size={32} className="text-brand-600" />
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <KeyRound size={32} style={{ color: 'var(--primary-color)' }} />
           </div>
           <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">Create New Password</h1>
           <p className="text-sm text-gray-500">Enter your new password below</p>
@@ -184,7 +184,7 @@ export default function ResetPasswordPage() {
 
         <p className="text-xs text-gray-400 text-center mt-6">
           Remember your password?{' '}
-          <button onClick={() => navigate('/login')} className="text-brand-600 hover:underline">
+          <button onClick={() => navigate('/login')} className="hover:underline" style={{ color: 'var(--primary-color)' }}>
             Back to Login
           </button>
         </p>

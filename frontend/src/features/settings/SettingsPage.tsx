@@ -140,10 +140,11 @@ export default function SettingsPage() {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
+                style={activeTab === tab.key ? { color: 'var(--primary-color)', borderColor: 'var(--primary-color)' } : undefined}
                 className={cn(
                   'flex items-center gap-1 px-3 py-2 text-xs font-medium transition-all border-b-2 -mb-px whitespace-nowrap',
                   activeTab === tab.key
-                    ? 'border-brand-600 text-brand-700 font-semibold'
+                    ? 'font-semibold'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 )}
               >
@@ -161,9 +162,10 @@ export default function SettingsPage() {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
+                style={activeTab === tab.key ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}
                 className={cn(
                   'flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-colors flex-shrink-0',
-                  activeTab === tab.key ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  activeTab === tab.key ? '' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                 )}
               >
                 <tab.icon size={12} />
@@ -183,14 +185,15 @@ export default function SettingsPage() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
+                  style={activeTab === tab.key ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}
                   className={cn(
                     'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-all text-left',
                     activeTab === tab.key
-                      ? 'bg-brand-50 text-brand-700 font-semibold shadow-sm ring-1 ring-brand-100'
+                      ? 'font-semibold shadow-sm'
                       : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                   )}
                 >
-                  <tab.icon size={14} className={activeTab === tab.key ? 'text-brand-600 shrink-0' : 'text-gray-400 shrink-0'} />
+                  <tab.icon size={14} style={activeTab === tab.key ? { color: 'var(--primary-color)' } : undefined} className={activeTab === tab.key ? 'shrink-0' : 'text-gray-400 shrink-0'} />
                   <span className="truncate">{tab.label}</span>
                 </button>
               ))}
@@ -204,14 +207,15 @@ export default function SettingsPage() {
                     <button
                       key={tab.key}
                       onClick={() => setActiveTab(tab.key)}
+                      style={activeTab === tab.key ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}
                       className={cn(
                         'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-all text-left',
                         activeTab === tab.key
-                          ? 'bg-brand-50 text-brand-700 font-semibold shadow-sm ring-1 ring-brand-100'
+                          ? 'font-semibold shadow-sm'
                           : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                       )}
                     >
-                      <tab.icon size={14} className={activeTab === tab.key ? 'text-brand-600 shrink-0' : 'text-gray-400 shrink-0'} />
+                      <tab.icon size={14} style={activeTab === tab.key ? { color: 'var(--primary-color)' } : undefined} className={activeTab === tab.key ? 'shrink-0' : 'text-gray-400 shrink-0'} />
                       <span className="truncate">{tab.label}</span>
                     </button>
                   ))}
@@ -464,7 +468,7 @@ function EmailConfig() {
         {/* Payroll Email Recipients */}
         <div className="border-t border-gray-200 pt-4 mt-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
-            <DollarSign size={14} className="text-brand-500" /> Payroll Email Recipients
+            <DollarSign size={14} style={{ color: 'var(--primary-color)' }} /> Payroll Email Recipients
           </h3>
           <p className="text-xs text-gray-400 mb-3">When HR sends payroll reports, the password-protected Excel will be emailed to these addresses.</p>
           <div>
@@ -478,7 +482,7 @@ function EmailConfig() {
         {/* Onboarding & Admin Notifications */}
         <div className="border-t border-gray-200 pt-4 mt-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
-            <Mail size={14} className="text-brand-500" /> Onboarding &amp; Admin Notifications
+            <Mail size={14} style={{ color: 'var(--primary-color)' }} /> Onboarding &amp; Admin Notifications
           </h3>
           <p className="text-xs text-gray-400 mb-3">When an employee completes onboarding, a notification email with their details will be sent here so admin can prepare their laptop and access.</p>
           <div>
@@ -760,7 +764,7 @@ function TeamsConfig() {
         </div>
         {!isFieldEditing && (
           <button onClick={() => startFieldEdit(field, isMasked ? '' : value)}
-            className="ml-3 text-gray-400 hover:text-brand-600 p-1.5 rounded-lg hover:bg-brand-50 flex-shrink-0">
+            className="ml-3 text-gray-400 p-1.5 rounded-lg flex-shrink-0">
             <Pencil size={14} />
           </button>
         )}
@@ -795,7 +799,7 @@ function TeamsConfig() {
                 </p>
               </div>
               <button onClick={() => handleFieldSave('ssoEnabled')} disabled={saving}
-                className="ml-3 text-gray-400 hover:text-brand-600 p-1.5 rounded-lg hover:bg-brand-50 flex-shrink-0">
+                className="ml-3 text-gray-400 p-1.5 rounded-lg flex-shrink-0">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
               </button>
             </div>
@@ -891,7 +895,7 @@ function TeamsConfig() {
                 onChange={e => setForm({...form, ssoEnabled: e.target.checked})}
                 className="sr-only"
               />
-              <div className={cn('w-10 h-6 rounded-full transition-colors', form.ssoEnabled ? 'bg-brand-500' : 'bg-gray-300')} />
+              <div style={form.ssoEnabled ? { background: 'var(--primary-color)' } : undefined} className={cn('w-10 h-6 rounded-full transition-colors', form.ssoEnabled ? '' : 'bg-gray-300')} />
               <div className={cn('absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', form.ssoEnabled && 'translate-x-4')} />
             </div>
             <div>
@@ -1005,7 +1009,7 @@ function UserRolesTab() {
 
       {/* Table */}
       {isLoading ? (
-        <div className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>
+        <div className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>
       ) : employees.length === 0 ? (
         <div className="text-center py-12 text-gray-400 text-sm">
           No employees found. Invite employees from the Manage Employees page first.
@@ -1030,7 +1034,7 @@ function UserRolesTab() {
                     <tr key={emp.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
+                          <div className="w-9 h-9 rounded-lg flex items-center justify-center font-semibold text-sm" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                             {getInitials(emp.firstName, emp.lastName)}
                           </div>
                           <div>
@@ -1051,7 +1055,7 @@ function UserRolesTab() {
                         <select
                           value={role}
                           onChange={e => handleRoleChange(emp.id, e.target.value, role)}
-                          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white hover:border-brand-300 focus:ring-2 focus:ring-brand-100 focus:border-brand-500 transition-all cursor-pointer"
+                          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white transition-all cursor-pointer"
                         >
                           {ROLE_OPTIONS.map(r => (
                             <option key={r.value} value={r.value}>{r.label}</option>
@@ -1103,7 +1107,7 @@ function SalaryPrivacyTab() {
   return (
     <div className="layer-card p-6">
       <div className="flex items-center gap-3 mb-2">
-        <Lock size={20} className="text-brand-600" />
+        <Lock size={20} style={{ color: 'var(--primary-color)' }} />
         <h2 className="text-lg font-display font-semibold text-gray-800">Salary Privacy</h2>
       </div>
       <p className="text-sm text-gray-500 mb-4">Control which employees' salaries are visible to HR and Managers</p>
@@ -1113,7 +1117,7 @@ function SalaryPrivacyTab() {
       </div>
 
       {isLoading ? (
-        <div className="py-8 text-center"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>
+        <div className="py-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>
       ) : rules.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-8">No employees found</p>
       ) : (
@@ -1653,7 +1657,7 @@ function ExternalApiIntegrationTab() {
     <div className="space-y-6">
       <div className="layer-card p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-          <ExternalLink size={20} className="text-brand-600" /> External API Integrations
+          <ExternalLink size={20} style={{ color: 'var(--primary-color)' }} /> External API Integrations
         </h3>
         <p className="text-sm text-gray-500 mb-5">Connect third-party services to extend HRMS functionality. API keys are optional — leave blank if the service doesn't require authentication.</p>
 
@@ -1662,12 +1666,12 @@ function ExternalApiIntegrationTab() {
             const isSaved = i === 0 && !!taskConfigRes?.data;
             const isEditing = editingIndex === i;
             return (
-            <div key={intg.name} className={cn('border rounded-xl p-4 transition-all', isSaved ? 'border-brand-200 bg-brand-50/30' : 'border-gray-200')}>
+            <div key={intg.name} style={isSaved ? { borderColor: 'var(--ui-border-color)', background: 'var(--primary-highlighted-color)' } : undefined} className={cn('border rounded-xl p-4 transition-all', isSaved ? '' : 'border-gray-200')}>
               {/* Header row */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0', isSaved ? 'bg-brand-100' : 'bg-gray-100')}>
-                    <ExternalLink size={18} className={isSaved ? 'text-brand-600' : 'text-gray-400'} />
+                  <div style={isSaved ? { background: 'var(--primary-highlighted-color)' } : undefined} className={cn('w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0', isSaved ? '' : 'bg-gray-100')}>
+                    <ExternalLink size={18} style={isSaved ? { color: 'var(--primary-color)' } : undefined} className={isSaved ? '' : 'text-gray-400'} />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800">{intg.name}</h4>
@@ -1680,10 +1684,11 @@ function ExternalApiIntegrationTab() {
                   )}
                   <button
                     onClick={() => setEditingIndex(isEditing ? null : i)}
+                    style={!isEditing ? { color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)' } : undefined}
                     className={cn('text-xs font-medium px-3 py-1 rounded-lg border transition-colors',
                       isEditing
                         ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                        : 'border-brand-200 text-brand-600 hover:bg-brand-50'
+                        : 'hover:bg-gray-50'
                     )}>
                     {isEditing ? 'Close' : (isSaved ? 'Edit' : 'Configure')}
                   </button>
@@ -1850,7 +1855,7 @@ function ApiIntegrationsTab() {
   };
 
   if (isLoading) {
-    return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-brand-600" size={32} /></div>;
+    return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color)' }} /></div>;
   }
 
   return (
@@ -1912,7 +1917,7 @@ function ApiIntegrationsTab() {
       {/* AI Provider — read-only when env-managed */}
       <div className="layer-card p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-          <Cpu size={20} className="text-brand-600" /> AI Provider
+          <Cpu size={20} style={{ color: 'var(--primary-color)' }} /> AI Provider
         </h3>
         <p className="text-sm text-gray-500 mb-5">
           Powers resume scoring, interview questions, AI assistant, and KYC vision scanning.
@@ -2036,7 +2041,7 @@ function KnowledgeBaseSection() {
   return (
     <div className="layer-card p-6">
       <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-        <BookOpen size={20} className="text-brand-600" /> Knowledge Base
+        <BookOpen size={20} style={{ color: 'var(--primary-color)' }} /> Knowledge Base
       </h3>
       <p className="text-sm text-gray-500 mb-5">Upload documents to train the AI assistant on company policies.</p>
 
@@ -2074,7 +2079,7 @@ function KnowledgeBaseSection() {
       {/* Document List */}
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="animate-spin text-brand-600" size={24} />
+          <Loader2 className="animate-spin" size={24} style={{ color: 'var(--primary-color)' }} />
         </div>
       ) : docs.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-4">No knowledge documents added yet.</p>
@@ -2213,7 +2218,7 @@ function AgentSetupTab() {
   };
 
   if (isLoading) {
-    return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-brand-600" size={32} /></div>;
+    return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color)' }} /></div>;
   }
 
   return (
@@ -2222,7 +2227,7 @@ function AgentSetupTab() {
       <div className="layer-card p-5">
         <div className="flex items-center justify-between mb-1">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><Monitor size={20} className="text-brand-600" /> Agent Setup</h3>
+            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><Monitor size={20} style={{ color: 'var(--primary-color)' }} /> Agent Setup</h3>
             <p className="text-sm text-gray-500 mt-0.5">Generate permanent pairing codes and deploy the desktop agent to employee machines.</p>
           </div>
           {checkingDownload ? (
@@ -2292,7 +2297,7 @@ function AgentSetupTab() {
                 <tr key={emp.id} className="border-b border-gray-50 hover:bg-surface-2">
                   <td className="p-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                         {emp.avatar ? <img src={getUploadUrl(emp.avatar)} alt="" className="w-full h-full rounded-full object-cover" /> : getInitials(`${emp.firstName} ${emp.lastName}`)}
                       </div>
                       <div>
@@ -2307,7 +2312,7 @@ function AgentSetupTab() {
                       <div className="flex items-center gap-1.5">
                         <code className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-700 select-all" data-mono>{emp.agentPairingCode}</code>
                         <span className="text-[9px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-medium">Permanent</span>
-                        <button onClick={() => copyCode(emp.agentPairingCode)} className="text-gray-400 hover:text-brand-600 p-0.5" title="Copy code">
+                        <button onClick={() => copyCode(emp.agentPairingCode)} className="text-gray-400 p-0.5" title="Copy code">
                           <Copy size={12} />
                         </button>
                       </div>

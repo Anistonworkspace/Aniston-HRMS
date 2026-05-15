@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -79,13 +79,15 @@ export default function AttendancePage() {
     <>
       <div className="px-4 sm:px-6 pt-5 pb-1 flex flex-wrap gap-2">
         <button onClick={() => setView('team')}
+          style={view === 'team' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            view === 'team' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            view === 'team' ? 'shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}>{t('attendance.teamAttendance')}</button>
         {canViewPersonal && (
           <button onClick={() => setView('personal')}
+            style={view === 'personal' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              view === 'personal' ? 'shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}>{t('attendance.myAttendance')}</button>
         )}
       </div>
@@ -107,16 +109,18 @@ function AttendanceHRView() {
       <div className="px-4 sm:px-6 pt-5 pb-1 flex flex-wrap gap-2">
         <button
           onClick={() => setTab('attendance')}
+          style={tab === 'attendance' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            tab === 'attendance' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            tab === 'attendance' ? 'shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
           {t('attendance.teamAttendance')}
         </button>
         <button
           onClick={() => setTab('regularizations')}
+          style={tab === 'regularizations' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            tab === 'regularizations' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            tab === 'regularizations' ? 'shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
           Regularizations
@@ -385,7 +389,7 @@ function AttendanceManagementView() {
                   >
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                           {(record.employee?.firstName?.[0] || '') + (record.employee?.lastName?.[0] || '')}
                         </div>
                         <div>
@@ -425,7 +429,7 @@ function AttendanceManagementView() {
                     <td className="px-5 py-3.5">
                       <button
                         onClick={(e) => { e.stopPropagation(); record.employeeId && navigate(`/attendance/employee/${record.employeeId}`); }}
-                        className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors font-medium"
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors font-medium" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}
                         aria-label={t('attendance.viewActivity')}
                       >
                         <Monitor size={12} /> {t('attendance.activity')}
@@ -1274,7 +1278,7 @@ function AttendancePersonalView() {
                 <span className="badge badge-success text-sm px-3 py-1">
                   {today.isOnBreak ? '☕ On Break' : '✅ Checked In'}
                 </span>
-                <p className="text-2xl font-mono font-bold text-brand-600 mt-2" data-mono>
+                <p className="text-2xl font-mono font-bold mt-2" style={{ color: 'var(--primary-color)' }} data-mono>
                   {getElapsedTime()}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">Time elapsed</p>
@@ -1631,7 +1635,7 @@ function AttendancePersonalView() {
           {/* Month navigation */}
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-display font-semibold text-gray-800 flex items-center gap-1.5">
-              <CalendarIcon size={14} className="text-brand-500" />
+              <CalendarIcon size={14} style={{ color: 'var(--primary-color)' }} />
               {monthName}
             </h2>
             <div className="flex items-center gap-1">
@@ -1644,7 +1648,7 @@ function AttendancePersonalView() {
               </button>
               <button
                 onClick={() => setCurrentMonth(new Date())}
-                className="text-xs text-brand-600 px-2.5 py-1 rounded-lg hover:bg-brand-50 transition-colors font-medium"
+                className="text-xs px-2.5 py-1 rounded-lg transition-colors font-medium" style={{ color: 'var(--primary-color)' }}
               >
                 Today
               </button>
@@ -1677,11 +1681,12 @@ function AttendancePersonalView() {
               return (
                 <div
                   key={idx}
+                  style={day.isToday ? { '--tw-ring-color': 'var(--primary-color)' } as React.CSSProperties : undefined}
                   className={cn(
                     'rounded-md p-1 flex flex-col items-center justify-center transition-colors relative group',
                     'min-h-[36px]',
                     day.date === 0 && 'invisible',
-                    day.isToday && 'ring-2 ring-brand-500 ring-offset-1',
+                    day.isToday && 'ring-2 ring-offset-1',
                     day.status === 'PRESENT' && 'bg-emerald-50',
                     day.status === 'ABSENT' && 'bg-red-50',
                     day.status === 'HALF_DAY' && 'bg-amber-50',
@@ -1692,9 +1697,11 @@ function AttendancePersonalView() {
                     !day.status && day.date > 0 && 'bg-white',
                   )}
                 >
-                  <span className={cn(
+                  <span
+                    style={day.isToday ? { color: 'var(--primary-color)' } : undefined}
+                    className={cn(
                     'text-xs font-medium leading-none',
-                    day.isToday ? 'text-brand-600' : 'text-gray-700',
+                    day.isToday ? '' : 'text-gray-700',
                     day.status === 'WEEKEND' && 'text-gray-400',
                   )}>
                     {day.date > 0 ? day.date : ''}
@@ -1904,7 +1911,7 @@ function MyShiftsSection() {
         className="w-full flex items-center justify-between"
       >
         <h3 className="text-sm font-display font-semibold text-gray-800 flex items-center gap-2">
-          <Briefcase size={14} className="text-brand-500" />
+          <Briefcase size={14} style={{ color: 'var(--primary-color)' }} />
           My Shifts
         </h3>
         {expanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
@@ -1914,7 +1921,7 @@ function MyShiftsSection() {
         <div className="mt-3">
           {isLoading ? (
             <div className="flex justify-center py-6">
-              <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
             </div>
           ) : shifts.length === 0 ? (
             <div className="text-center py-6">

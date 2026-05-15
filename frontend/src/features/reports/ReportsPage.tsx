@@ -124,7 +124,7 @@ function AttendanceTab() {
             {['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'HOLIDAY', 'WEEKEND', 'WORK_FROM_HOME'].map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
-        <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 mt-auto">
+        <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 mt-auto" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
           {downloading ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
           Export Excel
         </button>
@@ -152,12 +152,12 @@ function AttendanceTab() {
       <div className="layer-card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
           <p className="text-sm font-semibold text-gray-800">Preview (last 10 records)</p>
-          <button onClick={() => setModalOpen(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
+          <button onClick={() => setModalOpen(true)} className="text-xs font-medium transition-colors" style={{ color: 'var(--primary-color)' }}>
             View Full Report →
           </button>
         </div>
         {previewLoading ? (
-          <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-brand-500" /></div>
+          <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
         ) : previewError ? (
           <div className="text-center py-10 text-sm text-red-500">Failed to load attendance data. Please try again.</div>
         ) : previewRecords.length === 0 ? (
@@ -200,13 +200,13 @@ function AttendanceTab() {
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Filters active</span>
               )}
             </div>
-            <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-1.5 text-xs font-medium bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50">
+            <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
               {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
               Export All
             </button>
           </div>
           {modalLoading ? (
-            <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-500" /></div>
+            <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
           ) : (
             <>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
@@ -331,7 +331,7 @@ function LeaveTab() {
             {['APPROVED', 'APPROVED_WITH_CONDITION', 'MANAGER_APPROVED', 'PENDING', 'DRAFT', 'REJECTED', 'CANCELLED'].map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
-        <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 mt-auto">
+        <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 mt-auto" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
           {downloading ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
           Export Excel
         </button>
@@ -369,12 +369,12 @@ function LeaveTab() {
       <div className="layer-card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
           <p className="text-sm font-semibold text-gray-800">Preview (last 10 records)</p>
-          <button onClick={() => setModalOpen(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
+          <button onClick={() => setModalOpen(true)} className="text-xs font-medium transition-colors" style={{ color: 'var(--primary-color)' }}>
             View Full Report →
           </button>
         </div>
         {previewLoading ? (
-          <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-brand-500" /></div>
+          <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
         ) : previewError ? (
           <div className="text-center py-10 text-sm text-red-500">Failed to load leave data. Please try again.</div>
         ) : previewRecords.length === 0 ? (
@@ -417,13 +417,13 @@ function LeaveTab() {
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Filters active</span>
               )}
             </div>
-            <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-1.5 text-xs font-medium bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50">
+            <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
               {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
               Export All
             </button>
           </div>
           {modalLoading ? (
-            <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-500" /></div>
+            <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
           ) : (
             <>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
@@ -488,7 +488,7 @@ function HeadcountTab() {
       <div className="flex items-center justify-between">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1">
           {[
-            { label: 'Total Employees', value: headcount?.total || 0, color: 'text-brand-600', bg: 'bg-brand-50', icon: Users },
+            { label: 'Total Employees', value: headcount?.total || 0, color: 'text-indigo-600', bg: 'bg-indigo-50', icon: Users },
             { label: 'Active', value: headcount?.byStatus?.find((s: any) => s.status === 'ACTIVE')?.count || 0, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: CheckCircle2 },
             { label: 'On Probation', value: headcount?.byStatus?.find((s: any) => s.status === 'PROBATION')?.count || 0, color: 'text-amber-600', bg: 'bg-amber-50', icon: Clock },
             { label: 'Departments', value: headcount?.byDepartment?.length || 0, color: 'text-indigo-600', bg: 'bg-indigo-50', icon: Filter },
@@ -502,14 +502,14 @@ function HeadcountTab() {
             </div>
           ))}
         </div>
-        <button onClick={() => authDownload('/reports/headcount?format=xlsx', 'employee-directory.xlsx')} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ml-4 shrink-0">
+        <button onClick={() => authDownload('/reports/headcount?format=xlsx', 'employee-directory.xlsx')} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ml-4 shrink-0" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
           {downloading ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
           Export Directory
         </button>
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-500" /></div>
+        <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
       ) : (
         <div className="grid lg:grid-cols-2 gap-5">
           {/* Department distribution */}
@@ -541,7 +541,7 @@ function HeadcountTab() {
                         <span className="font-mono text-gray-800 text-xs" data-mono>{s.count} ({pct}%)</span>
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-2">
-                        <div className="bg-brand-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, background: 'var(--primary-color)' }} />
                       </div>
                     </div>
                   );
@@ -608,19 +608,19 @@ function RecruitmentTab() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
-          { label: 'Open Positions', value: recruit?.openJobs || 0, color: 'text-brand-600', bg: 'bg-brand-50' },
-          { label: 'Total Applications', value: recruit?.totalApplications || 0, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-          { label: 'Pipeline Stages', value: recruit?.pipeline?.length || 0, color: 'text-purple-600', bg: 'bg-purple-50' },
-        ].map(({ label, value, color, bg }) => (
-          <div key={label} className={`${bg} rounded-xl p-4`}>
-            <p className={`text-2xl font-bold font-mono ${color}`} data-mono>{value}</p>
+          { label: 'Open Positions', value: recruit?.openJobs || 0, color: 'var(--primary-color)', bg: 'var(--primary-highlighted-color)', isCssVar: true },
+          { label: 'Total Applications', value: recruit?.totalApplications || 0, color: 'text-indigo-600', bg: 'bg-indigo-50', isCssVar: false },
+          { label: 'Pipeline Stages', value: recruit?.pipeline?.length || 0, color: 'text-purple-600', bg: 'bg-purple-50', isCssVar: false },
+        ].map(({ label, value, color, bg, isCssVar }) => (
+          <div key={label} className={isCssVar ? 'rounded-xl p-4' : `${bg} rounded-xl p-4`} style={isCssVar ? { background: bg } : {}}>
+            <p className={isCssVar ? 'text-2xl font-bold font-mono' : `text-2xl font-bold font-mono ${color}`} style={isCssVar ? { color } : {}} data-mono>{value}</p>
             <p className="text-xs text-gray-500 mt-0.5">{label}</p>
           </div>
         ))}
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-500" /></div>
+        <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
       ) : (
         <div className="grid lg:grid-cols-2 gap-5">
           {/* Pipeline stages table */}
@@ -639,7 +639,7 @@ function RecruitmentTab() {
                         <span className="font-mono text-gray-600 text-xs" data-mono>{stage.count} ({pct}%)</span>
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-1.5">
-                        <div className="bg-brand-500 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, background: 'var(--primary-color)' }} />
                       </div>
                     </div>
                   </div>
@@ -691,7 +691,7 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-display font-bold text-gray-900">Reports</h1>
           <p className="text-sm text-gray-500 mt-0.5">HR analytics — attendance, leave, headcount & recruitment</p>
         </div>
-        <TrendingUp size={24} className="text-brand-500" />
+        <TrendingUp size={24} style={{ color: 'var(--primary-color)' }} />
       </div>
 
       {/* Tabs */}
@@ -702,9 +702,10 @@ export default function ReportsPage() {
             onClick={() => setActiveTab(key)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               activeTab === key
-                ? 'bg-white text-brand-700 shadow-sm'
+                ? 'bg-white shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
+            style={activeTab === key ? { color: 'var(--primary-color)' } : {}}
           >
             <Icon size={15} />
             <span className="hidden sm:inline">{label}</span>

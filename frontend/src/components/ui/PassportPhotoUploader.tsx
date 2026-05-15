@@ -151,10 +151,10 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
             <button
               type="button"
               onClick={startCamera}
-              className="group flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-400 hover:bg-brand-50 transition-all"
+              className="group flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-dashed border-gray-200 hover:bg-gray-50 transition-all"
             >
-              <div className="w-10 h-10 rounded-full bg-brand-100 group-hover:bg-brand-200 flex items-center justify-center transition-colors">
-                <Camera size={20} className="text-brand-600" />
+              <div className="w-10 h-10 rounded-full flex items-center justify-center transition-colors" style={{ background: 'var(--primary-highlighted-color)' }}>
+                <Camera size={20} style={{ color: 'var(--primary-color)' }} />
               </div>
               <div className="text-center">
                 <p className="text-sm font-semibold text-gray-700">Take Photo</p>
@@ -162,7 +162,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
               </div>
             </button>
 
-            <label className="group flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-400 hover:bg-brand-50 transition-all cursor-pointer">
+            <label className="group flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-dashed border-gray-200 hover:bg-gray-50 transition-all cursor-pointer">
               <div className="w-10 h-10 rounded-full bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center transition-colors">
                 <Upload size={20} className="text-indigo-600" />
               </div>

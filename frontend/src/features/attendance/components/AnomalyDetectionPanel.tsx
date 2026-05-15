@@ -98,7 +98,7 @@ export default function AnomalyDetectionPanel({ selectedDate }: Props) {
       {/* Filters */}
       <div className="flex items-center gap-2">
         <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-300">
+          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2">
           <option value="">All Severity</option>
           <option value="CRITICAL">Critical</option>
           <option value="HIGH">High</option>
@@ -106,7 +106,7 @@ export default function AnomalyDetectionPanel({ selectedDate }: Props) {
           <option value="LOW">Low</option>
         </select>
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-300">
+          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2">
           <option value="">All Types</option>
           {Object.entries(TYPE_LABELS).map(([key, val]) => (
             <option key={key} value={key}>{val.label}</option>

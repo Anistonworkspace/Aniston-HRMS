@@ -81,7 +81,7 @@ export default function MfaRequiredPage() {
               'You\'ll use this code at every login going forward',
             ].map((step, i) => (
               <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
-                <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                   {i + 1}
                 </span>
                 {step}

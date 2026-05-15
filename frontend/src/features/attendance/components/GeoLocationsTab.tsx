@@ -221,9 +221,10 @@ export default function GeoLocationsTab() {
       <div className="flex items-center gap-1 border-b border-gray-100">
         {(['visits', 'saved'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={cn('px-4 py-2 text-xs font-medium transition-colors relative', activeTab === tab ? 'text-brand-600' : 'text-gray-500 hover:text-gray-700')}>
+            style={activeTab === tab ? { color: 'var(--primary-color)' } : {}}
+            className={cn('px-4 py-2 text-xs font-medium transition-colors relative', activeTab === tab ? '' : 'text-gray-500 hover:text-gray-700')}>
             {tab === 'visits' ? 'Geo Locations' : `Saved Locations (${savedLocations.length})`}
-            {activeTab === tab && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600 rounded-full" />}
+            {activeTab === tab && <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full" style={{ background: 'var(--primary-color)' }} />}
           </button>
         ))}
       </div>
@@ -299,7 +300,7 @@ export default function GeoLocationsTab() {
       <div className="layer-card overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
-            <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2">
@@ -366,7 +367,7 @@ export default function GeoLocationsTab() {
                           {isEditing ? (
                             <div className="flex items-center gap-1">
                               <input
-                                className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 outline-none focus:border-brand-400"
+                                className="flex-1 text-[11px] border border-gray-300 rounded px-1.5 py-0.5 outline-none"
                                 value={editValue}
                                 onChange={e => setEditValue(e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && handleSave(v.id)}
@@ -503,7 +504,7 @@ export default function GeoLocationsTab() {
                 <Bookmark size={12} className="text-amber-500" /> Saved Locations
               </p>
               <button onClick={() => setShowAddSaved(s => !s)}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                 <Plus size={11} /> Add Location
               </button>
             </div>
@@ -523,7 +524,7 @@ export default function GeoLocationsTab() {
                   className="input-glass w-full text-xs px-2.5 py-1.5 rounded-lg" />
                 <div className="flex gap-2">
                   <button onClick={handleAddSaved}
-                    className="flex-1 py-1.5 text-[11px] font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
+                    className="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                     Save
                   </button>
                   <button onClick={() => setShowAddSaved(false)}

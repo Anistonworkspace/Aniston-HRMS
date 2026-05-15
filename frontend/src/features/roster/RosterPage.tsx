@@ -71,8 +71,9 @@ export default function RosterPage() {
         ].map(t => (
           <button key={t.key} onClick={() => { setTab(t.key); if (t.key !== 'assignments') setShiftFilter(null); }}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.key ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
-            }`}>
+              tab === t.key ? '' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+            }`}
+            style={tab === t.key ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}>
             <t.icon size={16} /> {t.label}
           </button>
         ))}
@@ -336,7 +337,7 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
 
                 {/* Attendance Policy — always visible */}
                 <div className="border-t border-gray-100 pt-3">
-                  <p className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3"><Shield size={15} className="text-brand-500" /> Attendance Policy</p>
+                  <p className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3"><Shield size={15} style={{ color: 'var(--primary-color)' }} /> Attendance Policy</p>
                   <div className="space-y-4">
                     {/* Late Arrival */}
                     <div className="bg-amber-50 rounded-xl p-4">
@@ -350,7 +351,8 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                           <p className="text-[10px] text-gray-400">Every N lates = 1 Loss of Pay day</p></div>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input type="checkbox" checked={form.latePenaltyEnabled} onChange={e => setForm({...form, latePenaltyEnabled: e.target.checked})} className="sr-only peer" />
-                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                            style={{ background: form.latePenaltyEnabled ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
                         </label>
                       </div>
                       {form.latePenaltyEnabled && (
@@ -371,8 +373,10 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                               setForm({...form, weekOffDays: Array.from(days)});
                             }}
                             className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
-                              form.weekOffDays.includes(i) ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-100'
-                            }`}>{day}</button>
+                              form.weekOffDays.includes(i) ? '' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-100'
+                            }`}
+                            style={form.weekOffDays.includes(i) ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
+                          >{day}</button>
                         ))}
                       </div>
                     </div>
@@ -383,7 +387,8 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                         <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><Zap size={13} /> Overtime Rules</p>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input type="checkbox" checked={form.otEnabled} onChange={e => setForm({...form, otEnabled: e.target.checked})} className="sr-only peer" />
-                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                            style={{ background: form.otEnabled ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
                         </label>
                       </div>
                       {form.otEnabled && (
@@ -404,7 +409,8 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                         <p className="text-xs font-semibold text-green-700 flex items-center gap-1.5"><Calendar size={13} /> Comp-Off Rules</p>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input type="checkbox" checked={form.compOffEnabled} onChange={e => setForm({...form, compOffEnabled: e.target.checked})} className="sr-only peer" />
-                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                            style={{ background: form.compOffEnabled ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
                         </label>
                       </div>
                       {form.compOffEnabled && (
@@ -423,7 +429,8 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                         <p className="text-xs font-semibold text-yellow-700 flex items-center gap-1.5"><Sun size={13} /> Sunday Working</p>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input type="checkbox" checked={form.sundayWorkEnabled} onChange={e => setForm({...form, sundayWorkEnabled: e.target.checked})} className="sr-only peer" />
-                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                            style={{ background: form.sundayWorkEnabled ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
                         </label>
                       </div>
                       {form.sundayWorkEnabled && (
@@ -471,12 +478,12 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                     <h3 className="font-semibold text-gray-800">{s.name}</h3>
                     <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500" data-mono>{s.code}</span>
                     <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded', display.badgeClass)}>{display.label}</span>
-                    {s.isDefault && <span className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">Default</span>}
+                    {s.isDefault && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>Default</span>}
                   </div>
                   <p className="text-sm text-gray-500 mt-1">{s.startTime} — {s.endTime}</p>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={() => handleEdit(s)} className="text-gray-400 hover:text-brand-600 p-1"><Pencil size={14} /></button>
+                  <button onClick={() => handleEdit(s)} className="text-gray-400 p-1" style={{ color: undefined }} onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.color = '')}><Pencil size={14} /></button>
                   <button onClick={() => handleDelete(s)} className="text-gray-300 hover:text-red-500 p-1" title="Delete shift"><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -490,7 +497,8 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                 <span>Half day: <strong>{Number(s.halfDayHours)}h</strong></span>
                 {s.trackingIntervalMinutes && <span>GPS: every <strong>{s.trackingIntervalMinutes >= 60 ? `${s.trackingIntervalMinutes / 60}h` : `${s.trackingIntervalMinutes}min`}</strong></span>}
                 <button onClick={() => onViewAssigned(s.id)}
-                  className="ml-auto text-[10px] bg-brand-50 hover:bg-brand-100 text-brand-600 px-2 py-0.5 rounded-full font-semibold transition-colors cursor-pointer">
+                  className="ml-auto text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors cursor-pointer"
+                  style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                   {s._count?.assignments || 0} assigned
                 </button>
               </div>
@@ -502,9 +510,12 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                   <span className="text-[10px] text-gray-400 w-20 shrink-0">Week off:</span>
                   <div className="flex gap-1">
                     {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d, i) => (
-                      <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                        (s.weekOffDays as number[] || [0]).includes(i) ? 'bg-brand-100 text-brand-700' : 'bg-gray-50 text-gray-300'
-                      }`}>{d}</span>
+                      <span key={i}
+                        className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                        style={(s.weekOffDays as number[] || [0]).includes(i)
+                          ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }
+                          : { background: '#f9fafb', color: '#d1d5db' }}
+                      >{d}</span>
                     ))}
                   </div>
                 </div>
@@ -630,8 +641,9 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
           <button
             onClick={() => setLocTab('offices')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              locTab === 'offices' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              locTab === 'offices' ? '' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
             }`}
+            style={locTab === 'offices' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
           >
             <MapPin size={14} /> Office Locations
           </button>
@@ -639,8 +651,9 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
             <button
               onClick={() => setLocTab('home-requests')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                locTab === 'home-requests' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                locTab === 'home-requests' ? '' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
+              style={locTab === 'home-requests' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
             >
               <Home size={14} /> Home Location Requests
             </button>
@@ -752,7 +765,7 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
               {/* Header bar */}
               <div className="flex items-center justify-between px-4 py-2.5 bg-white/95 backdrop-blur-sm border-b border-gray-200 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <MapPin size={16} className="text-brand-600" />
+                  <MapPin size={16} style={{ color: 'var(--primary-color)' }} />
                   <span className="text-sm font-semibold text-gray-800">Office Locations — {locations.length} site{locations.length !== 1 ? 's' : ''}</span>
                 </div>
                 <button
@@ -798,14 +811,14 @@ function LocationsPanel({ isAdmin }: { isAdmin: boolean }) {
         {locations.map((l: any) => (
           <div key={l.id} className="layer-card p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <MapPin size={18} className="text-brand-500" />
+              <MapPin size={18} style={{ color: 'var(--primary-color)' }} />
               <div>
                 <p className="text-sm font-medium text-gray-800">{l.name}</p>
                 <p className="text-xs text-gray-400">{l.address || l.city} · {l.geofence?.radiusMeters || 0}m{l.geofence?.strictMode ? ' · Strict' : ''}</p>
               </div>
             </div>
             <div className="flex gap-1">
-              <button onClick={() => handleEdit(l)} className="text-gray-400 hover:text-brand-600 p-1"><Pencil size={14} /></button>
+              <button onClick={() => handleEdit(l)} className="text-gray-400 p-1" onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.color = '')}><Pencil size={14} /></button>
               <button onClick={async () => { if (confirm('Delete?')) { await deleteLocation(l.id).unwrap(); toast.success('Deleted'); } }}
                 className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
             </div>
@@ -936,9 +949,9 @@ function AssignmentsPanel({ shiftFilter, onClearFilter }: { shiftFilter: ShiftFi
               className="input-glass w-full pl-10 text-sm" />
           </div>
           {activeShiftFilterName && (
-            <div className="flex items-center gap-1.5 bg-brand-50 border border-brand-200 text-brand-700 text-xs px-3 py-1.5 rounded-full font-medium">
+            <div className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: 'var(--primary-highlighted-color)', border: '1px solid var(--primary-color)', color: 'var(--primary-color)' }}>
               <Users size={12} /> Filtered: {activeShiftFilterName}
-              <button onClick={onClearFilter} className="ml-1 text-brand-400 hover:text-brand-700"><X size={12} /></button>
+              <button onClick={onClearFilter} className="ml-1" style={{ color: 'var(--primary-color)' }}><X size={12} /></button>
             </div>
           )}
         </div>
@@ -1019,7 +1032,7 @@ function AssignmentsPanel({ shiftFilter, onClearFilter }: { shiftFilter: ShiftFi
                           </div>
                         ) : dbAssignment.location?.name ? (
                           <span className="text-xs text-gray-600 flex items-center gap-1">
-                            <MapPin size={10} className="text-brand-500" />
+                            <MapPin size={10} style={{ color: 'var(--primary-color)' }} />
                             {dbAssignment.location.name}
                             {dbAssignment.location.geofence?.radiusMeters && (
                               <span className="text-[10px] text-gray-400">· {dbAssignment.location.geofence.radiusMeters}m</span>

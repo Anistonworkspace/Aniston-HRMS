@@ -93,7 +93,7 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
-            <ShieldCheck size={20} className="text-brand-600" />
+            <ShieldCheck size={20} style={{ color: 'var(--primary-color)' }} />
             <h3 className="text-base font-semibold text-gray-800">Set Up Two-Factor Authentication</h3>
           </div>
           <button
@@ -109,11 +109,14 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
           <div className="flex items-center gap-2 mb-6">
             {(['setup', 'verify', 'backup'] as const).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                  step === s ? 'bg-brand-600 text-white' :
-                  stepIndex(step) > i ? 'bg-emerald-500 text-white' :
-                  'bg-gray-100 text-gray-400'
-                }`}>
+                <div
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                    stepIndex(step) > i ? 'bg-emerald-500 text-white' :
+                    step === s ? '' :
+                    'bg-gray-100 text-gray-400'
+                  }`}
+                  style={step === s ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}
+                >
                   {stepIndex(step) > i ? <Check size={12} /> : i + 1}
                 </div>
                 {i < 2 && <div className={`flex-1 h-0.5 w-8 transition-colors ${stepIndex(step) > i ? 'bg-emerald-500' : 'bg-gray-100'}`} />}
@@ -145,9 +148,10 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                       onClick={() => setMethod(m.id)}
                       className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 text-center transition-all ${
                         method === m.id
-                          ? 'border-brand-500 bg-brand-50 text-brand-700'
+                          ? 'border-2'
                           : 'border-gray-200 text-gray-500 hover:border-gray-300'
                       }`}
+                      style={method === m.id ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}
                     >
                       {m.icon}
                       <span className="text-xs font-semibold">{m.label}</span>
@@ -158,7 +162,7 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
 
                 {setupLoading && (
                   <div className="flex items-center justify-center h-32">
-                    <Loader2 size={28} className="animate-spin text-brand-500" />
+                    <Loader2 size={28} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
                   </div>
                 )}
 
@@ -189,7 +193,7 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                             <p className="text-sm font-mono text-gray-900 tracking-widest break-all flex-1">{formattedSecret}</p>
                             <button
                               onClick={() => copyText(secret, 'secret')}
-                              className="shrink-0 p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-brand-600 transition-colors"
+                              className="shrink-0 p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 transition-colors"
                             >
                               {copiedSecret ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                             </button>
@@ -213,7 +217,7 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                             <p className="text-xs font-mono text-gray-700 break-all flex-1 leading-relaxed">{otpauthUrl}</p>
                             <button
                               onClick={() => copyText(otpauthUrl, 'url')}
-                              className="shrink-0 p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-brand-600 transition-colors mt-0.5"
+                              className="shrink-0 p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 transition-colors mt-0.5"
                             >
                               {copiedUrl ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                             </button>
@@ -230,7 +234,8 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                 <button
                   onClick={() => setStep('verify')}
                   disabled={!secret}
-                  className="w-full bg-brand-600 hover:bg-brand-700 text-white py-2.5 rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+                  className="w-full py-2.5 rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+                  style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                 >
                   I've Added the Account →
                 </button>
@@ -254,7 +259,7 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                       placeholder="000000"
                       maxLength={6}
                       autoFocus
-                      className={`w-full text-center text-2xl font-mono tracking-[0.5em] border-2 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all ${
+                      className={`w-full text-center text-2xl font-mono tracking-[0.5em] border-2 rounded-xl px-4 py-3 focus:outline-none transition-all ${
                         error ? 'border-red-400 bg-red-50' : 'border-gray-300'
                       }`}
                     />
@@ -268,7 +273,8 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                   <button
                     type="submit"
                     disabled={verifyLoading || verifyCode.length !== 6}
-                    className="w-full bg-brand-600 hover:bg-brand-700 text-white py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    className="w-full py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                   >
                     {verifyLoading && <Loader2 size={16} className="animate-spin" />}
                     {verifyLoading ? 'Verifying…' : 'Confirm & Enable MFA'}
@@ -314,7 +320,8 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                   </button>
                   <button
                     onClick={handleDone}
-                    className="flex-1 bg-brand-600 hover:bg-brand-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors"
+                    className="flex-1 rounded-lg py-2.5 text-sm font-medium transition-colors"
+                    style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                   >
                     Done
                   </button>

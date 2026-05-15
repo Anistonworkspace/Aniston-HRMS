@@ -125,7 +125,7 @@ function EmployeeRestrictionsModal({
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-3 p-5 border-b border-gray-100">
-          <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-sm font-bold flex-shrink-0 overflow-hidden">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 overflow-hidden" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
             {employee.avatar
               ? <img src={getUploadUrl(employee.avatar)} alt="" className="w-full h-full object-cover" />
               : getInitials(`${employee.firstName} ${employee.lastName}`)}
@@ -225,7 +225,7 @@ function EmployeeRestrictionsModal({
             <button
               onClick={handleSave}
               disabled={saving || !isDirty}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs rounded-xl font-medium transition-colors disabled:opacity-50" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
             >
               {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
               Save Changes
@@ -278,7 +278,7 @@ export default function HRActionsControlTab() {
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(1); }}
           placeholder="Search employees..."
-          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:ring-1 focus:ring-brand-300 focus:border-brand-400"
+          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl"
         />
       </div>
 
@@ -347,9 +347,9 @@ function EmployeeRow({ employee, onSelect }: { employee: any; onSelect: () => vo
   return (
     <button
       onClick={onSelect}
-      className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-gray-100 hover:border-brand-200 hover:bg-brand-50/30 transition-all text-left group"
+      className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all text-left group"
     >
-      <div className="w-9 h-9 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold flex-shrink-0 overflow-hidden">
+      <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 overflow-hidden" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
         {employee.avatar
           ? <img src={getUploadUrl(employee.avatar)} alt="" className="w-full h-full object-cover" />
           : getInitials(`${employee.firstName} ${employee.lastName}`)}
@@ -368,7 +368,7 @@ function EmployeeRow({ employee, onSelect }: { employee: any; onSelect: () => vo
             All allowed
           </span>
         )}
-        <ChevronRight size={14} className="text-gray-300 group-hover:text-brand-400 transition-colors" />
+        <ChevronRight size={14} className="text-gray-300 transition-colors" />
       </div>
     </button>
   );

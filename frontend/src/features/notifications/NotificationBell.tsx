@@ -312,7 +312,7 @@ export default function NotificationBell() {
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllRead}
-                    className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors"
+                    className="flex items-center gap-1 text-xs font-medium transition-colors" style={{ color: 'var(--primary-color)' }}
                   >
                     <CheckCheck size={12} />
                     Mark all read

@@ -108,7 +108,7 @@ export default function PermissionPresetsTab() {
     <div>
       {/* Header */}
       <div className="flex items-center gap-3 mb-1">
-        <Shield size={22} className="text-brand-600" />
+        <Shield size={22} style={{ color: 'var(--primary-color)' }} />
         <h2 className="text-xl font-display font-bold text-gray-900">Employee Permission Control</h2>
       </div>
       <p className="text-sm text-gray-500 mb-6 ml-[34px]">
@@ -149,15 +149,14 @@ export default function PermissionPresetsTab() {
                       <p className="text-sm font-medium text-gray-800 leading-tight">{field.label}</p>
                       <p className="text-[11px] text-gray-400 leading-tight">{field.description}</p>
                     </div>
-                    <div className="relative flex-shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={state[field.key]}
-                        onChange={() => handleToggle(role, field.key)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-10 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all" />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); handleToggle(role, field.key); }}
+                      className="relative inline-flex h-5 w-10 items-center rounded-full transition-colors flex-shrink-0"
+                      style={{ background: state[field.key] ? 'var(--primary-color)' : '#e5e7eb' }}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${state[field.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
                   </label>
                 ))}
               </div>

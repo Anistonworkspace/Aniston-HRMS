@@ -29,14 +29,16 @@ function Step({ number, title, subtitle, icon, highlight, screen }: StepProps) {
       className={`rounded-2xl border p-5 ${highlight ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-100'}`}
     >
       <div className="flex items-start gap-4">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 font-bold text-sm ${highlight ? 'bg-amber-500 text-white' : 'bg-brand-600 text-white'}`}>
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 font-bold text-sm ${highlight ? 'bg-amber-500 text-white' : ''}`}
+          style={!highlight ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}>
           {number}
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-display font-bold text-gray-900 text-base leading-tight">{title}</p>
           <p className="text-sm text-gray-500 mt-1 leading-relaxed">{subtitle}</p>
         </div>
-        <div className={`flex-shrink-0 ${highlight ? 'text-amber-500' : 'text-brand-500'}`}>{icon}</div>
+        <div className={`flex-shrink-0 ${highlight ? 'text-amber-500' : ''}`}
+          style={!highlight ? { color: 'var(--primary-color)' } : undefined}>{icon}</div>
       </div>
       {screen && <div className="mt-4">{screen}</div>}
     </motion.div>
@@ -133,7 +135,7 @@ export default function AndroidInstallPage() {
           <CheckCircle2 size={48} className="text-green-500 mx-auto mb-4" />
           <h2 className="text-xl font-display font-bold text-gray-900 mb-2">App Installed!</h2>
           <p className="text-sm text-gray-500 mb-6">Aniston HRMS is on your home screen. Tap the icon to open it.</p>
-          <a href="/login" className="block w-full bg-brand-600 text-white py-3.5 rounded-2xl font-semibold text-sm">
+          <a href="/login" className="block w-full py-3.5 rounded-2xl font-semibold text-sm" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
             Open App
           </a>
         </motion.div>
@@ -147,7 +149,7 @@ export default function AndroidInstallPage() {
 
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-6">
-          <div className="w-16 h-16 bg-gradient-to-br from-brand-600 to-brand-700 rounded-2xl flex items-center justify-center shadow-lg shadow-brand-200 mx-auto mb-4">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg mx-auto mb-4" style={{ background: 'var(--primary-color)' }}>
             <span className="text-white font-bold text-2xl font-display">A</span>
           </div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Install on Android</h1>
@@ -169,11 +171,11 @@ export default function AndroidInstallPage() {
         <AnimatePresence mode="wait">
           <motion.div key="pwa" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
 
-            <div className="bg-brand-50 border border-brand-200 rounded-2xl p-4 mb-5 flex gap-3">
-              <Star size={18} className="text-brand-500 flex-shrink-0 mt-0.5" />
+            <div className="rounded-2xl p-4 mb-5 flex gap-3 border" style={{ background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}>
+              <Star size={18} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--primary-color)' }} />
               <div>
-                <p className="text-sm font-semibold text-brand-800">Also installable as PWA — No Play Store needed</p>
-                <p className="text-xs text-brand-700 mt-0.5 leading-relaxed">
+                <p className="text-sm font-semibold" style={{ color: 'var(--primary-color)' }}>Also installable as PWA — No Play Store needed</p>
+                <p className="text-xs mt-0.5 leading-relaxed text-gray-600">
                   Install directly from Chrome. Updates automatically with every new version.
                 </p>
               </div>
@@ -185,7 +187,8 @@ export default function AndroidInstallPage() {
                   onClick={handlePwaInstall}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
-                  className="flex items-center justify-center gap-3 w-full bg-brand-600 hover:bg-brand-700 text-white py-4 rounded-2xl font-display font-bold text-lg shadow-lg shadow-brand-200 transition-colors mb-6"
+                  className="flex items-center justify-center gap-3 w-full py-4 rounded-2xl font-display font-bold text-lg shadow-lg transition-colors mb-6"
+                  style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                 >
                   <Plus size={22} />
                   Install App — One Tap
@@ -239,7 +242,7 @@ export default function AndroidInstallPage() {
             </div>
 
             <div className="mt-5 pt-4 border-t border-gray-100 text-center">
-              <a href="/download/ios" className="text-sm text-gray-400 hover:text-brand-600 transition-colors flex items-center gap-1 mx-auto justify-center">
+              <a href="/download/ios" className="text-sm text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1 mx-auto justify-center">
                 <RefreshCw size={13} />
                 On iPhone / iPad instead? →
               </a>
@@ -249,7 +252,7 @@ export default function AndroidInstallPage() {
 
         <p className="text-center text-xs text-gray-400 mt-8">
           Having trouble? Contact HR at{' '}
-          <a href="mailto:hr@anistonav.com" className="text-brand-600 underline">hr@anistonav.com</a>
+          <a href="mailto:hr@anistonav.com" className="underline" style={{ color: 'var(--primary-color)' }}>hr@anistonav.com</a>
         </p>
       </div>
     </div>

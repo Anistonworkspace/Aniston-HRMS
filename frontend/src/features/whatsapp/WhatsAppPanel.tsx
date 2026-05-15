@@ -86,7 +86,7 @@ export default function WhatsAppPanel({ isOpen, onClose }: Props) {
                       <p className="text-sm font-medium text-gray-700">Scan QR Code</p>
                       <p className="text-xs text-gray-400">Open WhatsApp on your phone → Settings → Linked Devices → Link a Device</p>
                       <img src={qrCode} alt="QR Code" className="mx-auto w-56 h-56 rounded-xl border border-gray-200" />
-                      <button onClick={() => { refetchQr(); toast.success('QR code refreshed'); }} className="text-xs text-brand-600 hover:underline flex items-center gap-1 mx-auto">
+                      <button onClick={() => { refetchQr(); toast.success('QR code refreshed'); }} className="text-xs hover:underline flex items-center gap-1 mx-auto" style={{ color: 'var(--primary-color)' }}>
                         <RefreshCw size={12} /> Refresh QR
                       </button>
                     </div>
@@ -275,7 +275,7 @@ function MessageHistory() {
           <p className="text-xs text-gray-600 line-clamp-2">{msg.message}</p>
           <div className="flex items-center gap-2 mt-1">
             {msg.templateType && (
-              <span className="text-[10px] bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">{msg.templateType}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{msg.templateType}</span>
             )}
             <span className="text-[10px] text-gray-400">
               {new Date(msg.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}

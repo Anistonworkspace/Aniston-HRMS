@@ -222,8 +222,9 @@ export default function OrgChartPage() {
           </div>
           {canEdit && activeTab === 'tree' && (
             <button onClick={() => { setEditMode(!editMode); setSelectedNodeId(null); }}
-              className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                editMode ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-brand-50 text-brand-600 border border-brand-200 hover:bg-brand-100')}>
+              className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border',
+                editMode ? 'bg-red-50 text-red-600 border-red-200' : '')}
+              style={!editMode ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)' } : undefined}>
               {editMode ? <><X size={15} /> Exit Edit</> : <><Pencil size={15} /> Edit Structure</>}
             </button>
           )}
@@ -232,7 +233,7 @@ export default function OrgChartPage() {
 
       {isLoading ? (
         <div className="layer-card p-12 text-center">
-          <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
           <p className="text-sm text-gray-500 mt-3">Loading organization chart...</p>
         </div>
       ) : isError ? (
@@ -318,7 +319,7 @@ export default function OrgChartPage() {
               placeholder="Search employees..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-10 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full pl-9 pr-10 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
             />
             {searchQuery && (
               <button
@@ -358,7 +359,8 @@ export default function OrgChartPage() {
                 Cancel
               </button>
               <button onClick={confirmReassign} disabled={isReassigning}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-50">
+                className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg disabled:opacity-50"
+                style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                 {isReassigning ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
                 {isReassigning ? 'Saving...' : 'Confirm'}
               </button>

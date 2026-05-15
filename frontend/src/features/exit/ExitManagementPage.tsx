@@ -39,7 +39,7 @@ export default function ExitManagementPage() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <UserMinus size={24} className="text-brand-600" />
+          <UserMinus size={24} style={{ color: 'var(--primary-color)' }} />
           <h1 className="text-2xl font-display font-bold text-gray-900">Employee Exit Management</h1>
         </div>
       </div>
@@ -123,7 +123,7 @@ export default function ExitManagementPage() {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => navigate(`/exit-management/${emp.id}`)}
-                        className="text-brand-600 hover:text-brand-700 p-1.5 rounded-lg hover:bg-brand-50"
+                        className="p-1.5 rounded-lg" style={{ color: 'var(--primary-color)' }}
                         title="View Details"
                       >
                         <Eye size={16} />

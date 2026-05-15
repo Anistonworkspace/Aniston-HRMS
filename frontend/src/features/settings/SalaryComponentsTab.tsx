@@ -282,11 +282,11 @@ export default function SalaryComponentsTab() {
 
                 <div className="flex items-center gap-6 pt-1">
                   <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input type="checkbox" checked={form.isTaxable} onChange={e => setForm({ ...form, isTaxable: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                    <input type="checkbox" checked={form.isTaxable} onChange={e => setForm({ ...form, isTaxable: e.target.checked })} className="w-4 h-4 rounded border-gray-300" />
                     <span className="text-sm text-gray-700">Taxable</span>
                   </label>
                   <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input type="checkbox" checked={form.isStatutory} onChange={e => setForm({ ...form, isStatutory: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                    <input type="checkbox" checked={form.isStatutory} onChange={e => setForm({ ...form, isStatutory: e.target.checked })} className="w-4 h-4 rounded border-gray-300" />
                     <span className="text-sm text-gray-700">Statutory</span>
                   </label>
                 </div>
@@ -312,7 +312,7 @@ export default function SalaryComponentsTab() {
           <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search components..." className="input-glass text-sm py-2 pl-8 pr-3 w-full" />
         </div>
         <div className="flex gap-1 bg-white rounded-lg border border-gray-200 p-0.5">
-          <button onClick={() => setFilterType('')} className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${!filterType ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}>All</button>
+          <button onClick={() => setFilterType('')} className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${!filterType ? '' : 'text-gray-500 hover:text-gray-700'}`} style={!filterType ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}>All</button>
           <button onClick={() => setFilterType('EARNING')} className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${filterType === 'EARNING' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}>Earnings</button>
           <button onClick={() => setFilterType('DEDUCTION')} className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${filterType === 'DEDUCTION' ? 'bg-red-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}>Deductions</button>
         </div>
@@ -360,7 +360,7 @@ export default function SalaryComponentsTab() {
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-xs" data-mono>
                     {comp.defaultPercentage
-                      ? <span className="text-brand-600 font-semibold">{Number(comp.defaultPercentage)}%</span>
+                      ? <span className="font-semibold" style={{ color: 'var(--primary-color)' }}>{Number(comp.defaultPercentage)}%</span>
                       : <span className="text-gray-300">—</span>
                     }
                   </td>
@@ -371,7 +371,7 @@ export default function SalaryComponentsTab() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => handleEdit(comp)} className="text-xs text-brand-600 hover:text-brand-700 p-1"><Pencil size={13} /></button>
+                      <button onClick={() => handleEdit(comp)} className="text-xs p-1" style={{ color: 'var(--primary-color)' }}><Pencil size={13} /></button>
                       <button onClick={() => handleDelete(comp.id)} className="text-xs text-red-500 hover:text-red-600 p-1"><Trash2 size={13} /></button>
                     </div>
                   </td>

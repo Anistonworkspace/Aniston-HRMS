@@ -92,8 +92,9 @@ function PayrollAdminWrapper() {
           onClick={() => setActiveTab('runs')}
           className={cn(
             'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
-            activeTab === 'runs' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            activeTab === 'runs' ? '' : 'border-transparent text-gray-500 hover:text-gray-700'
           )}
+          style={activeTab === 'runs' ? { borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}
         >
           Payroll Runs
         </button>
@@ -101,8 +102,9 @@ function PayrollAdminWrapper() {
           onClick={() => setActiveTab('components')}
           className={cn(
             'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
-            activeTab === 'components' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            activeTab === 'components' ? '' : 'border-transparent text-gray-500 hover:text-gray-700'
           )}
+          style={activeTab === 'components' ? { borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}
         >
           Salary Components
         </button>
@@ -259,7 +261,7 @@ const handleCreateRun = async () => {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="layer-card p-5 mb-6 border-l-4 border-brand-500"
+            className="layer-card p-5 mb-6 border-l-4" style={{ borderLeftColor: 'var(--primary-color)' }}
           >
             <h3 className="text-sm font-semibold text-gray-800 mb-4">{t('payroll.createPayrollRun')}</h3>
             <div className="flex flex-wrap items-end gap-4">
@@ -345,7 +347,7 @@ const handleCreateRun = async () => {
                     transition={{ delay: index * 0.03 }}
                     className={cn(
                       'border-b border-gray-50 hover:bg-surface-2/50 transition-colors',
-                      viewingRunId === run.id && 'bg-brand-50/30'
+                      viewingRunId === run.id && 'bg-gray-50'
                     )}
                   >
                     <td className="px-4 py-3.5">
@@ -391,7 +393,7 @@ const handleCreateRun = async () => {
                         {run.status === 'DRAFT' && (
                           <button
                             onClick={() => setPreflightRunId(run.id)}
-                            className="text-xs text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
+                            className="text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                           >
                             <Play size={12} /> {t('payroll.processPayroll')}
                           </button>
@@ -607,9 +609,9 @@ const handleCreateRun = async () => {
               className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden bg-white"
             >
               {/* Header */}
-              <div className="px-6 py-4 border-b border-gray-100 bg-brand-600">
-                <h3 className="text-base font-bold text-white flex items-center gap-2"><Shield size={16} /> Payroll Pre-flight Check</h3>
-                <p className="text-xs text-brand-100 mt-0.5">Review employee salary readiness before processing</p>
+              <div className="px-6 py-4 border-b border-gray-100" style={{ background: 'var(--primary-color)' }}>
+                <h3 className="text-base font-bold flex items-center gap-2" style={{ color: 'var(--text-color-on-primary)' }}><Shield size={16} /> Payroll Pre-flight Check</h3>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-color-on-primary)', opacity: 0.8 }}>Review employee salary readiness before processing</p>
               </div>
               <div className="overflow-y-auto flex-1 p-5">
                 {!preflightRes?.data ? (
@@ -835,13 +837,15 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
             <div className="flex items-center gap-1 bg-white rounded-lg border border-gray-200 p-0.5">
               <button
                 onClick={() => setActiveTab('records')}
-                className={cn('text-xs px-3 py-1.5 rounded-md font-medium transition-colors', activeTab === 'records' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700')}
+                className={cn('text-xs px-3 py-1.5 rounded-md font-medium transition-colors', activeTab === 'records' ? '' : 'text-gray-500 hover:text-gray-700')}
+                style={activeTab === 'records' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
               >
                 Records ({records.length})
               </button>
               <button
                 onClick={() => setActiveTab('adjustments')}
-                className={cn('text-xs px-3 py-1.5 rounded-md font-medium transition-colors', activeTab === 'adjustments' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700')}
+                className={cn('text-xs px-3 py-1.5 rounded-md font-medium transition-colors', activeTab === 'adjustments' ? '' : 'text-gray-500 hover:text-gray-700')}
+                style={activeTab === 'adjustments' ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}
               >
                 Adjustments ({adjustments.length})
               </button>
@@ -937,7 +941,7 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
                           <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={() => openInline(`/payroll/records/${rec.id}/pdf`)}
-                              className="text-[10px] text-brand-600 hover:text-brand-700 px-2 py-1 rounded bg-brand-50 font-medium"
+                              className="text-[10px] px-2 py-1 rounded font-medium" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}
                             >
                               PDF
                             </button>
@@ -1186,7 +1190,7 @@ function PayrollEmployeeView() {
       {payslips.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="stat-card">
-            <FileText size={18} className="text-brand-500 mb-2" />
+            <FileText size={18} className="mb-2" style={{ color: 'var(--primary-color)' }} />
             <p className="text-xs text-gray-500">Total Payslips</p>
             <p className="text-xl md:text-2xl font-bold font-mono text-gray-900" data-mono>{payslips.length}</p>
           </div>
@@ -1234,7 +1238,7 @@ function PayrollEmployeeView() {
             </select>
           </div>
           {filterMonth > 0 && (
-            <button onClick={() => setFilterMonth(0)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Clear filters</button>
+            <button onClick={() => setFilterMonth(0)} className="text-xs font-medium" style={{ color: 'var(--primary-color)' }}>Clear filters</button>
           )}
           {isFetching && <Loader2 size={14} className="animate-spin text-gray-400" />}
         </div>
@@ -1288,8 +1292,8 @@ function PayrollEmployeeView() {
               <motion.div key={slip.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }} className="layer-card overflow-hidden">
                 <div className="flex items-center justify-between p-5 cursor-pointer hover:bg-surface-2/50 transition-colors" onClick={() => setExpandedId(isExpanded ? null : slip.id)}>
                   <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-                      <IndianRupee size={18} className="text-brand-600" />
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+                      <IndianRupee size={18} style={{ color: 'var(--primary-color)' }} />
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-800">{FULL_MONTH_NAMES[month - 1]} {year}</p>
@@ -1355,9 +1359,9 @@ function PayrollEmployeeView() {
                           </div>
                         </div>
 
-                        <div className="mt-4 bg-brand-600 rounded-xl p-4 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-white">{t('payroll.netPay')}</span>
-                          <span className="text-xl font-bold font-mono text-white" data-mono>{formatCurrency(net)}</span>
+                        <div className="mt-4 rounded-xl p-4 flex items-center justify-between" style={{ background: 'var(--primary-color)' }}>
+                          <span className="text-sm font-semibold" style={{ color: 'var(--text-color-on-primary)' }}>{t('payroll.netPay')}</span>
+                          <span className="text-xl font-bold font-mono" style={{ color: 'var(--text-color-on-primary)' }} data-mono>{formatCurrency(net)}</span>
                         </div>
 
                         <div className="mt-4 flex justify-end">

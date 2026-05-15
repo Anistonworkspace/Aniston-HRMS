@@ -93,7 +93,7 @@ const LeaveBalanceWidget = memo(function LeaveBalanceWidget() {
     <div className="layer-card p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-600">{t('dashboard.leaveBalance')}</h3>
-        <button onClick={() => navigate('/leaves')} className="text-xs text-brand-600 hover:text-brand-700">
+        <button onClick={() => navigate('/leaves')} className="text-xs" style={{ color: 'var(--primary-color)' }}>
           {t('dashboard.applyLeave')}
         </button>
       </div>
@@ -493,8 +493,9 @@ function EmployeeDashboard() {
               <button
                 onClick={handleQuickCheckIn}
                 disabled={isCheckingInOut}
+                style={isCheckingInOut ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}
                 className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all active:scale-95 ${
-                  isCheckingInOut ? 'bg-brand-500 text-white animate-pulse'
+                  isCheckingInOut ? 'animate-pulse'
                     : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'bg-red-500 hover:bg-red-600 text-white'
                     : todayStatus.isCheckedOut ? 'bg-amber-500 hover:bg-amber-600 text-white'
                     : 'bg-emerald-500 hover:bg-emerald-600 text-white'

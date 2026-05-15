@@ -129,8 +129,8 @@ export default function LocationSearch({ onSelect, placeholder = 'Search locatio
         <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 z-[80] max-h-64 overflow-y-auto">
           {results.map((r) => (
             <button key={r.place_id} onClick={() => handleSelect(r)}
-              className="w-full text-left px-3 py-2.5 hover:bg-brand-50 transition-colors flex items-start gap-2 border-b border-gray-50 last:border-0">
-              <MapPin size={14} className="text-brand-500 mt-0.5 flex-shrink-0" />
+              className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors flex items-start gap-2 border-b border-gray-50 last:border-0">
+              <MapPin size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--primary-color)' }} />
               <div className="min-w-0">
                 <p className="text-sm text-gray-700 line-clamp-1">{r.display_name.split(',').slice(0, 2).join(', ')}</p>
                 <p className="text-[10px] text-gray-400 line-clamp-1">{r.display_name}</p>

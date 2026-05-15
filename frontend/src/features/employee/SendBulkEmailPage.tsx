@@ -241,8 +241,8 @@ export default function SendBulkEmailPage() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-1">
-          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-            <Send className="w-5 h-5 text-brand-600" />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <Send className="w-5 h-5" style={{ color: 'var(--primary-color)' }} />
           </div>
           <div>
             <h1 className="text-2xl font-display font-bold text-gray-900">Send Bulk Emails</h1>
@@ -299,22 +299,23 @@ export default function SendBulkEmailPage() {
                 }}
                 className={cn(
                   'layer-card p-5 text-left transition-all duration-200 cursor-pointer',
-                  active
-                    ? 'border-brand-500 ring-2 ring-brand-500/20 bg-brand-50/40'
-                    : 'hover:border-gray-200'
+                  active ? '' : 'hover:border-gray-200'
                 )}
+                style={active ? { borderColor: 'var(--primary-color)' } : undefined}
               >
                 <div className="flex items-start gap-3">
                   <div
                     className={cn(
                       'w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0',
-                      active ? 'bg-brand-100 text-brand-600' : 'bg-gray-100 text-gray-500'
+                      active ? '' : 'bg-gray-100 text-gray-500'
                     )}
+                    style={active ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}
                   >
                     <Icon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className={cn('font-semibold text-sm', active ? 'text-brand-700' : 'text-gray-800')}>
+                    <p className={cn('font-semibold text-sm', active ? '' : 'text-gray-800')}
+                      style={active ? { color: 'var(--primary-color)' } : undefined}>
                       {t.title}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">{t.description}</p>
@@ -335,9 +336,10 @@ export default function SendBulkEmailPage() {
               className={cn(
                 'px-4 py-2 rounded-md text-sm font-medium transition-all',
                 emailSource === 'employees'
-                  ? 'bg-white text-brand-700 shadow-sm'
+                  ? 'bg-white shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               )}
+              style={emailSource === 'employees' ? { color: 'var(--primary-color)' } : undefined}
             >
               <Users className="w-4 h-4 inline mr-1.5 -mt-0.5" />
               Select Employees
@@ -347,9 +349,10 @@ export default function SendBulkEmailPage() {
               className={cn(
                 'px-4 py-2 rounded-md text-sm font-medium transition-all',
                 emailSource === 'manual'
-                  ? 'bg-white text-brand-700 shadow-sm'
+                  ? 'bg-white shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               )}
+              style={emailSource === 'manual' ? { color: 'var(--primary-color)' } : undefined}
             >
               <Upload className="w-4 h-4 inline mr-1.5 -mt-0.5" />
               Upload / Enter Emails
@@ -375,7 +378,7 @@ export default function SendBulkEmailPage() {
           {/* CSV/Excel Upload + Download Template */}
           <div className="flex flex-col sm:flex-row gap-3 mb-4">
             <label
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer transition-colors"
             >
               <input
                 ref={fileInputRef}
@@ -391,7 +394,7 @@ export default function SendBulkEmailPage() {
             </label>
             <button
               onClick={downloadTemplate}
-              className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-600 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50/30 transition-colors"
+              className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-600 transition-colors"
             >
               <Download className="w-4 h-4" />
               Download Template
@@ -482,7 +485,7 @@ export default function SendBulkEmailPage() {
 
           {loadingEmployees ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+              <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} />
             </div>
           ) : employees.length === 0 ? (
             <div className="text-center py-16 text-gray-400 text-sm">No employees found</div>
@@ -494,7 +497,7 @@ export default function SendBulkEmailPage() {
                   type="checkbox"
                   checked={allFilteredSelected}
                   onChange={toggleSelectAll}
-                  className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  className="w-4 h-4 rounded border-gray-300"
                 />
                 <span className="text-sm font-medium text-gray-700">
                   Select All ({filtered.length} employee{filtered.length !== 1 ? 's' : ''})
@@ -510,17 +513,17 @@ export default function SendBulkEmailPage() {
                       key={emp.id}
                       className={cn(
                         'flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors',
-                        checked ? 'bg-brand-50/50' : 'hover:bg-gray-50'
+                        checked ? 'bg-gray-50' : 'hover:bg-gray-50'
                       )}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleEmployee(emp.id)}
-                        className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                        className="w-4 h-4 rounded border-gray-300"
                       />
                       {/* Avatar */}
-                      <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                         {getInitials(emp.firstName, emp.lastName)}
                       </div>
                       {/* Info */}

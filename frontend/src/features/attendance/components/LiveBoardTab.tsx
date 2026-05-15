@@ -90,7 +90,7 @@ export default function LiveBoardTab() {
               <div className="max-h-[200px] overflow-y-auto">
                 {items.slice(0, 15).map((emp: any, i: number) => (
                   <div key={emp.id || i} className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-50 last:border-0">
-                    <div className="w-6 h-6 rounded-full bg-brand-100 flex items-center justify-center text-[9px] font-semibold text-brand-700 flex-shrink-0">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                       {getInitials(emp.firstName, emp.lastName)}
                     </div>
                     <div className="flex-1 min-w-0">

@@ -19,7 +19,7 @@ export default function AttendancePolicyTab() {
     } catch (e: any) { toast.error(e?.data?.error?.message || 'Failed to save'); }
   };
 
-  if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-brand-500" /></div>;
+  if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -37,13 +37,13 @@ export default function AttendancePolicyTab() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Grace Period (minutes)</label>
             <input type="number" value={form.lateGraceMinutes || 15} onChange={e => set('lateGraceMinutes', +e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             <p className="text-xs text-gray-400 mt-1">Check-in within this window counts as on-time</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Half-Day After (minutes late)</label>
             <input type="number" value={form.lateHalfDayAfterMins || 120} onChange={e => set('lateHalfDayAfterMins', +e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             <p className="text-xs text-gray-400 mt-1">Auto-mark half-day if late beyond this</p>
           </div>
           <div className="sm:col-span-2 flex items-center justify-between bg-gray-50 rounded-xl p-4">
@@ -51,16 +51,17 @@ export default function AttendancePolicyTab() {
               <p className="text-sm font-medium text-gray-700">Late Penalty (LOP Deduction)</p>
               <p className="text-xs text-gray-400">Every N late arrivals = 1 day Loss of Pay</p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" checked={form.latePenaltyEnabled || false} onChange={e => set('latePenaltyEnabled', e.target.checked)} className="sr-only peer" />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
-            </label>
+            <button type="button" onClick={() => set('latePenaltyEnabled', !(form.latePenaltyEnabled || false))}
+              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+              style={{ background: form.latePenaltyEnabled ? 'var(--primary-color)' : '#e5e7eb' }}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.latePenaltyEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
           </div>
           {form.latePenaltyEnabled && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Lates per LOP Day</label>
               <input type="number" value={form.latePenaltyPerCount || 3} onChange={e => set('latePenaltyPerCount', +e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
               <p className="text-xs text-gray-400 mt-1">e.g., 3 = every 3 lates = 1 LOP day in payroll</p>
             </div>
           )}
@@ -76,12 +77,12 @@ export default function AttendancePolicyTab() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Full Day Minimum (hours)</label>
             <input type="number" step="0.5" value={form.fullDayMinHours || 8} onChange={e => set('fullDayMinHours', +e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Half Day Minimum (hours)</label>
             <input type="number" step="0.5" value={form.halfDayMinHours || 4} onChange={e => set('halfDayMinHours', +e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Week Off Days</label>
@@ -93,9 +94,8 @@ export default function AttendancePolicyTab() {
                     days.has(i) ? days.delete(i) : days.add(i);
                     set('weekOffDays', Array.from(days));
                   }}
-                  className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
-                    (form.weekOffDays || [0]).includes(i) ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                  }`}>{day}</button>
+                  className="w-9 h-9 rounded-lg text-xs font-semibold transition-colors"
+                  style={(form.weekOffDays || [0]).includes(i) ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : { background: '#f3f4f6', color: '#6b7280' }}>{day}</button>
               ))}
             </div>
           </div>
@@ -112,28 +112,29 @@ export default function AttendancePolicyTab() {
             <p className="text-sm font-medium text-gray-700">Enable Overtime Tracking</p>
             <p className="text-xs text-gray-400">Track and manage overtime hours worked beyond shift</p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" checked={form.otEnabled || false} onChange={e => set('otEnabled', e.target.checked)} className="sr-only peer" />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
-          </label>
+          <button type="button" onClick={() => set('otEnabled', !(form.otEnabled || false))}
+            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+            style={{ background: form.otEnabled ? 'var(--primary-color)' : '#e5e7eb' }}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.otEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
         </div>
         {form.otEnabled && (
           <div className="grid sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Min Extra Minutes for OT</label>
               <input type="number" value={form.otThresholdMinutes || 30} onChange={e => set('otThresholdMinutes', +e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">OT Rate Multiplier</label>
               <input type="number" step="0.1" value={form.otRateMultiplier || 1.5} onChange={e => set('otRateMultiplier', +e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
               <p className="text-xs text-gray-400 mt-1">1.5x = 150% of hourly rate</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Max OT Hours/Day</label>
               <input type="number" step="0.5" value={form.otMaxHoursPerDay || 4} onChange={e => set('otMaxHoursPerDay', +e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
           </div>
         )}
@@ -149,22 +150,23 @@ export default function AttendancePolicyTab() {
             <p className="text-sm font-medium text-gray-700">Enable Comp-Off</p>
             <p className="text-xs text-gray-400">Grant compensatory leave for working on holidays/weekoffs</p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" checked={form.compOffEnabled || false} onChange={e => set('compOffEnabled', e.target.checked)} className="sr-only peer" />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
-          </label>
+          <button type="button" onClick={() => set('compOffEnabled', !(form.compOffEnabled || false))}
+            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+            style={{ background: form.compOffEnabled ? 'var(--primary-color)' : '#e5e7eb' }}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.compOffEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
         </div>
         {form.compOffEnabled && (
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Min OT Hours for Comp-Off</label>
               <input type="number" step="0.5" value={form.compOffMinOTHours || 4} onChange={e => set('compOffMinOTHours', +e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Comp-Off Expiry (days)</label>
               <input type="number" value={form.compOffExpiryDays || 30} onChange={e => set('compOffExpiryDays', +e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
               <p className="text-xs text-gray-400 mt-1">Unused comp-off expires after these many days</p>
             </div>
           </div>
@@ -185,17 +187,18 @@ export default function AttendancePolicyTab() {
             <p className="text-sm font-medium text-gray-700">Allow Sunday Working</p>
             <p className="text-xs text-gray-400">Enable org-level Sunday attendance. Must also be enabled per employee in their profile.</p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" checked={form.sundayWorkEnabled || false} onChange={e => set('sundayWorkEnabled', e.target.checked)} className="sr-only peer" />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
-          </label>
+          <button type="button" onClick={() => set('sundayWorkEnabled', !(form.sundayWorkEnabled || false))}
+            className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+            style={{ background: form.sundayWorkEnabled ? 'var(--primary-color)' : '#e5e7eb' }}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.sundayWorkEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
         </div>
         {form.sundayWorkEnabled && (
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Sunday Pay Multiplier</label>
               <input type="number" step="0.1" min={1} max={5} value={form.sundayPayMultiplier ?? 2.0} onChange={e => set('sundayPayMultiplier', +e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
               <p className="text-xs text-gray-400 mt-1">
                 2.0 = double pay · 1.5 = time and a half · Applied to daily rate in payroll for Sunday records flagged as Sunday work.
               </p>
@@ -217,7 +220,7 @@ export default function AttendancePolicyTab() {
       {/* Save Button */}
       <div className="flex justify-end">
         <button onClick={handleSave} disabled={saving}
-          className="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-8 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors">
+          className="disabled:bg-gray-300 px-8 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors" style={{ background: saving ? undefined : 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
           {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
           Save Policy
         </button>

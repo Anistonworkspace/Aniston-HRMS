@@ -98,7 +98,7 @@ export default function PermissionOverridePanel({ employeeId }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <Shield size={20} className="text-brand-600" />
+          <Shield size={20} style={{ color: 'var(--primary-color)' }} />
           <h2 className="text-lg font-display font-semibold text-gray-800">Permission Overrides</h2>
         </div>
       </div>

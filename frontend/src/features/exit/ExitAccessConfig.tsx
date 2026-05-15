@@ -97,7 +97,7 @@ export default function ExitAccessConfig({ employeeId, exitStatus }: Props) {
     <div className="layer-card p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Shield size={20} className="text-brand-600" />
+          <Shield size={20} style={{ color: 'var(--primary-color)' }} />
           <h2 className="text-lg font-display font-semibold text-gray-800">Exit Access Control</h2>
         </div>
         {configRes?.data?.isActive && (
@@ -126,7 +126,7 @@ export default function ExitAccessConfig({ employeeId, exitStatus }: Props) {
                 onChange={() => handleToggle(toggle.key)}
                 className="sr-only peer"
               />
-              <div className="w-10 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-brand-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all" />
+              <div className="w-10 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all" style={{ ...(config[toggle.key] ? { background: 'var(--primary-color)' } : {}) }} />
             </div>
           </label>
         ))}

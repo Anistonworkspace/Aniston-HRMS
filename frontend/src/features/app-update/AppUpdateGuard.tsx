@@ -128,14 +128,14 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
   const isBusy = phase === 'downloading' || phase === 'installing';
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-gradient-to-br from-brand-50 via-white to-indigo-50 flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6" style={{ background: 'var(--primary-highlighted-color)' }}>
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         className="w-full max-w-sm"
       >
         <div className="flex justify-center mb-8">
-          <div className="w-24 h-24 bg-brand-600 rounded-3xl flex items-center justify-center shadow-xl shadow-brand-200">
+          <div className="w-24 h-24 rounded-3xl flex items-center justify-center shadow-xl" style={{ background: 'var(--primary-color)' }}>
             <span className="text-white text-4xl font-bold font-display">A</span>
           </div>
         </div>
@@ -148,7 +148,7 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
               </div>
               <h2 className="text-xl font-display font-bold text-gray-900 mb-2">Update Failed</h2>
               <p className="text-sm text-gray-500 mb-6">{errorMsg || 'Could not apply the update. Please try again.'}</p>
-              <button onClick={onUpdate} className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3.5 rounded-2xl font-semibold transition-colors mb-3">
+              <button onClick={onUpdate} className="w-full py-3.5 rounded-2xl font-semibold transition-colors mb-3" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                 Try Again
               </button>
               {onLater && (
@@ -167,7 +167,7 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
             </>
           ) : (
             <>
-              <div className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-600 text-xs font-semibold px-3 py-1 rounded-full mb-5">
+              <div className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full mb-5" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                 <Smartphone size={12} />
                 Update Available
                 {manifest.version && manifest.version !== 'builtin' && manifest.version !== 'New' && (
@@ -192,7 +192,7 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
                 <div className="mb-5">
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1">
                     <motion.div
-                      className="h-full bg-brand-600 rounded-full"
+                      className="h-full rounded-full" style={{ background: 'var(--primary-color)' }}
                       animate={{ width: `${progress}%` }}
                       transition={{ ease: 'linear' }}
                     />
@@ -206,7 +206,7 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
                 whileTap={!isBusy ? { scale: 0.97 } : {}}
                 onClick={onUpdate}
                 disabled={isBusy}
-                className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-70 text-white py-4 rounded-2xl font-semibold text-base flex items-center justify-center gap-2.5 shadow-lg shadow-brand-200 transition-colors mb-3"
+                className="w-full disabled:opacity-70 py-4 rounded-2xl font-semibold text-base flex items-center justify-center gap-2.5 shadow-lg transition-colors mb-3" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
               >
                 {isBusy ? (
                   <>

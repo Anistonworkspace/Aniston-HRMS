@@ -134,7 +134,8 @@ export default function NodeDetailPanel({
           {isEditing ? (
             <div className="flex gap-2">
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-50">
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg disabled:opacity-50"
+                style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                 {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Save
               </button>
               <button onClick={() => setIsEditing(false)}
@@ -144,7 +145,8 @@ export default function NodeDetailPanel({
             </div>
           ) : (
             <button onClick={() => setIsEditing(true)}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100 border border-brand-200">
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border"
+              style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}>
               <UserCog size={13} /> Edit Details
             </button>
           )}

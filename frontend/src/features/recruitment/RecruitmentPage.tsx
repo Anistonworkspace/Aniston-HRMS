@@ -78,9 +78,10 @@ export default function RecruitmentPage() {
                 className={cn(
                   'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
                   activeTab === tab.key
-                    ? 'border-brand-600 text-brand-600'
+                    ? ''
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 )}
+                style={activeTab === tab.key ? { borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}
               >
                 <tab.icon size={16} />
                 {tab.label}
@@ -205,7 +206,8 @@ function JobOpeningsTab() {
           {['', 'OPEN', 'DRAFT', 'CLOSED'].map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-                statusFilter === s ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50')}>
+                statusFilter === s ? '' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50')}
+              style={statusFilter === s ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : {}}>
               {s || 'All'}
             </button>
           ))}
@@ -234,7 +236,7 @@ function JobOpeningsTab() {
             ))}
           </div>
           <div className="ml-auto text-right shrink-0">
-            <p className="text-lg font-bold text-brand-600" data-mono>{pipelineData.data.openJobs}</p>
+            <p className="text-lg font-bold" style={{ color: 'var(--primary-color)' }} data-mono>{pipelineData.data.openJobs}</p>
             <p className="text-[10px] text-gray-400">Open Jobs</p>
           </div>
         </div>
@@ -539,8 +541,9 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
                   <button key={j.id} onClick={() => setSelectedJobId(j.id)}
                     className={cn(
                       'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between',
-                      selectedJobId === j.id ? 'bg-brand-50 text-brand-700 font-medium ring-1 ring-brand-200' : 'hover:bg-gray-50 text-gray-600'
-                    )}>
+                      selectedJobId === j.id ? 'font-medium' : 'hover:bg-gray-50 text-gray-600'
+                    )}
+                    style={selectedJobId === j.id ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', outline: '1px solid var(--ui-border-color)' } : {}}>
                     <span>{j.title} — {j.department || 'General'}</span>
                     <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full', j.status === 'OPEN' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')}>{j.status}</span>
                   </button>
@@ -574,16 +577,16 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
               <span className="text-[10px] text-gray-400">Share on:</span>
               <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(jobUrl)}`}
                 target="_blank" rel="noopener noreferrer"
-                className="text-[10px] text-brand-600 hover:underline">LinkedIn</a>
+                className="text-[10px] hover:underline" style={{ color: 'var(--primary-color)' }}>LinkedIn</a>
               <a href={`https://www.naukri.com/post-job?title=${encodeURIComponent(selectedJob.title || '')}&location=${encodeURIComponent(selectedJob.location || '')}`}
                 target="_blank" rel="noopener noreferrer"
-                className="text-[10px] text-brand-600 hover:underline">Naukri</a>
+                className="text-[10px] hover:underline" style={{ color: 'var(--primary-color)' }}>Naukri</a>
               <a href={`https://employers.indeed.com/p#/post-job?title=${encodeURIComponent(selectedJob.title || '')}`}
                 target="_blank" rel="noopener noreferrer"
-                className="text-[10px] text-brand-600 hover:underline">Indeed</a>
+                className="text-[10px] hover:underline" style={{ color: 'var(--primary-color)' }}>Indeed</a>
               <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`We're hiring! ${selectedJob.title} at Aniston Technologies. Apply here:`)}&url=${encodeURIComponent(jobUrl)}`}
                 target="_blank" rel="noopener noreferrer"
-                className="text-[10px] text-brand-600 hover:underline">X/Twitter</a>
+                className="text-[10px] hover:underline" style={{ color: 'var(--primary-color)' }}>X/Twitter</a>
             </div>
           </div>
 
@@ -731,7 +734,7 @@ function WalkInTab() {
 
       {/* Candidate List */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-brand-600" /></div>
+        <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
       ) : candidates.length === 0 ? (
         <div className="text-center py-16 layer-card">
           <Users className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -751,8 +754,8 @@ function WalkInTab() {
                 onClick={() => setSelectedId(candidate.id)}
                 className="layer-card p-4 cursor-pointer hover:shadow-layer-md transition-all group">
                 <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
-                    <span className="text-sm font-bold text-brand-600">
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+                    <span className="text-sm font-bold" style={{ color: 'var(--primary-color)' }}>
                       {candidate.fullName?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                     </span>
                   </div>
@@ -789,7 +792,7 @@ function WalkInTab() {
                   <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border shrink-0 ${sc.badge}`}>
                     <StatusIcon className="w-3.5 h-3.5" /> {sc.label}
                   </div>
-                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-gray-300 transition-colors shrink-0" />
                 </div>
               </motion.div>
             );
@@ -922,7 +925,8 @@ function HiringPassedTab() {
           {[{ key: '', label: 'All Sources' }, { key: 'WALK_IN', label: 'Walk-In' }, { key: 'PUBLIC_APPLY', label: 'AI Screened' }, { key: 'INTERNAL', label: 'Internal' }].map(f => (
             <button key={f.key} onClick={() => setSourceFilter(f.key)}
               className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
-                sourceFilter === f.key ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300')}>
+                sourceFilter === f.key ? '' : 'bg-white text-gray-600 border-gray-200')}
+              style={sourceFilter === f.key ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)', borderColor: 'var(--primary-color)' } : {}}>
               {f.label}
             </button>
           ))}
@@ -942,7 +946,7 @@ function HiringPassedTab() {
       </div>
 
       {isLoading ? (
-        <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto" /></div>
+        <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>
       ) : filtered.length === 0 ? (
         <div className="layer-card p-16 text-center">
           <Award size={48} className="mx-auto text-gray-200 mb-4" />
@@ -990,7 +994,7 @@ function HiringPassedTab() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold shrink-0">
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                           {getInitials(c.name)}
                         </div>
                         <div className="min-w-0">
@@ -1050,7 +1054,7 @@ function HiringPassedTab() {
                         {c.source === 'PUBLIC_APPLY' && !onboarded && (
                           <button
                             onClick={() => setInviteModal({ email: c.email || '', name: c.name })}
-                            className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition-colors flex items-center gap-1">
+                            className="text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                             <UserPlus size={12} />
                             Send Invite
                           </button>
@@ -1207,8 +1211,8 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
           <div className="flex items-center gap-3">
             {candidate && (
               <>
-                <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center">
-                  <span className="text-sm font-bold text-brand-600">{getInitials(candidate.fullName)}</span>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+                  <span className="text-sm font-bold" style={{ color: 'var(--primary-color)' }}>{getInitials(candidate.fullName)}</span>
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-800">{candidate.fullName}</h3>
@@ -1228,7 +1232,8 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
           {(['overview', 'interviews', 'actions'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={cn('px-4 py-3 text-sm font-medium border-b-2 transition-colors capitalize',
-                tab === t ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700')}>
+                tab === t ? '' : 'border-transparent text-gray-500 hover:text-gray-700')}
+              style={tab === t ? { borderColor: 'var(--primary-color)', color: 'var(--primary-color)' } : {}}>
               {t}
             </button>
           ))}
@@ -1237,7 +1242,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {isLoading ? (
-            <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-brand-600" /></div>
+            <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
           ) : !candidate ? (
             <p className="text-center text-gray-400 py-8">Candidate not found</p>
           ) : (
@@ -1268,7 +1273,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                       <h4 className="text-sm font-semibold text-gray-700 mb-3">Skills</h4>
                       <div className="flex flex-wrap gap-2">
                         {candidate.skills.map((s: string, i: number) => (
-                          <span key={i} className="text-xs bg-brand-50 text-brand-600 px-2 py-1 rounded-lg">{s}</span>
+                          <span key={i} className="text-xs px-2 py-1 rounded-lg" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{s}</span>
                         ))}
                       </div>
                     </div>
@@ -1302,7 +1307,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                     <div className="flex items-center gap-2">
                       {isHR && !showInterviewPanel && (
                         <button onClick={() => setShowInterviewPanel(true)}
-                          className="bg-brand-600 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-brand-700 transition-colors">
+                          className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
                           <ClipboardCheck size={12} /> Take Interview
                         </button>
                       )}
@@ -1342,10 +1347,10 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                     <div className="layer-card p-4">
                       <div className="flex items-center justify-between mb-2">
                         <h5 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                          <UserPlus size={14} className="text-brand-600" /> Assign to Manager
+                          <UserPlus size={14} style={{ color: 'var(--primary-color)' }} /> Assign to Manager
                         </h5>
                         <button onClick={() => setShowAssignManager(!showAssignManager)}
-                          className="text-xs text-brand-600 hover:text-brand-700">
+                          className="text-xs" style={{ color: 'var(--primary-color)' }}>
                           {showAssignManager ? 'Cancel' : 'Assign'}
                         </button>
                       </div>
@@ -1371,9 +1376,9 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
 
                   {/* Final Score Display */}
                   {(completedRounds.length > 0 || aiScore != null) && (
-                    <div className="layer-card p-4 mt-4 border-l-4 border-brand-500">
+                    <div className="layer-card p-4 mt-4 border-l-4" style={{ borderLeftColor: 'var(--primary-color)' }}>
                       <h5 className="text-sm font-display font-bold text-gray-900 mb-3 flex items-center gap-2">
-                        <Target size={16} className="text-brand-600" /> Score Summary
+                        <Target size={16} style={{ color: 'var(--primary-color)' }} /> Score Summary
                       </h5>
                       <div className="space-y-2 text-sm">
                         {candidate.integrityScore != null && (
@@ -1408,7 +1413,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                         ))}
                         <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between">
                           <span className="font-display font-bold text-gray-900">FINAL SCORE</span>
-                          <span className="font-display font-bold text-brand-600 text-lg" data-mono>
+                          <span className="font-display font-bold text-lg" style={{ color: 'var(--primary-color)' }} data-mono>
                             {avgRoundScore != null ? avgRoundScore.toFixed(1) : '\u2014'}/10
                           </span>
                         </div>
@@ -1478,7 +1483,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                               {match ? (
                                 <>
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-medium text-brand-600">{match[2]}</span>
+                                    <span className="text-xs font-medium" style={{ color: 'var(--primary-color)' }}>{match[2]}</span>
                                     <span className="text-[10px] text-gray-400">{match[1]}</span>
                                   </div>
                                   <p className="text-xs text-gray-700">{match[3]}</p>
@@ -1545,7 +1550,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                 <h3 className="text-sm font-semibold text-gray-800">Resume Preview</h3>
                 <div className="flex items-center gap-2">
                   <a href={resumePreview} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                    className="text-xs flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                     <ExternalLink size={12} /> Open in new tab
                   </a>
                   <button onClick={() => setResumePreview(null)}
@@ -1644,13 +1649,13 @@ function InterviewExecutionPanel({ candidate, interviewers, onClose, onStatusCha
 
   return (
     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-      className="layer-card border-2 border-brand-200 overflow-hidden">
+      className="layer-card border-2 overflow-hidden" style={{ borderColor: 'var(--ui-border-color)' }}>
       {/* Panel Header */}
-      <div className="flex items-center justify-between px-5 py-3 bg-brand-50 border-b border-brand-100">
-        <h5 className="text-sm font-display font-bold text-brand-800 flex items-center gap-2">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100" style={{ background: 'var(--primary-highlighted-color)' }}>
+        <h5 className="text-sm font-display font-bold flex items-center gap-2" style={{ color: 'var(--primary-color)' }}>
           <ClipboardCheck size={16} /> Interview Execution Panel
         </h5>
-        <button onClick={onClose} className="text-brand-400 hover:text-brand-600"><X size={16} /></button>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
       </div>
 
       <div className="p-5 space-y-5">
@@ -1661,8 +1666,8 @@ function InterviewExecutionPanel({ candidate, interviewers, onClose, onStatusCha
             <h6 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Candidate Info</h6>
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-brand-50 flex items-center justify-center">
-                  <span className="text-xs font-bold text-brand-600">{getInitials(candidate.fullName)}</span>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+                  <span className="text-xs font-bold" style={{ color: 'var(--primary-color)' }}>{getInitials(candidate.fullName)}</span>
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">{candidate.fullName}</p>
@@ -1724,7 +1729,7 @@ function InterviewExecutionPanel({ candidate, interviewers, onClose, onStatusCha
               </div>
               <input type="range" min={0} max={100} step={1} value={score}
                 onChange={e => setScore(Number(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand-600" />
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
               <div className="flex justify-between text-[10px] text-gray-400 mt-1">
                 <span>0 Poor</span><span>25 Below Avg</span><span>50 Average</span><span>75 Good</span><span>100 Excellent</span>
               </div>
@@ -1830,7 +1835,7 @@ function InterviewRoundCard({ round, onScore, onDelete }: { round: any; onScore:
         </div>
         <div className="flex items-center gap-2">
           {round.result && <span className={`text-xs font-medium px-2 py-1 rounded-lg ${RESULT_COLORS[round.result] || ''}`}>{round.result}</span>}
-          <button onClick={() => setEditing(!editing)} className="text-xs text-brand-600 hover:text-brand-700">
+          <button onClick={() => setEditing(!editing)} className="text-xs" style={{ color: 'var(--primary-color)' }}>
             {editing ? 'Cancel' : 'Score'}
           </button>
           <button onClick={onDelete} className="text-xs text-red-400 hover:text-red-600"><Trash2 size={12} /></button>
@@ -1902,14 +1907,14 @@ function AIScreenedTab() {
   return (
     <>
       <div className="flex items-center gap-3 mb-6">
-        <Sparkles className="text-brand-500" size={24} />
+        <Sparkles size={24} style={{ color: 'var(--primary-color)' }} />
         <div>
           <p className="text-sm font-medium text-gray-600">Public applications submitted via AI-powered job forms</p>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto" /></div>
+        <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>
       ) : applications.length === 0 ? (
         <div className="layer-card p-16 text-center">
           <Sparkles size={48} className="mx-auto text-gray-200 mb-4" />
@@ -1948,7 +1953,7 @@ function AIScreenedTab() {
                     <tr key={app.id} className="border-b border-gray-50 hover:bg-gray-50/30 cursor-pointer"
                       onClick={() => navigate(`/recruitment/public-applications/${app.id}`)}>
                       <td className="py-3 px-4">
-                        <span className="text-xs font-mono text-brand-600 bg-brand-50 px-2 py-0.5 rounded" data-mono>{app.candidateUid}</span>
+                        <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }} data-mono>{app.candidateUid}</span>
                       </td>
                       <td className="py-3 px-4">
                         <p className="font-medium text-gray-800">{app.candidateName}</p>
@@ -2003,7 +2008,7 @@ function AIScreenedTab() {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button onClick={(e) => { e.stopPropagation(); navigate(`/recruitment/public-applications/${app.id}`); }}
-                          className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 ml-auto">
+                          className="text-xs flex items-center gap-1 ml-auto" style={{ color: 'var(--primary-color)' }}>
                           <Eye size={12} /> View
                         </button>
                       </td>
@@ -2070,7 +2075,7 @@ function HireModal({ candidate, onClose, onSuccess }: { candidate: any; onClose:
               <CheckCircle2 size={28} className="text-emerald-500" />
             </div>
             <p className="text-lg font-semibold text-gray-800 mb-1">{candidate.fullName}</p>
-            <p className="text-2xl font-display font-bold text-brand-600 mb-2" data-mono>{result.employeeCode}</p>
+            <p className="text-2xl font-display font-bold mb-2" style={{ color: 'var(--primary-color)' }} data-mono>{result.employeeCode}</p>
             <p className="text-sm text-gray-500 mb-1">Teams Email: {teamsEmail}</p>
             <p className="text-xs text-gray-400">Onboarding invitation has been sent</p>
             <button onClick={onClose} className="btn-primary mt-5 w-full">{t('profile.done')}</button>
@@ -2080,7 +2085,7 @@ function HireModal({ candidate, onClose, onSuccess }: { candidate: any; onClose:
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-sm font-medium text-gray-800">{candidate.fullName}</p>
               <p className="text-xs text-gray-500">{candidate.email} · {candidate.phone}</p>
-              {candidate.jobOpening && <p className="text-xs text-brand-600 mt-1">{candidate.jobOpening.title} — {candidate.jobOpening.department}</p>}
+              {candidate.jobOpening && <p className="text-xs mt-1" style={{ color: 'var(--primary-color)' }}>{candidate.jobOpening.title} — {candidate.jobOpening.department}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-600 mb-1">Teams / Work Email *</label>
@@ -2225,7 +2230,7 @@ function CreateJobModal({ onClose }: { onClose: () => void }) {
             <textarea value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} className="input-glass w-full h-20 resize-none" placeholder="3+ years React experience&#10;TypeScript proficiency" /></div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={autoGenerate} onChange={e => setAutoGenerate(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+              className="w-4 h-4 rounded border-gray-300 focus:ring-gray-300" />
             <span className="text-sm text-gray-600">Auto-generate AI screening questions (Intelligence, Integrity, Energy)</span>
           </label>
           <div className="flex gap-3 pt-2">

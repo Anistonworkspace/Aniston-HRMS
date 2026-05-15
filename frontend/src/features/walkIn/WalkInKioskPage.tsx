@@ -259,7 +259,7 @@ export default function WalkInKioskPage() {
         <p className="text-gray-500 mb-8">Please show this to the receptionist</p>
         <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-8 max-w-md mx-auto mb-8">
           <p className="text-sm text-gray-400 mb-2">Your Token Number</p>
-          <p className="text-4xl font-display font-bold text-brand-600 tracking-wider" data-mono>{tokenNumber}</p>
+          <p className="text-4xl font-display font-bold tracking-wider" style={{ color: 'var(--primary-color)' }} data-mono>{tokenNumber}</p>
           <div className="mt-4 pt-4 border-t border-gray-100 flex flex-col items-center gap-3">
             <QRCodeSVG value={tokenNumber} size={120} level="M" />
             <p className="text-sm text-gray-500">{form.fullName}</p>
@@ -292,19 +292,25 @@ export default function WalkInKioskPage() {
         <div className="flex items-center justify-between mb-2">
           {STEPS.map((s, i) => (
             <div key={s.label} className="flex flex-col items-center flex-1">
-              <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors',
-                i < step ? 'bg-emerald-500 text-white' : i === step ? 'bg-brand-600 text-white' : 'bg-gray-200 text-gray-400'
-              )}>
+              <div
+                className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors',
+                  i < step ? 'bg-emerald-500 text-white' : i === step ? 'text-white' : 'bg-gray-200 text-gray-400'
+                )}
+                style={i === step ? { background: 'var(--primary-color)' } : {}}
+              >
                 {i < step ? <Check size={14} /> : i + 1}
               </div>
-              <span className={cn('text-[9px] mt-1 text-center leading-tight hidden sm:block',
-                i === step ? 'text-brand-600 font-medium' : 'text-gray-400'
-              )}>{s.label}</span>
+              <span
+                className={cn('text-[9px] mt-1 text-center leading-tight hidden sm:block',
+                  i === step ? 'font-medium' : 'text-gray-400'
+                )}
+                style={i === step ? { color: 'var(--primary-color)' } : {}}
+              >{s.label}</span>
             </div>
           ))}
         </div>
         <div className="h-1 bg-gray-200 rounded-full">
-          <div className="h-full bg-brand-600 rounded-full transition-all duration-300" style={{ width: `${(step / (STEPS.length - 1)) * 100}%` }} />
+          <div className="h-full rounded-full transition-all duration-300" style={{ width: `${(step / (STEPS.length - 1)) * 100}%`, background: 'var(--primary-color)' }} />
         </div>
       </div>
 
@@ -464,7 +470,7 @@ export default function WalkInKioskPage() {
                   </tbody>
                 </table>
               </div>
-              <button onClick={() => upd('education', [...form.education, emptyEduRow()])} className="text-sm text-brand-600 flex items-center gap-1 hover:underline">
+              <button onClick={() => upd('education', [...form.education, emptyEduRow()])} className="text-sm flex items-center gap-1 hover:underline" style={{ color: 'var(--primary-color)' }}>
                 <Plus size={14} /> Add row
               </button>
             </div>
@@ -475,7 +481,7 @@ export default function WalkInKioskPage() {
             <div className="space-y-5">
               <h2 className="text-xl font-bold text-gray-900">D. Work Experience</h2>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.isFresher} onChange={e => upd('isFresher', e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                <input type="checkbox" checked={form.isFresher} onChange={e => upd('isFresher', e.target.checked)} className="w-4 h-4 rounded border-gray-300" />
                 <span className="text-sm text-gray-700">I am a Fresher (no prior work experience)</span>
               </label>
 
@@ -544,7 +550,7 @@ export default function WalkInKioskPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {form.skills.map(s => (
-                    <span key={s} className="flex items-center gap-1 bg-brand-50 text-brand-700 text-xs px-3 py-1 rounded-full border border-brand-200">
+                    <span key={s} className="flex items-center gap-1 text-xs px-3 py-1 rounded-full border" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)' }}>
                       {s}
                       <button onClick={() => upd('skills', form.skills.filter(x => x !== s))}><X size={12} /></button>
                     </span>
@@ -569,7 +575,11 @@ export default function WalkInKioskPage() {
                   <div className="flex gap-3">
                     {[true, false].map(v => (
                       <button key={String(v)} onClick={() => upd(field as keyof FormData, v)}
-                        className={cn('px-4 py-1.5 text-sm rounded-lg border transition-colors', (form as any)[field] === v ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-300 text-gray-600 hover:border-brand-300')}>
+                        className={cn('px-4 py-1.5 text-sm rounded-lg border transition-colors', (form as any)[field] === v ? '' : 'border-gray-300 text-gray-600')}
+                        style={(form as any)[field] === v ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)', borderColor: 'var(--primary-color)' } : {}}
+                        onMouseEnter={e => { if ((form as any)[field] !== v) e.currentTarget.style.borderColor = 'var(--primary-color)'; }}
+                        onMouseLeave={e => { if ((form as any)[field] !== v) e.currentTarget.style.borderColor = ''; }}
+                        >
                         {v ? 'Yes' : 'No'}
                       </button>
                     ))}
@@ -592,8 +602,8 @@ export default function WalkInKioskPage() {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {(Object.keys(form.documentsChecklist) as (keyof DocumentsChecklist)[]).map(key => (
-                  <label key={key} className={cn('flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors', form.documentsChecklist[key] ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <input type="checkbox" checked={form.documentsChecklist[key]} onChange={e => upd('documentsChecklist', { ...form.documentsChecklist, [key]: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                  <label key={key} className={cn('flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors', form.documentsChecklist[key] ? '' : 'border-gray-200 hover:border-gray-300')} style={form.documentsChecklist[key] ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' } : {}}>
+                    <input type="checkbox" checked={form.documentsChecklist[key]} onChange={e => upd('documentsChecklist', { ...form.documentsChecklist, [key]: e.target.checked })} className="w-4 h-4 rounded border-gray-300" />
                     <span className="text-sm font-medium text-gray-700 capitalize">{key === 'idProof' ? 'ID Proof' : key === 'salarySlip' ? 'Salary Slip' : key === 'relievingLetter' ? 'Relieving Letter' : key.charAt(0).toUpperCase() + key.slice(1)}</span>
                   </label>
                 ))}
@@ -604,9 +614,11 @@ export default function WalkInKioskPage() {
                 {!form.resumeUrl ? (
                   <div
                     onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition-all"
+                    className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer transition-all"
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary-color)'; e.currentTarget.style.background = 'var(--primary-highlighted-color)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.background = ''; }}
                   >
-                    {resumeUploading ? <Loader2 size={28} className="mx-auto animate-spin text-brand-500 mb-2" /> : <Upload size={28} className="mx-auto text-gray-400 mb-2" />}
+                    {resumeUploading ? <Loader2 size={28} className="mx-auto animate-spin mb-2" style={{ color: 'var(--primary-color)' }} /> : <Upload size={28} className="mx-auto text-gray-400 mb-2" />}
                     <p className="text-sm text-gray-500">{resumeUploading ? 'Uploading...' : 'Click to upload resume (PDF, DOC)'}</p>
                     <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleResumeUpload(f); }} />
                   </div>
@@ -625,7 +637,7 @@ export default function WalkInKioskPage() {
           {step === 6 && (
             <div className="space-y-5">
               <div className="flex items-center gap-3 mb-2">
-                <Brain size={24} className="text-brand-600" />
+                <Brain size={24} style={{ color: 'var(--primary-color)' }} />
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">G. Personal Assessment</h2>
                   <p className="text-sm text-gray-500">Answer honestly — there are no right or wrong answers here.</p>
@@ -656,8 +668,10 @@ export default function WalkInKioskPage() {
                       return (
                         <button key={opt} onClick={() => togglePsychAnswer(q.id, opt)}
                           className={cn('w-full text-left px-4 py-2.5 rounded-lg border text-sm transition-all',
-                            selected ? 'bg-brand-50 border-brand-400 text-brand-700 ring-2 ring-brand-200' : 'border-gray-200 hover:border-gray-300 hover:bg-white'
-                          )}>
+                            selected ? '' : 'border-gray-200 hover:border-gray-300 hover:bg-white'
+                          )}
+                          style={selected ? { background: 'var(--primary-highlighted-color)', borderColor: 'var(--primary-color)', color: 'var(--primary-color)', boxShadow: '0 0 0 2px color-mix(in srgb, var(--primary-color) 20%, transparent)' } : {}}
+                          >
                           <span className="font-semibold mr-2">{opt}.</span>{text}
                         </button>
                       );

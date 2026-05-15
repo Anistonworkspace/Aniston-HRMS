@@ -41,7 +41,7 @@ export default function PublicApplyPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="animate-spin text-brand-600" size={32} />
+        <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color)' }} />
       </div>
     );
   }
@@ -140,12 +140,13 @@ export default function PublicApplyPage() {
           {/* Progress bar */}
           <div className="mt-4 flex items-center gap-2">
             {[1, 2, 3].map(s => (
-              <div key={s} className={cn('flex-1 h-1.5 rounded-full transition-colors duration-300', step >= s ? 'bg-brand-600' : 'bg-gray-200')} />
+              <div key={s} className="flex-1 h-1.5 rounded-full transition-colors duration-300"
+                style={{ background: step >= s ? 'var(--primary-color)' : undefined, backgroundColor: step >= s ? undefined : '#e5e7eb' }} />
             ))}
           </div>
           <div className="flex justify-between mt-1 text-xs text-gray-400">
             {stepLabels.map((label, i) => (
-              <span key={label} className={cn(step === i + 1 && 'text-brand-600 font-medium')}>{label}</span>
+              <span key={label} className={cn(step === i + 1 && 'font-medium')} style={step === i + 1 ? { color: 'var(--primary-color)' } : undefined}>{label}</span>
             ))}
           </div>
         </div>
@@ -283,7 +284,7 @@ export default function PublicApplyPage() {
                     onDragOver={e => e.preventDefault()}
                     onDrop={handleFileDrop}
                     onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition-all"
+                    className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-all"
                   >
                     <Upload size={40} className="mx-auto text-gray-400 mb-3" />
                     <p className="text-sm text-gray-600 font-medium">Drag & drop your resume here</p>
@@ -311,7 +312,7 @@ export default function PublicApplyPage() {
                 type="checkbox"
                 checked={noResume}
                 onChange={e => { setNoResume(e.target.checked); if (e.target.checked) { setResumeFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; } }}
-                className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                className="w-4 h-4 rounded border-gray-300"
               />
               <span className="text-sm text-gray-600">I don't have a resume right now</span>
             </label>
@@ -346,11 +347,11 @@ export default function PublicApplyPage() {
             <p className="text-sm text-gray-500 mb-4">Our HR team will review your profile and contact you if shortlisted.</p>
             <div className="bg-gray-50 rounded-xl p-4 inline-block mb-4">
               <p className="text-xs text-gray-400 mb-1">Your Application ID</p>
-              <p className="text-2xl font-mono font-bold text-brand-600">{result.candidateUid}</p>
+              <p className="text-2xl font-mono font-bold" style={{ color: 'var(--primary-color)' }}>{result.candidateUid}</p>
             </div>
             <p className="text-sm text-gray-500 mb-4">Track your application status:</p>
             <div className="flex items-center gap-2 justify-center">
-              <Link to={`/track/${result.candidateUid}`} className="text-xs text-brand-600 hover:text-brand-700 underline flex items-center gap-1">
+              <Link to={`/track/${result.candidateUid}`} className="text-xs underline flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                 <ExternalLink size={12} />
                 {window.location.origin}/track/{result.candidateUid}
               </Link>

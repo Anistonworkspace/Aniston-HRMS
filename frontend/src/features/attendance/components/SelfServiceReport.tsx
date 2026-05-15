@@ -32,7 +32,8 @@ export default function SelfServiceReport() {
           <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100"><ChevronRight size={16} /></button>
         </div>
         <button onClick={handleDownloadExcel} disabled={!!downloading}
-          className="flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1 md:py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-[11px] md:text-xs font-medium disabled:opacity-60">
+          className="flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[11px] md:text-xs font-medium disabled:opacity-60"
+          style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
           {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
           <span className="hidden sm:inline">{downloading ? 'Downloading...' : 'Download Excel'}</span>
           <span className="sm:hidden">{downloading ? '...' : 'Excel'}</span>
@@ -40,7 +41,7 @@ export default function SelfServiceReport() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-brand-500" /></div>
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} /></div>
       ) : (
         <>
           {/* Stats Grid */}
@@ -66,7 +67,7 @@ export default function SelfServiceReport() {
           {report && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h4 className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
-                <TrendingUp size={14} className="text-brand-500" /> Insights
+                <TrendingUp size={14} style={{ color: 'var(--primary-color)' }} /> Insights
               </h4>
               <ul className="space-y-2 text-xs text-gray-600">
                 <li className="flex items-start gap-2">

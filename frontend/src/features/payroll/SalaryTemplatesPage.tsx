@@ -334,7 +334,7 @@ export default function SalaryTemplatesPage() {
                       type="button"
                       onClick={() => autoDistributeCTC(form.ctc)}
                       disabled={!form.ctc}
-                      className="text-[10px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1 disabled:opacity-40"
+                      className="text-[10px] font-medium flex items-center gap-1 disabled:opacity-40" style={{ color: 'var(--primary-color)' }}
                     >
                       <Zap size={11} /> Auto-distribute from Settings
                     </button>
@@ -467,7 +467,7 @@ export default function SalaryTemplatesPage() {
                       <p className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
                         {t.name}
                         {t.isDefault && (
-                          <span className="text-[10px] bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded-full font-medium">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                             Default
                           </span>
                         )}
@@ -540,7 +540,7 @@ export default function SalaryTemplatesPage() {
                         <div className="flex items-center gap-2 pt-2 border-t border-gray-50">
                           <button
                             onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
-                            className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                            className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}
                           >
                             <Pencil size={12} /> Edit
                           </button>
@@ -657,7 +657,7 @@ function ApplyTemplateModal({ templateId, onApply, applyForm, setApplyForm, onCl
                 Select Employees * ({applyForm.selectedEmployees.length} selected)
               </label>
               <div className="flex gap-2">
-                <button onClick={selectAll} className="text-[10px] text-brand-600 font-medium hover:underline">Select All</button>
+                <button onClick={selectAll} className="text-[10px] font-medium hover:underline" style={{ color: 'var(--primary-color)' }}>Select All</button>
                 <button onClick={clearAll} className="text-[10px] text-gray-500 font-medium hover:underline">Clear</button>
               </div>
             </div>
@@ -677,7 +677,7 @@ function ApplyTemplateModal({ templateId, onApply, applyForm, setApplyForm, onCl
                 {applyForm.selectedEmployees.slice(0, 10).map((id: string) => {
                   const emp = employees.find((e: any) => e.id === id);
                   return (
-                    <span key={id} className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 px-2 py-1 rounded-full text-[10px] font-medium">
+                    <span key={id} className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                       {emp ? `${emp.employeeCode}` : id.slice(0, 8)}
                       <button onClick={() => toggleEmployee(id)} className="hover:text-red-500"><X size={10} /></button>
                     </span>
@@ -699,13 +699,14 @@ function ApplyTemplateModal({ templateId, onApply, applyForm, setApplyForm, onCl
                   return (
                     <label
                       key={emp.id}
-                      className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-2/50 transition-colors ${isSelected ? 'bg-brand-50/50' : ''}`}
+                      className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-2/50 transition-colors`}
+                      style={isSelected ? { background: 'var(--primary-highlighted-color)' } : {}}
                     >
                       <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => toggleEmployee(emp.id)}
-                        className="rounded border-gray-300 text-brand-600"
+                        className="rounded border-gray-300"
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-gray-800 truncate">{emp.firstName} {emp.lastName}</p>

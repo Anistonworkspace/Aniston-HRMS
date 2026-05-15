@@ -134,7 +134,7 @@ export default function ShiftRotationCalendar() {
           <button onClick={() => setWeekOffset(w => w + 1)} className="p-2 rounded-lg hover:bg-gray-100"><ChevronRight size={16} /></button>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setWeekOffset(0)} className="text-xs text-brand-600 hover:text-brand-700 font-medium px-3 py-1 bg-brand-50 rounded-lg">This Week</button>
+          <button onClick={() => setWeekOffset(0)} className="text-xs font-medium px-3 py-1 rounded-lg" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}>This Week</button>
         </div>
       </div>
 
@@ -160,7 +160,8 @@ export default function ShiftRotationCalendar() {
                 {dates.map((date, i) => {
                   const isToday = date.toDateString() === new Date().toDateString();
                   return (
-                    <th key={i} className={`text-center px-2 py-2 font-medium min-w-[72px] ${isToday ? 'bg-brand-50 text-brand-700' : 'text-gray-500'}`}>
+                    <th key={i} className={`text-center px-2 py-2 font-medium min-w-[72px] ${isToday ? '' : 'text-gray-500'}`}
+                      style={isToday ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}>
                       <div>{DAYS[i]}</div>
                       <div className={`text-[10px] mt-0.5 ${isToday ? 'font-bold' : 'font-normal text-gray-400'}`}>
                         {date.getDate()}/{date.getMonth() + 1}
@@ -185,7 +186,8 @@ export default function ShiftRotationCalendar() {
                       const colors = SHIFT_COLORS[cell.type] || SHIFT_COLORS.OFF;
                       const isToday = date.toDateString() === new Date().toDateString();
                       return (
-                        <td key={i} className={`text-center px-1 py-1.5 ${isToday ? 'bg-brand-50/30' : ''}`}>
+                        <td key={i} className={`text-center px-1 py-1.5`}
+                          style={isToday ? { background: 'var(--primary-highlighted-color)', opacity: 0.5 } : undefined}>
                           <span className={`inline-block px-2 py-1 rounded-lg text-[10px] font-semibold border ${colors.bg} ${colors.text} ${colors.border} ${cell.planned ? 'opacity-50 border-dashed' : ''}`}>
                             {cell.label}
                           </span>

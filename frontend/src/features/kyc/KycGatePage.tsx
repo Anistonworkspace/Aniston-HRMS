@@ -331,7 +331,7 @@ export default function KycGatePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-1">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 size={24} className="animate-spin text-brand-600" />
+          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
           <p className="text-sm text-gray-400">Loading KYC status...</p>
         </div>
       </div>
@@ -409,8 +409,8 @@ export default function KycGatePage() {
 
         {/* Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-50 mb-3">
-            <FileText size={26} className="text-brand-600" />
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-3" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <FileText size={26} style={{ color: 'var(--primary-color)' }} />
           </div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Document Verification</h1>
           <p className="text-gray-500 text-sm mt-1">
@@ -515,12 +515,14 @@ function StepIndicator({ flowStep }: { flowStep: FlowStep }) {
               <div className={cn(
                 'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all',
                 done ? 'bg-emerald-500 text-white' :
-                active ? 'bg-brand-600 text-white ring-4 ring-brand-100' :
+                active ? '' :
                 'bg-gray-200 text-gray-400'
-              )}>
+              )}
+              style={active ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' } : undefined}>
                 {done ? <CheckCircle2 size={16} /> : idx + 1}
               </div>
-              <span className={cn('text-[9px] sm:text-[10px] whitespace-nowrap', active ? 'text-brand-600 font-medium' : 'text-gray-400')}>
+              <span className={cn('text-[9px] sm:text-[10px] whitespace-nowrap', active ? 'font-medium' : 'text-gray-400')}
+                style={active ? { color: 'var(--primary-color)' } : undefined}>
                 {step.label}
               </span>
             </div>
@@ -565,8 +567,9 @@ function ProfileInfoScreen({ experience, qualification, onExperienceChange, onQu
               onClick={() => onExperienceChange(opt)}
               className={cn(
                 'py-3 rounded-xl border-2 text-sm font-medium transition-all',
-                experience === opt ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-600 hover:border-brand-300'
+                experience === opt ? '' : 'border-gray-200 bg-white text-gray-600'
               )}
+              style={experience === opt ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}
             >
               {opt === 'FRESHER' ? '🎓 Fresher / First Job' : '💼 Experienced'}
             </button>
@@ -584,11 +587,12 @@ function ProfileInfoScreen({ experience, qualification, onExperienceChange, onQu
               onClick={() => onQualificationChange(opt.value)}
               className={cn(
                 'w-full text-left py-3 px-4 rounded-xl border-2 text-sm transition-all flex items-center justify-between',
-                qualification === opt.value ? 'border-brand-500 bg-brand-50 text-brand-700 font-medium' : 'border-gray-200 bg-white text-gray-600 hover:border-brand-300'
+                qualification === opt.value ? 'font-medium' : 'border-gray-200 bg-white text-gray-600'
               )}
+              style={qualification === opt.value ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}
             >
               <span>{opt.label}</span>
-              {qualification === opt.value && <CheckCircle2 size={16} className="text-brand-500" />}
+              {qualification === opt.value && <CheckCircle2 size={16} style={{ color: 'var(--primary-color)' }} />}
             </button>
           ))}
         </div>
@@ -601,7 +605,7 @@ function ProfileInfoScreen({ experience, qualification, onExperienceChange, onQu
           <div className="space-y-1">
             {computeRequiredDocs(experience, qualification).map(doc => (
               <div key={doc.type} className="flex items-center gap-2 text-xs text-gray-600">
-                <div className={cn('w-1.5 h-1.5 rounded-full', doc.required ? 'bg-brand-500' : 'bg-gray-400')} />
+                <div className={cn('w-1.5 h-1.5 rounded-full', doc.required ? '' : 'bg-gray-400')} style={doc.required ? { background: 'var(--primary-color)' } : undefined} />
                 <span>{doc.label}</span>
                 {!doc.required && <span className="text-gray-400">(if applicable)</span>}
               </div>
@@ -641,8 +645,8 @@ function SubmitConfirmDialog({
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
         <div className="px-5 pt-5 pb-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-brand-50 flex items-center justify-center">
-              <CheckCircle2 size={18} className="text-brand-600" />
+            <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+              <CheckCircle2 size={18} style={{ color: 'var(--primary-color)' }} />
             </div>
             <div>
               <p className="text-base font-bold text-gray-900">Submit for HR Review?</p>
@@ -681,7 +685,8 @@ function SubmitConfirmDialog({
           <button
             onClick={onConfirm}
             disabled={submitting}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold disabled:opacity-50"
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
+            style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
           >
             {submitting ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
             Confirm Submit
@@ -728,7 +733,7 @@ function ProfileConfigSection({
             {QUAL_LABELS[qualification!] || qualification}
           </p>
         </div>
-        <button onClick={() => setEditing(true)} className="text-xs text-brand-600 font-medium underline">
+        <button onClick={() => setEditing(true)} className="text-xs font-medium underline" style={{ color: 'var(--primary-color)' }}>
           Change
         </button>
       </div>
@@ -736,7 +741,7 @@ function ProfileConfigSection({
   }
 
   return (
-    <div className="layer-card p-5 border-2 border-brand-200">
+    <div className="layer-card p-5 border-2" style={{ borderColor: 'var(--ui-border-color)' }}>
       <p className="text-sm font-bold text-gray-900 mb-4">
         {needsSetup ? 'Tell us about yourself to continue' : 'Update your profile'}
       </p>
@@ -748,9 +753,10 @@ function ProfileConfigSection({
             <button key={opt} onClick={() => onExperienceChange(opt)}
               className={cn('py-2.5 rounded-xl border-2 text-sm font-medium transition-all',
                 experience === opt
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-gray-200 text-gray-600 hover:border-brand-300'
-              )}>
+                  ? ''
+                  : 'border-gray-200 text-gray-600'
+              )}
+              style={experience === opt ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}>
               {opt === 'FRESHER' ? '🎓 Fresher / First Job' : '💼 Experienced'}
             </button>
           ))}
@@ -764,11 +770,12 @@ function ProfileConfigSection({
             <button key={String(opt.value)} onClick={() => onQualificationChange(opt.value)}
               className={cn('w-full text-left py-2.5 px-4 rounded-xl border-2 text-sm transition-all flex items-center justify-between',
                 qualification === opt.value
-                  ? 'border-brand-500 bg-brand-50 text-brand-700 font-medium'
-                  : 'border-gray-200 text-gray-600 hover:border-brand-300'
-              )}>
+                  ? 'font-medium'
+                  : 'border-gray-200 text-gray-600'
+              )}
+              style={qualification === opt.value ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}>
               {opt.label}
-              {qualification === opt.value && <CheckCircle2 size={15} className="text-brand-500 shrink-0" />}
+              {qualification === opt.value && <CheckCircle2 size={15} className="shrink-0" style={{ color: 'var(--primary-color)' }} />}
             </button>
           ))}
         </div>
@@ -920,8 +927,8 @@ function SeparateUploadScreen({
             </div>
             <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
               <div
-                className={cn('h-full rounded-full transition-all duration-500', mandatoryComplete ? 'bg-emerald-500' : 'bg-brand-500')}
-                style={{ width: requiredDocs.length > 0 ? `${Math.round((completedCount / requiredDocs.length) * 100)}%` : '0%' }}
+                className={cn('h-full rounded-full transition-all duration-500', mandatoryComplete ? 'bg-emerald-500' : '')}
+                style={{ width: requiredDocs.length > 0 ? `${Math.round((completedCount / requiredDocs.length) * 100)}%` : '0%', ...(mandatoryComplete ? {} : { background: 'var(--primary-color)' }) }}
               />
             </div>
           </div>
@@ -1093,8 +1100,9 @@ function DocUploadRow({ doc, submittedDocs, uploading, scanningDocs, fileInputRe
                   </span>
                 ) : (
                   <label className={cn('cursor-pointer px-2 py-1 rounded text-[10px] font-medium shrink-0 ml-1',
-                    isTypeSubmitted ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-100 text-brand-700'
-                  )}>
+                    isTypeSubmitted ? 'bg-emerald-100 text-emerald-700' : ''
+                  )}
+                  style={!isTypeSubmitted ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}>
                     {isUploading ? <Loader2 size={10} className="animate-spin inline" /> : isTypeSubmitted ? 'Replace' : 'Upload'}
                     <input type="file" className="hidden" accept="image/*,.pdf"
                       onChange={e => { const f = e.target.files?.[0]; if (f) onFileChange(type, f, typeLabels[type]); e.target.value = ''; }} />
@@ -1343,7 +1351,8 @@ function StatusScreen({
           </div>
           <button
             onClick={() => navigate('/')}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm transition-colors shadow-sm"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors shadow-sm"
+            style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
           >
             <LayoutDashboard size={16} /> Go to Dashboard
           </button>

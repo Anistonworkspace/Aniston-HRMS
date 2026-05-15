@@ -64,9 +64,10 @@ export default function ShiftChangeRequestsTab() {
           <button
             key={val}
             onClick={() => setStatusFilter(val)}
+            style={statusFilter === val ? { color: 'var(--primary-color)' } : undefined}
             className={cn(
               'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
-              statusFilter === val ? 'bg-white text-brand-700 shadow-sm font-semibold' : 'text-gray-500 hover:text-gray-700'
+              statusFilter === val ? 'bg-white shadow-sm font-semibold' : 'text-gray-500 hover:text-gray-700'
             )}
           >
             {label}
@@ -95,7 +96,7 @@ export default function ShiftChangeRequestsTab() {
             <div key={req.id} className="border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-colors">
               <div className="flex items-start gap-3">
                 {/* Avatar */}
-                <div className="w-9 h-9 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold flex-shrink-0 overflow-hidden">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 overflow-hidden" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                   {req.employee?.avatar
                     ? <img src={getUploadUrl(req.employee.avatar)} alt="" className="w-full h-full object-cover" />
                     : getInitials(`${req.employee?.firstName} ${req.employee?.lastName}`)}
@@ -176,7 +177,7 @@ export default function ShiftChangeRequestsTab() {
                     onChange={e => setRemarks(e.target.value)}
                     placeholder="Optional review note..."
                     rows={2}
-                    className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:ring-1 focus:ring-brand-300 resize-none"
+                    className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none"
                   />
                 </div>
               )}

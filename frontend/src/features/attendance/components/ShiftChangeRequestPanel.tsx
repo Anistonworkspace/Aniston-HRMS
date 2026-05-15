@@ -77,7 +77,8 @@ export default function ShiftChangeRequestPanel() {
           {!showForm && (
             <button
               onClick={() => setShowForm(true)}
-              className="flex items-center gap-2 text-sm px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-medium transition-colors mb-4"
+              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-medium transition-colors mb-4"
+              style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
             >
               <Plus size={15} />
               Request Shift Change
@@ -107,9 +108,10 @@ export default function ShiftChangeRequestPanel() {
                           className={cn(
                             'flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left',
                             toShiftId === shift.id
-                              ? 'border-brand-500 bg-brand-50'
+                              ? ''
                               : 'border-gray-200 bg-white hover:border-gray-300'
                           )}
+                          style={toShiftId === shift.id ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' } : {}}
                         >
                           <div className={cn(
                             'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
@@ -141,7 +143,7 @@ export default function ShiftChangeRequestPanel() {
                     onChange={e => setReason(e.target.value)}
                     placeholder="e.g. Need to work from home this month due to..."
                     rows={2}
-                    className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:ring-1 focus:ring-brand-300 resize-none"
+                    className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:ring-1 resize-none"
                   />
                 </div>
 
@@ -155,7 +157,8 @@ export default function ShiftChangeRequestPanel() {
                   <button
                     onClick={handleSubmit}
                     disabled={creating || !toShiftId}
-                    className="flex-1 flex items-center justify-center gap-1.5 text-xs px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50"
+                    style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                   >
                     {creating ? <Loader2 size={12} className="animate-spin" /> : null}
                     Submit Request

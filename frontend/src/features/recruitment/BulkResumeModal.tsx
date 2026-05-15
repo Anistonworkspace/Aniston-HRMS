@@ -42,7 +42,7 @@ function ResumeIntelligenceRow({ item }: { item: any }) {
         <td colSpan={7} className="px-3 pb-0">
           <button
             onClick={() => setOpen(!open)}
-            className="flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-800 py-1"
+            className="flex items-center gap-1 text-[10px] py-1" style={{ color: 'var(--primary-color)' }}
           >
             {open ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
             {open ? 'Hide' : 'View'} Resume Intelligence
@@ -62,14 +62,14 @@ function ResumeIntelligenceRow({ item }: { item: any }) {
                 </p>
               )}
               {summary && (
-                <p className="text-gray-600 bg-brand-50/60 rounded-lg p-2 italic border border-brand-100">{summary}</p>
+                <p className="text-gray-600 rounded-lg p-2 italic border" style={{ background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}>{summary}</p>
               )}
 
               {/* ATS Breakdown */}
               {atsData?.breakdown && (
                 <div>
                   <p className="text-[10px] font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                    <Shield size={11} className="text-brand-500" /> ATS Breakdown
+                    <Shield size={11} style={{ color: 'var(--primary-color)' }} /> ATS Breakdown
                   </p>
                   <div className="grid grid-cols-5 gap-2">
                     {[
@@ -83,7 +83,7 @@ function ResumeIntelligenceRow({ item }: { item: any }) {
                         <div className="font-bold text-gray-800" data-mono>{val ?? '—'}<span className="font-normal text-gray-400">/{max}</span></div>
                         <div className="text-[9px] text-gray-500 mt-0.5">{label}</div>
                         <div className="w-full h-1 bg-gray-200 rounded-full mt-1 overflow-hidden">
-                          <div className="h-full bg-brand-500 rounded-full" style={{ width: `${val != null ? (val / max) * 100 : 0}%` }} />
+                          <div className="h-full rounded-full" style={{ width: `${val != null ? (val / max) * 100 : 0}%`, background: 'var(--primary-color)' }} />
                         </div>
                       </div>
                     ))}
@@ -142,7 +142,7 @@ function ResumeIntelligenceRow({ item }: { item: any }) {
               {(matched.length > 0 || missing.length > 0) && (
                 <div>
                   <p className="text-[10px] font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
-                    <Tag size={11} className="text-brand-500" /> JD Keyword Match
+                    <Tag size={11} style={{ color: 'var(--primary-color)' }} /> JD Keyword Match
                   </p>
                   {matched.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-1.5">
@@ -288,7 +288,8 @@ export default function BulkResumeModal({ onClose }: Props) {
                 <div key={label} className="flex items-center gap-2">
                   {i > 0 && <ChevronRight size={14} className="text-gray-300" />}
                   <span className={cn('text-xs font-medium px-2 py-1 rounded-full',
-                    i === stepIdx ? 'bg-brand-50 text-brand-700' : i < stepIdx ? 'bg-emerald-50 text-emerald-700' : 'text-gray-400')}>
+                    i === stepIdx ? '' : i < stepIdx ? 'bg-emerald-50 text-emerald-700' : 'text-gray-400')}
+                    style={i === stepIdx ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : {}}>
                     {label}
                   </span>
                 </div>
@@ -322,7 +323,7 @@ export default function BulkResumeModal({ onClose }: Props) {
               <div
                 onDrop={handleDrop}
                 onDragOver={e => e.preventDefault()}
-                className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-brand-400 transition-colors cursor-pointer"
+                className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center transition-colors cursor-pointer"
                 onClick={() => document.getElementById('file-input')?.click()}>
                 <Upload size={40} className="mx-auto text-gray-300 mb-3" />
                 <p className="text-sm font-medium text-gray-600">Drop resume files here or click to browse</p>
@@ -336,7 +337,7 @@ export default function BulkResumeModal({ onClose }: Props) {
                   {files.map((f, i) => (
                     <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg">
                       <div className="flex items-center gap-2">
-                        <FileText size={16} className="text-brand-500" />
+                        <FileText size={16} style={{ color: 'var(--primary-color)' }} />
                         <span className="text-sm text-gray-700 truncate max-w-[300px]">{f.name}</span>
                         <span className="text-[10px] text-gray-400">
                           {f.size > 1024 * 1024 ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` : `${(f.size / 1024).toFixed(0)} KB`}
@@ -364,14 +365,14 @@ export default function BulkResumeModal({ onClose }: Props) {
           {step === 'processing' && (
             <div className="space-y-4">
               <div className="text-center py-4">
-                <Loader2 size={32} className="animate-spin text-brand-600 mx-auto mb-3" />
+                <Loader2 size={32} className="animate-spin mx-auto mb-3" style={{ color: 'var(--primary-color)' }} />
                 <p className="text-sm font-medium text-gray-700">Scoring resumes with AI OCR pipeline...</p>
                 <p className="text-xs text-gray-400 mt-1">
                   {upload?.processedFiles || 0} / {upload?.totalFiles || files.length} processed
                 </p>
               </div>
               <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-brand-600 rounded-full transition-all duration-500"
+                <div className="h-full rounded-full transition-all duration-500" style={{ background: 'var(--primary-color)' }}
                   style={{ width: `${((upload?.processedFiles || 0) / (upload?.totalFiles || 1)) * 100}%` }} />
               </div>
               {items.length > 0 && (
@@ -466,7 +467,7 @@ export default function BulkResumeModal({ onClose }: Props) {
                               <span className="text-red-500" title={item.errorMessage || ''}>Failed</span>
                             )}
                             {item.status === 'PENDING' && <span className="text-gray-400">Pending</span>}
-                            {item.status === 'PROCESSING' && <span className="text-brand-500">Processing</span>}
+                            {item.status === 'PROCESSING' && <span style={{ color: 'var(--primary-color)' }}>Processing</span>}
                           </td>
                           <td className="py-2 px-3 text-right">
                             <div className="flex items-center justify-end gap-1 flex-wrap">
@@ -474,7 +475,7 @@ export default function BulkResumeModal({ onClose }: Props) {
                                 <>
                                   {!item.applicationId && (
                                     <button onClick={() => handleCreateApp(item.id)}
-                                      className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition-colors">
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg transition-colors" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                                       <UserPlus size={10} /> Add
                                     </button>
                                   )}

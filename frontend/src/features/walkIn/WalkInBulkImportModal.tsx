@@ -93,8 +93,8 @@ export default function WalkInBulkImportModal({ onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center">
-              <Users size={18} className="text-brand-600" />
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+              <Users size={18} style={{ color: 'var(--primary-color)' }} />
             </div>
             <div>
               <h2 className="text-base font-display font-semibold text-gray-800">Bulk Import Candidates</h2>
@@ -110,12 +110,12 @@ export default function WalkInBulkImportModal({ onClose }: Props) {
           {!result ? (
             <>
               {/* Template download */}
-              <div className="flex items-center justify-between bg-brand-50 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: 'var(--primary-highlighted-color)' }}>
                 <div>
-                  <p className="text-sm font-medium text-brand-800">Required columns: fullName, phone</p>
-                  <p className="text-xs text-brand-600 mt-0.5">Optional: email, position, experienceYears</p>
+                  <p className="text-sm font-medium" style={{ color: 'var(--primary-color)' }}>Required columns: fullName, phone</p>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--primary-color)' }}>Optional: email, position, experienceYears</p>
                 </div>
-                <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs text-brand-700 font-medium px-3 py-1.5 bg-white rounded-lg border border-brand-200 hover:bg-brand-100 transition-colors">
+                <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-white rounded-lg border transition-colors" style={{ color: 'var(--primary-color)', borderColor: 'var(--ui-border-color)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
                   <Download size={13} /> Download Template
                 </button>
               </div>
@@ -127,13 +127,16 @@ export default function WalkInBulkImportModal({ onClose }: Props) {
                 onDragLeave={() => setIsDragging(false)}
                 onClick={() => fileInputRef.current?.click()}
                 className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors ${
-                  isDragging ? 'border-brand-400 bg-brand-50' : 'border-gray-200 hover:border-brand-300'
+                  isDragging ? '' : 'border-gray-200'
                 }`}
+                style={isDragging ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' } : {}}
+                onMouseEnter={e => { if (!isDragging) e.currentTarget.style.borderColor = 'var(--primary-color)'; }}
+                onMouseLeave={e => { if (!isDragging) e.currentTarget.style.borderColor = ''; }}
               >
                 <Upload size={36} className="mx-auto text-gray-300 mb-3" />
                 {file ? (
                   <div className="flex items-center justify-center gap-2">
-                    <FileText size={18} className="text-brand-500" />
+                    <FileText size={18} style={{ color: 'var(--primary-color)' }} />
                     <span className="text-sm font-medium text-gray-700">{file.name}</span>
                     <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(0)} KB)</span>
                   </div>

@@ -47,7 +47,7 @@ export default function ActivateAccountPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 size={32} className="animate-spin text-brand-600" />
+          <Loader2 size={32} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
           <p className="text-sm text-gray-500">Validating activation link...</p>
         </div>
       </div>
@@ -101,7 +101,7 @@ export default function ActivateAccountPage() {
           </div>
           <h1 className="text-xl font-display font-bold text-gray-900 mb-2">Account Activated!</h1>
           <p className="text-gray-500 text-sm">Redirecting you to complete your profile...</p>
-          <Loader2 size={20} className="animate-spin text-brand-600 mx-auto mt-4" />
+          <Loader2 size={20} className="animate-spin mx-auto mt-4" style={{ color: 'var(--primary-color)' }} />
         </motion.div>
       </div>
     );
@@ -116,8 +116,8 @@ export default function ActivateAccountPage() {
         className="bg-white rounded-2xl shadow-xl p-8 max-w-md mx-4 w-full"
       >
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
-            <Shield size={32} className="text-brand-600" />
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <Shield size={32} style={{ color: 'var(--primary-color)' }} />
           </div>
           <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">Activate Your Account</h1>
           <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
@@ -136,7 +136,7 @@ export default function ActivateAccountPage() {
             window.location.href = `${API_URL}/auth/microsoft?returnTo=${encodeURIComponent(`/activate/${token}`)}`;
           }}
           disabled={completing}
-          className="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-xl border-2 border-gray-200 hover:border-brand-300 hover:bg-brand-50 transition-all text-sm font-semibold text-gray-700"
+          className="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-xl border-2 border-gray-200 transition-all text-sm font-semibold text-gray-700"
         >
           {completing ? (
             <Loader2 size={18} className="animate-spin" />

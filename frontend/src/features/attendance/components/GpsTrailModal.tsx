@@ -114,7 +114,7 @@ export default function GpsTrailModal({ isOpen, onClose, employeeId, employeeNam
             <div className="flex-1 overflow-y-auto">
               {isLoading ? (
                 <div className="flex items-center justify-center h-64">
-                  <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
                 </div>
               ) : points.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 gap-3">
@@ -171,7 +171,7 @@ export default function GpsTrailModal({ isOpen, onClose, employeeId, employeeNam
                                 {isEditing ? (
                                   <div className="flex items-center gap-1.5">
                                     <input
-                                      className="flex-1 text-xs border border-gray-300 rounded-lg px-2 py-1 outline-none focus:border-brand-400"
+                                      className="flex-1 text-xs border border-gray-300 rounded-lg px-2 py-1 outline-none"
                                       value={editValue}
                                       onChange={e => setEditValue(e.target.value)}
                                       onKeyDown={e => e.key === 'Enter' && handleSaveName(v.id)}

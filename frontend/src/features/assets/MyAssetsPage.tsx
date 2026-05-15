@@ -40,14 +40,14 @@ export default function MyAssetsPage() {
     <div className="page-container">
       <div className="mb-6">
         <h1 className="text-2xl font-display font-bold text-gray-900 flex items-center gap-2">
-          <Laptop className="text-brand-600" size={28} /> My Assets
+          <Laptop size={28} style={{ color: 'var(--primary-color)' }} /> My Assets
         </h1>
         <p className="text-gray-500 text-sm mt-0.5">Assets currently assigned to you</p>
       </div>
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} />
         </div>
       ) : assignments.length === 0 ? (
         <div className="text-center py-16 layer-card">
@@ -82,7 +82,7 @@ export default function MyAssetsPage() {
                     )}
                     <p className="text-xs font-mono text-gray-400" data-mono>{asset?.assetCode}</p>
                   </div>
-                  <span className="text-xs bg-brand-50 text-brand-600 px-2 py-0.5 rounded-full font-medium">
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                     {cat.label}
                   </span>
                 </div>

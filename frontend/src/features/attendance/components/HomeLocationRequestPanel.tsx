@@ -80,7 +80,8 @@ export default function HomeLocationRequestPanel() {
         {!hasApproved && !hasPending && (
           <button
             onClick={() => setShowForm(!showForm)}
-            className="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors font-medium"
+            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
+            style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
           >
             {showForm ? 'Cancel' : 'Set Location'}
           </button>
@@ -152,7 +153,8 @@ export default function HomeLocationRequestPanel() {
                 <button
                   onClick={handleCaptureGPS}
                   disabled={gettingGps}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 border-dashed border-brand-300 text-brand-600 hover:bg-brand-50 transition-colors text-sm font-medium disabled:opacity-60"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 border-dashed transition-colors text-sm font-medium disabled:opacity-60"
+                  style={{ borderColor: 'var(--primary-color)', color: 'var(--primary-color)' }}
                 >
                   {gettingGps ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
                   {gettingGps ? 'Getting GPS...' : capturedCoords ? 'Re-capture GPS' : 'Capture My GPS Location'}
@@ -193,7 +195,8 @@ export default function HomeLocationRequestPanel() {
               <button
                 onClick={handleSubmit}
                 disabled={submitting || !capturedCoords}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors text-sm font-semibold disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg transition-colors text-sm font-semibold disabled:opacity-50"
+                style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
               >
                 {submitting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
                 {submitting ? 'Submitting...' : 'Submit for Approval'}

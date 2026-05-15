@@ -33,7 +33,7 @@ export default function JobDetailPage() {
   if (jobLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+        <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} />
       </div>
     );
   }
@@ -83,7 +83,7 @@ export default function JobDetailPage() {
             </div>
             <div className="text-right flex flex-col items-end gap-2">
               <div>
-                <p className="text-2xl font-display font-bold text-brand-600" data-mono>{applications.length}</p>
+                <p className="text-2xl font-display font-bold" style={{ color: 'var(--primary-color)' }} data-mono>{applications.length}</p>
                 <p className="text-xs text-gray-400">Total Applicants</p>
               </div>
               {job.publicFormEnabled && job.publicFormToken && (
@@ -127,7 +127,7 @@ export default function JobDetailPage() {
       >
         {appsLoading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+            <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} />
           </div>
         ) : (
           <KanbanBoard applications={applications} jobId={jobId!} />

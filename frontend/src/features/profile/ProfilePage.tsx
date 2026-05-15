@@ -239,11 +239,12 @@ export default function ProfilePage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="layer-card p-4 mb-6 border border-brand-200 bg-brand-50/50"
+          className="layer-card p-4 mb-6"
+          style={{ borderColor: 'var(--ui-border-color)', background: 'var(--primary-highlighted-color)' }}
         >
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center shrink-0">
-              <CheckCircle2 size={20} className="text-brand-600" />
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+              <CheckCircle2 size={20} style={{ color: 'var(--primary-color)' }} />
             </div>
             <div className="flex-1">
               <h3 className="text-sm font-semibold text-gray-900">{t('profile.welcomeMessage')}</h3>
@@ -251,11 +252,12 @@ export default function ProfilePage() {
               <div className="mt-3">
                 <div className="flex items-center justify-between text-xs mb-1.5">
                   <span className="text-gray-500">{t('profile.profileCompletion')}</span>
-                  <span className="font-mono font-semibold text-brand-600" data-mono>{completionPct}%</span>
+                  <span className="font-mono font-semibold" style={{ color: 'var(--primary-color)' }} data-mono>{completionPct}%</span>
                 </div>
                 <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-brand-600 rounded-full transition-all duration-500"
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ background: 'var(--primary-color)' }}
                     style={{ width: `${completionPct}%` }}
                   />
                 </div>
@@ -284,7 +286,7 @@ export default function ProfilePage() {
         className="md:layer-card md:p-4 md:p-6 mb-6 min-w-0 max-w-full">
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 min-w-0">
           <div className="relative shrink-0">
-            <div className="w-24 h-24 rounded-2xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display">
+            <div className="w-24 h-24 rounded-2xl flex items-center justify-center font-bold text-3xl font-display" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
               {employee?.avatar ? (
                 <img src={getUploadUrl(employee.avatar)} alt="" className="w-full h-full rounded-2xl object-cover" />
               ) : (
@@ -417,7 +419,8 @@ export default function ProfilePage() {
               {req.hrNote && <p className="text-xs text-red-600 mt-0.5">HR note: {req.hrNote}</p>}
               <button
                 onClick={() => { setRequestDefaultCategory(req.category); setShowRequestModal(true); }}
-                className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-1"
+                className="text-xs font-medium mt-1"
+                style={{ color: 'var(--primary-color)' }}
               >
                 Submit a new request →
               </button>
@@ -640,7 +643,7 @@ export default function ProfilePage() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-            <Building2 size={16} className="text-brand-500" /> {t('profile.employmentDetails')}
+            <Building2 size={16} style={{ color: 'var(--primary-color)' }} /> {t('profile.employmentDetails')}
           </h3>
           <dl className="space-y-3">
             <ProfileRow label={t('profile.employeeCode')} value={employee?.employeeCode} mono />
@@ -667,7 +670,7 @@ export default function ProfilePage() {
           className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <div className="flex items-center justify-between flex-wrap gap-2 mb-3 min-w-0">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 min-w-0 break-words">
-              <User size={16} className="text-brand-500" /> {t('profile.personalInfo')}
+              <User size={16} style={{ color: 'var(--primary-color)' }} /> {t('profile.personalInfo')}
             </h3>
             {isEmployeeRole && perms.canViewEditProfile && (() => {
               const req = myEditRequests.find(r => r.category === 'PERSONAL_DETAILS' && (r.status === 'PENDING' || r.status === 'APPROVED'));
@@ -677,7 +680,7 @@ export default function ProfilePage() {
                 </span>
               ) : (
                 <button onClick={() => { setRequestDefaultCategory('PERSONAL_DETAILS'); setShowRequestModal(true); }}
-                  className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                  className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                   <Edit2 size={12} /> Request to Update
                 </button>
               );
@@ -707,7 +710,7 @@ export default function ProfilePage() {
                 <p className="text-sm font-medium text-gray-700 break-words">{t('profile.password')}</p>
                 <p className="text-xs text-gray-400 break-words">{t('profile.changePassword')}</p>
               </div>
-              <button onClick={() => setShowChangePassword(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">{t('profile.change')}</button>
+              <button onClick={() => setShowChangePassword(true)} className="text-xs font-medium shrink-0" style={{ color: 'var(--primary-color)' }}>{t('profile.change')}</button>
             </div>
             <div className="flex items-center justify-between gap-3 py-3 px-4 bg-surface-2 rounded-lg">
               <div className="min-w-0 flex-1">
@@ -750,7 +753,8 @@ export default function ProfilePage() {
               ) : (
                 <button
                   onClick={() => setShowMfaSetup(true)}
-                  className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors shrink-0"
+                  className="text-xs font-medium transition-colors shrink-0"
+                  style={{ color: 'var(--primary-color)' }}
                 >
                   Set Up
                 </button>
@@ -801,7 +805,7 @@ export default function ProfilePage() {
           className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <div className="flex items-center justify-between flex-wrap gap-2 mb-3 min-w-0">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 min-w-0 break-words">
-              <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
+              <MapPin size={16} style={{ color: 'var(--primary-color)' }} /> {t('profile.addressEmergency')}
             </h3>
             {isEmployeeRole && perms.canViewEditProfile && (
               <div className="flex items-center gap-2">
@@ -813,7 +817,7 @@ export default function ProfilePage() {
                     </span>
                   ) : (
                     <button onClick={() => { setRequestDefaultCategory('ADDRESS'); setShowRequestModal(true); }}
-                      className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                      className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                       <Edit2 size={12} /> Address
                     </button>
                   );
@@ -826,7 +830,7 @@ export default function ProfilePage() {
                     </span>
                   ) : (
                     <button onClick={() => { setRequestDefaultCategory('EMERGENCY_CONTACT'); setShowRequestModal(true); }}
-                      className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                      className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                       <Edit2 size={12} /> Emergency Contact
                     </button>
                   );
@@ -885,7 +889,7 @@ export default function ProfilePage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => setShowBankEdit(!showBankEdit)}
-                    className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                    className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}
                   >
                     {showBankEdit ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit Branch</>}
                   </button>
@@ -896,7 +900,7 @@ export default function ProfilePage() {
                   ) : (
                     <button
                       onClick={() => { setRequestDefaultCategory('BANK_DETAILS'); setShowRequestModal(true); }}
-                      className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                      className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}
                     >
                       <Edit2 size={12} /> Other Details
                     </button>
@@ -905,7 +909,7 @@ export default function ProfilePage() {
               );
             })() : (
               <button onClick={() => setShowBankEdit(!showBankEdit)}
-                className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                 {showBankEdit ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit</>}
               </button>
             )}
@@ -1052,20 +1056,21 @@ export default function ProfilePage() {
                 return !bankReq ? (
                   <button
                     onClick={() => { setRequestDefaultCategory('BANK_DETAILS'); setShowRequestModal(true); }}
-                    className="mt-2 text-xs text-brand-600 hover:text-brand-700 font-medium"
+                    className="mt-2 text-xs font-medium"
+                    style={{ color: 'var(--primary-color)' }}
                   >
                     + Request to add bank details
                   </button>
                 ) : null;
               })() : (
                 <button onClick={() => setShowBankEdit(true)}
-                  className="mt-2 text-xs text-brand-600 hover:text-brand-700 font-medium">
+                  className="mt-2 text-xs font-medium" style={{ color: 'var(--primary-color)' }}>
                   + Add bank details
                 </button>
               )}
               {isEmployeeRole && (
                 <button onClick={() => setShowBankEdit(!showBankEdit)}
-                  className="mt-1 text-xs text-gray-500 hover:text-brand-600 font-medium block">
+                  className="mt-1 text-xs text-gray-500 font-medium block" onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.color = '')}>
                   {showBankEdit ? 'Cancel' : '+ Add branch name'}
                 </button>
               )}
@@ -1095,14 +1100,14 @@ export default function ProfilePage() {
               ) : (
                 <button
                   onClick={() => { setRequestDefaultCategory('EPF_DETAILS'); setShowRequestModal(true); }}
-                  className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                  className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}
                 >
                   <Edit2 size={12} /> Request EPF Update
                 </button>
               );
             })() : (
               <button onClick={() => setShowEpfEdit(!showEpfEdit)}
-                className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}>
                 {showEpfEdit ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit</>}
               </button>
             )}
@@ -1163,7 +1168,7 @@ export default function ProfilePage() {
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
             className="layer-card p-4 md:p-6 min-w-0 max-w-full">
             <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-              <FileText size={16} className="text-brand-500" /> My Documents
+              <FileText size={16} style={{ color: 'var(--primary-color)' }} /> My Documents
             </h3>
             <div className="space-y-2">
               {(employee.documents as any[]).map((doc: any) => {
@@ -1175,7 +1180,7 @@ export default function ProfilePage() {
                 return (
                   <div key={doc.id} className="flex items-center justify-between py-2 px-3 bg-surface-2 rounded-lg">
                     <div className="flex items-center gap-2 min-w-0">
-                      <FileText size={13} className="text-brand-400 shrink-0" />
+                      <FileText size={13} className="shrink-0" style={{ color: 'var(--primary-color)' }} />
                       <span className="text-sm text-gray-700 truncate">{doc.name || label}</span>
                     </div>
                     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ml-2 ${statusColor}`}>

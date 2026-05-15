@@ -192,7 +192,7 @@ function AddToHomeMockup() {
           </motion.span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-brand-600 flex items-center justify-center shadow-sm">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm" style={{ background: 'var(--primary-color)' }}>
             <span className="text-white font-bold text-xl font-display">A</span>
           </div>
           <div>
@@ -222,7 +222,7 @@ function HomeScreenMockup() {
           transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
           className="flex flex-col items-center gap-1"
         >
-          <div className="w-12 h-12 rounded-2xl bg-brand-600 flex items-center justify-center shadow-lg">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg" style={{ background: 'var(--primary-color)' }}>
             <span className="text-white font-bold font-display">A</span>
           </div>
           <span className="text-white text-xs text-center leading-none">Aniston HRMS</span>
@@ -433,7 +433,7 @@ export default function IosInstallPage() {
         {/* Help line */}
         <p className="text-center text-xs text-gray-400 mt-8">
           Having trouble? Contact HR at{' '}
-          <a href="mailto:hr@anistonav.com" className="text-brand-600 underline">
+          <a href="mailto:hr@anistonav.com" className="underline" style={{ color: 'var(--primary-color)' }}>
             hr@anistonav.com
           </a>
         </p>

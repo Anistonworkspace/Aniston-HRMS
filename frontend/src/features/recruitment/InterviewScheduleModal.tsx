@@ -153,8 +153,9 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
                       type="button"
                       onClick={() => setForm({ ...form, isVideoCall: !form.isVideoCall, location: '' })}
                       className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors ${
-                        form.isVideoCall ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        form.isVideoCall ? '' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                       }`}
+                      style={form.isVideoCall ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : {}}
                     >
                       <Video className="w-3.5 h-3.5" />
                       Video Call
@@ -168,7 +169,7 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
                         className="input-glass w-full pl-10" placeholder="e.g. 207B, Jacksons Crown Heights, Rohini" />
                     </div>
                   ) : (
-                    <p className="text-sm text-brand-600 bg-brand-50 rounded-lg px-3 py-2">Video call link will be shared with the candidate</p>
+                    <p className="text-sm rounded-lg px-3 py-2" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}>Video call link will be shared with the candidate</p>
                   )}
                 </div>
 
@@ -237,7 +238,7 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
                 <div className="hidden md:flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-gray-700">AI Message Preview</h4>
                   <button onClick={fetchPreview} disabled={previewing}
-                    className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700">
+                    className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--primary-color)' }}>
                     {previewing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                     Regenerate
                   </button>
@@ -245,7 +246,7 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
                 {/* Mobile regenerate button */}
                 <div className="flex md:hidden justify-end">
                   <button onClick={fetchPreview} disabled={previewing}
-                    className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700">
+                    className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--primary-color)' }}>
                     {previewing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                     Regenerate
                   </button>
@@ -257,7 +258,7 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
                   </div>
                 ) : previewing ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-5 h-5 animate-spin text-brand-500" />
+                    <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--primary-color)' }} />
                     <span className="ml-2 text-sm text-gray-500">Generating preview...</span>
                   </div>
                 ) : preview ? (

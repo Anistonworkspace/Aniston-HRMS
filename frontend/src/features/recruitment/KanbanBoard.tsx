@@ -152,15 +152,15 @@ export default function KanbanBoard({ applications, jobId }: KanbanBoardProps) {
         {selectedIds.size > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            className="flex items-center gap-3 bg-brand-50 border border-brand-200 rounded-xl px-4 py-3"
+            className="flex items-center gap-3 rounded-xl px-4 py-3" style={{ background: 'var(--primary-highlighted-color)', border: '1px solid var(--ui-border-color)' }}
           >
-            <span className="text-sm font-medium text-brand-700">
+            <span className="text-sm font-medium" style={{ color: 'var(--primary-color)' }}>
               {selectedIds.size} selected
             </span>
             <div className="flex items-center gap-2 flex-wrap">
               {['SCREENING', 'INTERVIEW_1', 'HR_ROUND', 'OFFER'].map(stage => (
                 <button key={stage} disabled={bulkMoving} onClick={() => handleBulkMove(stage)}
-                  className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-white border border-brand-200 text-brand-600 hover:bg-brand-100 transition-colors disabled:opacity-50">
+                  className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-white transition-colors disabled:opacity-50" style={{ border: '1px solid var(--ui-border-color)', color: 'var(--primary-color)' }}>
                   {bulkMoving ? <Loader2 size={11} className="animate-spin" /> : <ArrowRight size={11} />}
                   {STAGES.find(s => s.key === stage)?.label}
                 </button>
@@ -185,7 +185,7 @@ export default function KanbanBoard({ applications, jobId }: KanbanBoardProps) {
           return (
             <div
               key={stage.key}
-              className={`min-w-[260px] w-[260px] shrink-0 rounded-xl transition-all duration-150 snap-start ${isOver ? 'ring-2 ring-brand-400 ring-offset-1 scale-[1.01]' : ''}`}
+              className={`min-w-[260px] w-[260px] shrink-0 rounded-xl transition-all duration-150 snap-start ${isOver ? 'scale-[1.01]' : ''}`}
               onDragOver={e => onDragOver(e, stage.key)}
               onDragLeave={onDragLeave}
               onDrop={e => onDrop(e, stage.key)}
@@ -197,9 +197,7 @@ export default function KanbanBoard({ applications, jobId }: KanbanBoardProps) {
               </div>
 
               {/* Drop Zone Body */}
-              <div className={`bg-gray-50/60 rounded-b-xl border border-t-0 p-2 space-y-2 min-h-[200px] transition-colors ${
-                isOver ? 'bg-brand-50/40 border-brand-300' : 'border-gray-100'
-              }`}>
+              <div className={`rounded-b-xl border border-t-0 p-2 space-y-2 min-h-[200px] transition-colors`} style={{ background: isOver ? 'var(--primary-highlighted-color)' : 'rgba(249,250,251,0.6)', borderColor: isOver ? 'var(--ui-border-color)' : '#f3f4f6' }}>
                 {stageApps.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-10 text-xs text-gray-300 gap-1">
                     <div className="w-8 h-8 rounded-full border-2 border-dashed border-gray-200 flex items-center justify-center">
@@ -303,23 +301,22 @@ function CandidateCard({
       draggable
       onDragStart={e => onDragStart(e as any, app.id, currentStage)}
       onDragEnd={onDragEnd}
-      className={`bg-white rounded-lg border shadow-sm p-3 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-all ${
-        isSelected ? 'border-brand-400 ring-1 ring-brand-300 bg-brand-50/20' : 'border-gray-100'
-      }`}
+      className={`bg-white rounded-lg border shadow-sm p-3 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-all ${isSelected ? '' : 'border-gray-100'}`}
+      style={isSelected ? { borderColor: 'var(--primary-color)', outline: '1px solid var(--primary-color)', background: 'var(--primary-highlighted-color)' } : {}}
       onClick={onViewDetail}
     >
       <div className="flex items-start justify-between mb-2">
         {/* Checkbox — stops propagation so clicking it doesn't open detail page */}
         <button
-          className="mt-0.5 mr-1.5 shrink-0 text-gray-300 hover:text-brand-500 transition-colors"
+          className="mt-0.5 mr-1.5 shrink-0 text-gray-300 transition-colors"
           onClick={e => { e.stopPropagation(); onSelect(); }}
         >
-          {isSelected ? <CheckSquare size={14} className="text-brand-500" /> : <Square size={14} />}
+          {isSelected ? <CheckSquare size={14} style={{ color: 'var(--primary-color)' }} /> : <Square size={14} />}
         </button>
 
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="w-7 h-7 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
-            <span className="text-[10px] font-bold text-brand-600">
+          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <span className="text-[10px] font-bold" style={{ color: 'var(--primary-color)' }}>
               {app.candidateName?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
             </span>
           </div>
@@ -350,7 +347,7 @@ function CandidateCard({
         <div className="relative">
           <button
             onClick={e => { e.stopPropagation(); setShowMoveMenu(!showMoveMenu); }}
-            className="text-[10px] text-brand-600 hover:bg-brand-50 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+            className="text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5" style={{ color: 'var(--primary-color)' }}
           >
             Move <ChevronDown className="w-3 h-3" />
           </button>

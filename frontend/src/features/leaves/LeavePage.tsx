@@ -75,17 +75,21 @@ export default function LeavePage() {
       <div className="px-4 sm:px-6 pt-6 pb-2 flex flex-wrap gap-2">
         <button
           onClick={() => setView('management')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            view === 'management' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}>
+          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          style={view === 'management'
+            ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }
+            : { background: 'var(--primary-background-hover-color)', color: 'var(--secondary-text-color)' }
+          }>
           {t('leaves.title')}
         </button>
         {!isHRAdmin && (
           <button
             onClick={() => setView('personal')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}>
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            style={view === 'personal'
+              ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }
+              : { background: 'var(--primary-background-hover-color)', color: 'var(--secondary-text-color)' }
+            }>
             {t('leaves.myLeaves')}
           </button>
         )}
@@ -128,7 +132,7 @@ function LeaveManagementView() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
           className={cn(
-            'flex items-center gap-3 bg-white border border-brand-100 shadow-lg rounded-xl px-4 py-3 max-w-sm',
+            'flex items-center gap-3 bg-white shadow-lg rounded-xl px-4 py-3 max-w-sm',
             t.visible ? 'pointer-events-auto' : 'pointer-events-none'
           )}
         >
@@ -341,8 +345,8 @@ function LeaveManagementView() {
           )}
           {liveNewCount > 0 && (
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-500 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-600" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: 'var(--primary-color)' }} />
+              <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: 'var(--primary-color)' }} />
             </span>
           )}
         </button>
@@ -535,7 +539,7 @@ function LeaveManagementView() {
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                       <div className="flex items-start gap-3 flex-1">
-                        <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700 shrink-0">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                           {(leave.employee?.firstName?.[0] || '') + (leave.employee?.lastName?.[0] || '')}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -636,7 +640,10 @@ function LeaveManagementView() {
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
                               onClick={() => setReviewLeaveId(leave.id)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-100 transition-colors"
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                              style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}
+                              onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
+                              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
                             >
                               <FileText size={14} />
                               Review
@@ -728,7 +735,7 @@ function LeaveManagementView() {
                       <span className="text-xs text-indigo-500 bg-indigo-50 px-2 py-1 rounded-lg flex items-center gap-1">
                         <Info size={11} /> Set quotas in Policy Settings
                       </span>
-                      <button onClick={() => setActiveTab('policy')} className="text-xs text-brand-600 hover:underline">
+                      <button onClick={() => setActiveTab('policy')} className="text-xs hover:underline" style={{ color: 'var(--primary-color)' }}>
                         → Go to Policy Settings
                       </button>
                     </div>
@@ -777,14 +784,19 @@ function LeaveManagementView() {
                           <div className="flex items-center gap-1 ml-1 flex-shrink-0">
                             <button
                               onClick={() => setActiveTab('policy')}
-                              className="px-2 py-1 text-xs text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-medium whitespace-nowrap"
+                              className="px-2 py-1 text-xs rounded-lg transition-colors font-medium whitespace-nowrap"
+                              style={{ color: 'var(--primary-color)' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                               title="Configure allocation in Policy Settings"
                             >
                               Configure →
                             </button>
                             <button
                               onClick={() => handleEditLeaveType(lt)}
-                              className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors text-gray-400 hover:text-brand-600"
+                              className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors text-gray-400"
+                              onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary-color)')}
+                              onMouseLeave={e => (e.currentTarget.style.color = '')}
                               title="Edit"
                             >
                               <Pencil size={14} />
@@ -981,14 +993,15 @@ function HolidayManagementTab() {
                   <p className="text-xs text-gray-400">Select holidays to add in bulk</p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => setSelectedSuggestions(new Set(suggestions.map((_: any, i: number) => i)))} className="text-xs text-brand-600 hover:underline">Select All</button>
+                  <button onClick={() => setSelectedSuggestions(new Set(suggestions.map((_: any, i: number) => i)))} className="text-xs hover:underline" style={{ color: 'var(--primary-color)' }}>Select All</button>
                   <button onClick={() => setSelectedSuggestions(new Set())} className="text-xs text-gray-400 hover:underline">Clear</button>
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
                 {suggestions.map((s: any, i: number) => (
                   <label key={i} className={cn('flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-colors text-left',
-                    selectedSuggestions.has(i) ? 'bg-brand-50 border-brand-300' : 'bg-white border-gray-200 hover:bg-gray-50')}>
+                    selectedSuggestions.has(i) ? 'border-gray-300' : 'bg-white border-gray-200 hover:bg-gray-50')}
+                    style={selectedSuggestions.has(i) ? { background: 'var(--primary-highlighted-color)', borderColor: 'var(--primary-color)' } : undefined}>
                     <input type="checkbox" checked={selectedSuggestions.has(i)} onChange={() => toggleSuggestion(i)} className="mt-0.5 rounded" />
                     <div>
                       <p className="text-xs font-medium text-gray-800">{s.name}</p>
@@ -1122,7 +1135,7 @@ function HolidayManagementTab() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center gap-2 justify-end">
-                        <button onClick={() => handleEditClick(h)} className="text-xs text-brand-600 hover:text-brand-800 font-medium">{t('common.edit') || 'Edit'}</button>
+                        <button onClick={() => handleEditClick(h)} className="text-xs font-medium" style={{ color: 'var(--primary-color)' }} onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>{t('common.edit') || 'Edit'}</button>
                         <button onClick={() => handleDelete(h.id, h.name)} className="text-xs text-red-500 hover:text-red-700">{t('common.delete')}</button>
                       </div>
                     </td>
@@ -1208,11 +1221,13 @@ function EmployeeOverviewTab() {
                 <tr
                   key={emp.id}
                   onClick={() => setSelectedEmployee(emp)}
-                  className="hover:bg-brand-50/40 transition-colors cursor-pointer group"
+                  className="transition-colors cursor-pointer group"
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-highlighted-color)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = '')}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-xs font-semibold text-brand-700 shrink-0">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                         {(emp.firstName?.[0] || '') + (emp.lastName?.[0] || '')}
                       </div>
                       <div>
@@ -1277,7 +1292,7 @@ function EmployeeOverviewTab() {
                   </td>
                   <td className="px-4 py-3 text-center font-mono text-emerald-600 font-medium" data-mono>{emp.leavesApproved}</td>
                   <td className="px-4 py-3 text-right">
-                    <ChevronRight size={14} className="text-gray-300 group-hover:text-brand-500 transition-colors" />
+                    <ChevronRight size={14} className="text-gray-300 transition-colors" style={undefined} />
                   </td>
                 </tr>
               ))}
@@ -1432,7 +1447,7 @@ function EmployeeLeaveDetailModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
               {employeeName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
             </div>
             <div>
@@ -1471,7 +1486,7 @@ function EmployeeLeaveDetailModal({
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
-            {isFetching && <Loader2 size={14} className="animate-spin text-brand-400" />}
+            {isFetching && <Loader2 size={14} className="animate-spin" style={{ color: 'var(--primary-color)', opacity: 0.7 }} />}
             <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
               <X size={18} className="text-gray-500" />
             </button>
@@ -1481,7 +1496,7 @@ function EmployeeLeaveDetailModal({
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 size={28} className="animate-spin text-brand-400" />
+              <Loader2 size={28} className="animate-spin" style={{ color: 'var(--primary-color)', opacity: 0.7 }} />
             </div>
           ) : !overview ? (
             <div className="text-center py-16 text-sm text-gray-400">Failed to load leave data</div>
@@ -1621,9 +1636,10 @@ function EmployeeLeaveDetailModal({
                         className={cn(
                           'px-3 py-1 rounded-full text-xs font-medium transition-colors',
                           statusFilter === ft.key
-                            ? 'bg-brand-100 text-brand-700 ring-1 ring-brand-300'
+                            ? 'ring-1 ring-gray-300'
                             : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                         )}
+                        style={statusFilter === ft.key ? { background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)', outlineColor: 'var(--primary-color)' } : undefined}
                       >
                         {ft.label}
                         {ft.count > 0 && <span className="ml-1 font-bold">{ft.count}</span>}
@@ -1657,7 +1673,7 @@ function EmployeeLeaveDetailModal({
                                 <p className="text-[11px] text-gray-400 mt-1 italic line-clamp-1">"{req.reason}"</p>
                               )}
                               {(req.approverRemarks || req.managerRemarks) && (
-                                <p className="text-[11px] text-brand-500 mt-1 line-clamp-2">
+                                <p className="text-[11px] mt-1 line-clamp-2" style={{ color: 'var(--primary-color)', opacity: 0.7 }}>
                                   Remark: {req.approverRemarks || req.managerRemarks}
                                 </p>
                               )}
@@ -1687,7 +1703,8 @@ function EmployeeLeaveDetailModal({
                     </p>
                     <button
                       onClick={() => setShowAdjForm((v) => !v)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium hover:bg-brand-700 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                      style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                     >
                       <Plus size={12} /> Add Adjustment
                     </button>
@@ -1972,9 +1989,15 @@ function OrgWorkingDaysCard() {
                 onClick={() => toggle(d.value)}
                 className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all ${
                   active
-                    ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                    : 'bg-white text-gray-500 border-gray-200 hover:border-brand-300 hover:text-brand-600'
+                    ? 'shadow-sm'
+                    : 'bg-white text-gray-500 border-gray-200'
                 }`}
+                style={active
+                  ? { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)', borderColor: 'var(--primary-color)' }
+                  : undefined
+                }
+                onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = 'var(--primary-color)'; e.currentTarget.style.color = 'var(--primary-color)'; } }}
+                onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = ''; e.currentTarget.style.color = ''; } }}
               >
                 {d.label}
               </button>
@@ -2005,7 +2028,11 @@ function Tip({ text }: { text: string }) {
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
     >
-      <span className="w-3.5 h-3.5 rounded-full bg-gray-200 hover:bg-brand-100 text-gray-400 hover:text-brand-600 text-[9px] flex items-center justify-center cursor-help font-bold transition-colors select-none">
+      <span
+        className="w-3.5 h-3.5 rounded-full bg-gray-200 text-gray-400 text-[9px] flex items-center justify-center cursor-help font-bold transition-colors select-none"
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary-highlighted-color)'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = ''; e.currentTarget.style.color = ''; }}
+      >
         ?
       </span>
       {visible && (
@@ -2038,7 +2065,8 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-brand-500' : 'bg-gray-300'}`}
+      className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0"
+      style={{ background: checked ? 'var(--primary-color)' : 'var(--ui-border-color, #D1D5DB)' }}
     >
       <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
     </button>
@@ -2360,7 +2388,7 @@ function LeavePersonalView() {
         <div className="max-w-3xl mx-auto">
           <div className="layer-card overflow-hidden">
             {/* Header */}
-            <div className="bg-gradient-to-r from-brand-600 to-purple-600 text-white px-6 py-5">
+            <div className="px-6 py-5" style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
               <div className="flex items-center gap-3 mb-2">
                 <FileText size={24} />
                 <h1 className="text-xl font-display font-bold">Leave & Attendance Policy</h1>
@@ -2389,7 +2417,8 @@ function LeavePersonalView() {
 
               <div className="flex items-start gap-3 mb-4">
                 <button type="button" role="checkbox" aria-checked={accepted} onClick={() => setAccepted(prev => !prev)}
-                  className={`mt-0.5 flex-shrink-0 w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${accepted ? 'bg-brand-600 border-brand-600' : 'bg-white border-gray-300'}`}>
+                  className="mt-0.5 flex-shrink-0 w-6 h-6 rounded border-2 flex items-center justify-center transition-colors"
+                  style={accepted ? { background: 'var(--primary-color)', borderColor: 'var(--primary-color)' } : { background: 'white', borderColor: '#D1D5DB' }}>
                   {accepted && <CheckCircle size={16} className="text-white" />}
                 </button>
                 <span className="text-sm text-gray-700 font-medium cursor-pointer select-none" onClick={() => setAccepted(prev => !prev)}>
@@ -2443,7 +2472,8 @@ function LeavePersonalView() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => openApplyModal()}
-              className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 active:bg-brand-800 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              className="flex items-center gap-1.5 text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl transition-colors focus:outline-none"
+              style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
             >
               <Plus size={14} className="md:hidden" />
               <Plus size={16} className="hidden md:block" />
@@ -2483,7 +2513,7 @@ function LeavePersonalView() {
               <span className="text-xl md:text-2xl">{LEAVE_ICONS[bal.leaveType.code] || '📅'}</span>
               <p className="text-xs md:text-sm font-medium text-gray-700 mt-1 md:mt-2 leading-tight">{bal.leaveType.name}</p>
               <div className="mt-2 md:mt-3">
-                <p className="text-xl md:text-2xl font-bold font-mono text-brand-600" data-mono>
+                <p className="text-xl md:text-2xl font-bold font-mono" data-mono style={{ color: 'var(--primary-color)' }}>
                   {bal.remaining}
                 </p>
                 <p className="text-[10px] md:text-xs text-gray-500">
@@ -2498,7 +2528,8 @@ function LeavePersonalView() {
               {/* Progress bar */}
               <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5">
                 <div
-                  className="bg-brand-500 h-1.5 rounded-full transition-all"
+                  className="h-1.5 rounded-full transition-all"
+                  style={{ background: 'var(--primary-color)' }}
                   style={{ width: `${Math.min((Number(bal.used) / Math.max(Number(bal.allocated), 1)) * 100, 100)}%` }}
                 />
               </div>
@@ -2579,13 +2610,13 @@ function LeavePersonalView() {
         <div className="lg:col-span-2 layer-card p-3 md:p-6 min-w-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
-              <CalendarDays size={16} className="text-brand-500" />
+              <CalendarDays size={16} style={{ color: 'var(--primary-color)', opacity: 0.7 }} />
               My Leave Requests
             </h2>
             <select
               value={leaveStatusFilter}
               onChange={(e) => { setLeaveStatusFilter(e.target.value); setLeavePage(1); }}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-300 bg-white"
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 bg-white"
             >
               <option value="">{t('common.all')} {t('common.status')}</option>
               <option value="PENDING">{t('leaves.pending')}</option>
@@ -2598,7 +2629,7 @@ function LeavePersonalView() {
           </div>
           {leavesLoading ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+              <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--primary-color)' }} />
             </div>
           ) : leaves.length === 0 ? (
             <div className="text-center py-12">
@@ -2650,7 +2681,7 @@ function LeavePersonalView() {
           <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 mb-3 md:mb-4 flex items-center justify-between">
             <span>🎉 Holidays {new Date().getFullYear()}</span>
             {holidays.length > 0 && (
-              <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-1 rounded-full">
+              <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' }}>
                 {holidays.filter((h: any) => new Date(h.date) >= new Date()).length} upcoming
               </span>
             )}
@@ -2752,7 +2783,8 @@ function LeavePersonalView() {
             </div>
             <button
               onClick={() => setSelectedHoliday(null)}
-              className="mt-5 w-full py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors"
+              className="mt-5 w-full py-3 rounded-xl text-sm font-semibold transition-colors"
+              style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
             >
               Close
             </button>
@@ -2888,7 +2920,8 @@ function LeaveRequestCard({ leave }: { leave: any }) {
                   <button
                     onClick={handleSubmitDraft}
                     disabled={submittingDraft}
-                    className="text-[11px] px-2.5 py-1 rounded-lg font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors disabled:opacity-60 flex items-center gap-1"
+                    className="text-[11px] px-2.5 py-1 rounded-lg font-semibold transition-colors disabled:opacity-60 flex items-center gap-1"
+                    style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                   >
                     {submittingDraft ? <Loader2 size={11} className="animate-spin" /> : <ChevronRight size={11} />}
                     Submit for Approval
@@ -3202,7 +3235,7 @@ function PolicySettingsTab() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="animate-spin text-brand-500" size={28} />
+        <Loader2 className="animate-spin" size={28} style={{ color: 'var(--primary-color)', opacity: 0.7 }} />
       </div>
     );
   }
@@ -3367,7 +3400,7 @@ function PolicySettingsTab() {
                 <div key={lt.id} className="flex flex-wrap items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
                   <div className="flex-1 min-w-[120px]">
                     <p className="text-sm font-medium text-gray-700">{lt.name}</p>
-                    <span className="text-[10px] font-mono bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded">{lt.code}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{lt.code}</span>
                     {lt.isPaid
                       ? <span className="ml-1 text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">Paid</span>
                       : <span className="ml-1 text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">Unpaid</span>}
@@ -3378,7 +3411,7 @@ function PolicySettingsTab() {
                       type="number" min={0} max={30}
                       value={rule.noticeDays}
                       onChange={(e) => setLeaveRules((r) => ({ ...r, [lt.id]: { ...rule, noticeDays: Number(e.target.value) } }))}
-                      className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2"
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -3386,7 +3419,8 @@ function PolicySettingsTab() {
                     <button
                       type="button"
                       onClick={() => setLeaveRules((r) => ({ ...r, [lt.id]: { ...rule, allowSameDay: !rule.allowSameDay } }))}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${rule.allowSameDay ? 'bg-brand-600' : 'bg-gray-300'}`}
+                      className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                      style={{ background: rule.allowSameDay ? 'var(--primary-color)' : '#D1D5DB' }}
                     >
                       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${rule.allowSameDay ? 'translate-x-4' : 'translate-x-0.5'}`} />
                     </button>
@@ -3395,7 +3429,8 @@ function PolicySettingsTab() {
                     <button
                       onClick={() => handleSaveLeaveRule(lt)}
                       disabled={savingLeaveRule === lt.id}
-                      className="flex items-center gap-1 text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}
                     >
                       {savingLeaveRule === lt.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
                       Save

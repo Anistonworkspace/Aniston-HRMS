@@ -231,7 +231,7 @@ export default function NewOnboardingFlow() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
-        <Loader2 size={32} className="animate-spin text-brand-600" />
+        <Loader2 size={32} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
       </div>
     );
   }
@@ -248,8 +248,8 @@ export default function NewOnboardingFlow() {
     <div className="h-[100dvh] overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       <header className="bg-white border-b border-gray-100 px-4 py-4 sticky top-0 z-10">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center">
-            <Building2 size={18} className="text-brand-600" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+            <Building2 size={18} style={{ color: 'var(--primary-color)' }} />
           </div>
           <div>
             <h1 className="font-display font-semibold text-gray-900 text-sm">{t('onboarding.welcomeAboard')}</h1>
@@ -295,17 +295,20 @@ export default function NewOnboardingFlow() {
                 className={cn(
                   'flex items-center justify-center w-8 h-8 rounded-full text-xs font-semibold transition-all',
                   currentStep > step.num ? 'bg-emerald-500 text-white cursor-pointer' :
-                  currentStep === step.num ? 'bg-brand-600 text-white ring-4 ring-brand-200' :
+                  currentStep === step.num ? 'text-white' :
                   'bg-gray-200 text-gray-500 cursor-default'
                 )}
+                style={currentStep === step.num ? { background: 'var(--primary-color)', boxShadow: '0 0 0 4px color-mix(in srgb, var(--primary-color) 20%, transparent)' } : {}}
               >
                 {currentStep > step.num ? <Check size={14} /> : step.num}
               </button>
               <span className={cn(
                 'hidden sm:block text-[11px] ml-1.5 whitespace-nowrap',
-                currentStep === step.num ? 'text-brand-600 font-medium' :
+                currentStep === step.num ? 'font-medium' :
                 currentStep > step.num ? 'text-emerald-600' : 'text-gray-400'
-              )}>
+              )}
+              style={currentStep === step.num ? { color: 'var(--primary-color)' } : {}}
+              >
                 {step.title}
               </span>
               {i < STEPS.length - 1 && (
@@ -458,10 +461,10 @@ function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
 
       <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm text-gray-600">
         <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">{t('onboarding.mfaSetupHow')}</p>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">1</span> {t('onboarding.mfaSetupStep1')}</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">2</span> {t('onboarding.mfaSetupStep2')}</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">3</span> {t('onboarding.mfaSetupStep3')}</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span> {t('onboarding.mfaSetupStep4')}</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>1</span> {t('onboarding.mfaSetupStep1')}</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>2</span> {t('onboarding.mfaSetupStep2')}</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>3</span> {t('onboarding.mfaSetupStep3')}</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>4</span> {t('onboarding.mfaSetupStep4')}</div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -711,7 +714,7 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
               {QUALIFICATIONS.map(q => <option key={q.value} value={q.value}>{q.label}</option>)}
             </select>
             {form.qualification && (
-              <p className="text-[11px] text-brand-600 mt-1">
+              <p className="text-[11px] mt-1" style={{ color: 'var(--primary-color)' }}>
                 {form.qualification === 'NONE'
                   ? 'No education certificates required'
                   : `${t('onboarding.requiredCertificates')} ${getRequiredEducationDocs(form.qualification)
@@ -735,11 +738,11 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
             <p className="text-xs text-amber-700 font-medium mb-2">{t('onboarding.sameAddressQuestion')}</p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setSameAsCurrent(true)}
-                className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium hover:border-brand-400 transition-colors">
+                className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium transition-colors" onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
                 {t('onboarding.yesSameAddress')}
               </button>
               <button type="button" onClick={() => setSameAsCurrent(false)}
-                className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium hover:border-brand-400 transition-colors">
+                className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium transition-colors" onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')} onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
                 {t('onboarding.noDifferentAddress')}
               </button>
             </div>
@@ -751,7 +754,7 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
             <span className="text-xs text-gray-500">
               {sameAsCurrent ? t('onboarding.sameAsCurrent') : t('onboarding.differentFromCurrent')}
             </span>
-            <button type="button" onClick={() => setSameAsCurrent(null)} className="text-xs text-brand-600 hover:underline">{t('onboarding.change')}</button>
+            <button type="button" onClick={() => setSameAsCurrent(null)} className="text-xs hover:underline" style={{ color: 'var(--primary-color)' }}>{t('onboarding.change')}</button>
           </div>
         )}
 
@@ -1100,7 +1103,8 @@ function Step5Documents({
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
           <div
-            className={cn('h-full rounded-full transition-all duration-500', allRequiredDone ? 'bg-emerald-500' : 'bg-brand-500')}
+            className={cn('h-full rounded-full transition-all duration-500', allRequiredDone ? 'bg-emerald-500' : '')}
+            style={!allRequiredDone ? { background: 'var(--primary-color)' } : {}}
             style={{ width: `${(requiredDoneCount / totalRequired) * 100}%` }}
           />
         </div>
@@ -1109,7 +1113,7 @@ function Step5Documents({
       {/* Identity Proof */}
       <div>
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />{t('onboarding.identityProof')}
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primary-color)' }} />{t('onboarding.identityProof')}
         </h4>
         <div className={cn(
           'rounded-lg border transition-colors',
@@ -1147,7 +1151,7 @@ function Step5Documents({
               {identityState.error && <p className="text-[11px] text-red-500 mt-0.5">{identityState.error}</p>}
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {identityState.status === 'uploading' && <Loader2 size={15} className="animate-spin text-brand-500" />}
+              {identityState.status === 'uploading' && <Loader2 size={15} className="animate-spin" style={{ color: 'var(--primary-color)' }} />}
               <label className={cn(
                 'text-xs cursor-pointer px-2.5 py-1.5 rounded-lg font-medium transition-colors',
                 identityUploaded ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'btn-secondary',
@@ -1171,7 +1175,7 @@ function Step5Documents({
       {activeSections.map(section => (
         <div key={section.title}>
           <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />{section.title}
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primary-color)' }} />{section.title}
           </h4>
           <div className="space-y-2">
             {section.docs.map(doc => {
@@ -1183,7 +1187,7 @@ function Step5Documents({
                 return (
                   <div key={doc.type} className="space-y-2">
                     <div className="flex items-center gap-1.5">
-                      <Camera size={13} className="text-brand-500" />
+                      <Camera size={13} style={{ color: 'var(--primary-color)' }} />
                       <p className="text-sm font-medium text-gray-700">
                         Passport Size Photograph <span className="text-red-500">*</span>
                       </p>
@@ -1229,7 +1233,7 @@ function Step5Documents({
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {state.status === 'uploading' && <Loader2 size={15} className="animate-spin text-brand-500" />}
+                    {state.status === 'uploading' && <Loader2 size={15} className="animate-spin" style={{ color: 'var(--primary-color)' }} />}
                     {(state.status === 'error' || isReuploadNeeded) && state.status !== 'uploading' && (
                       <button onClick={() => fileInputRefs.current[doc.type]?.click()} className="p-1 text-red-500 hover:bg-red-100 rounded">
                         <RefreshCw size={13} />
@@ -1472,7 +1476,7 @@ function ReviewRow({ label, value, valueClass }: { label: string; value?: string
 function CompletionScreen({ orgName, onContinue }: { orgName?: string; onContinue: () => void }) {
   const { t } = useTranslation();
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 to-brand-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 to-indigo-50 p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -1480,7 +1484,7 @@ function CompletionScreen({ orgName, onContinue }: { orgName?: string; onContinu
         className="bg-white rounded-2xl shadow-xl p-10 text-center max-w-md w-full"
       >
         <motion.div initial={{ rotate: -20 }} animate={{ rotate: 0 }} transition={{ delay: 0.3, type: 'spring' }}>
-          <PartyPopper size={56} className="mx-auto text-brand-600 mb-4" />
+          <PartyPopper size={56} className="mx-auto mb-4" style={{ color: 'var(--primary-color)' }} />
         </motion.div>
         <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">{t('onboarding.welcomeToTeam')}</h1>
         <p className="text-gray-500 text-sm">

@@ -64,7 +64,7 @@ export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props)
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            <PenSquare size={18} className="text-brand-500" />
+            <PenSquare size={18} style={{ color: 'var(--primary-color)' }} />
             <h3 className="font-display font-bold text-gray-900 text-sm">Mark Manual Attendance</h3>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={16} className="text-gray-400" /></button>
@@ -75,8 +75,8 @@ export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props)
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Employee *</label>
             {selectedEmp ? (
-              <div className="flex items-center gap-2 border border-brand-200 bg-brand-50 rounded-xl px-3 py-2">
-                <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-[10px] font-bold text-brand-700">
+              <div className="flex items-center gap-2 border rounded-xl px-3 py-2" style={{ borderColor: 'var(--ui-border-color)', background: 'var(--primary-highlighted-color)' }}>
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                   {getInitials(selectedEmp.firstName, selectedEmp.lastName)}
                 </div>
                 <div className="flex-1">
@@ -90,7 +90,7 @@ export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props)
             ) : (
               <div>
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or code..."
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none" />
                 {search.length > 0 && (
                   <div className="mt-1 max-h-36 overflow-y-auto border border-gray-200 rounded-xl bg-white shadow-sm">
                     {filtered.length === 0 ? (
@@ -119,7 +119,7 @@ export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props)
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Date *</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none" />
           </div>
 
           {/* Status */}
@@ -130,9 +130,10 @@ export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props)
                 <button key={s.value} onClick={() => setStatus(s.value)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                     status === s.value
-                      ? 'border-brand-300 bg-brand-50 text-brand-700'
+                      ? ''
                       : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                  }`}>
+                  }`}
+                  style={status === s.value ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' } : undefined}>
                   <span className={`w-2 h-2 rounded-full ${s.color}`} />
                   {s.label}
                 </button>
@@ -144,7 +145,7 @@ export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props)
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Work Mode</label>
             <select value={workMode} onChange={e => setWorkMode(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300">
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none">
               {WORK_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
           </div>
@@ -154,7 +155,8 @@ export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props)
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl">Cancel</button>
           <button onClick={handleSubmit} disabled={!employeeId || !date || isLoading}
-            className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white rounded-xl text-sm font-semibold">
+            className="flex items-center gap-2 px-5 py-2.5 disabled:bg-gray-300 disabled:text-white rounded-xl text-sm font-semibold"
+            style={(!employeeId || !date || isLoading) ? undefined : { background: 'var(--primary-color)', color: 'var(--text-color-on-primary)' }}>
             {isLoading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
             Mark Attendance
           </button>

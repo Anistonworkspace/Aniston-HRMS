@@ -269,7 +269,7 @@ function PoliciesTab({ isAdmin, canDelete }: { isAdmin: boolean; canDelete: bool
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-surface-2">
-                  <FileText size={18} className="text-brand-500" />
+                  <FileText size={18} style={{ color: 'var(--primary-color)' }} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-semibold text-gray-800 truncate">{policy.title}</h3>
@@ -296,7 +296,7 @@ function PoliciesTab({ isAdmin, canDelete }: { isAdmin: boolean; canDelete: bool
                 <div className="flex gap-2">
                   <button
                     onClick={() => setViewingPolicy(policy)}
-                    className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                    className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--primary-color)' }}
                   >
                     <Eye size={14} /> Read
                   </button>
@@ -420,11 +420,11 @@ function CreatePolicyModal({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-brand-400 hover:bg-brand-50/30 transition-colors group"
+              className="w-full border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-gray-400 hover:bg-gray-50 transition-colors group"
             >
               {file ? (
                 <div className="flex items-center justify-center gap-3">
-                  <FileText size={24} className="text-brand-500" />
+                  <FileText size={24} style={{ color: 'var(--primary-color)' }} />
                   <div className="text-left">
                     <p className="text-sm font-medium text-gray-800 truncate max-w-[280px]">{file.name}</p>
                     <p className="text-xs text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
@@ -439,7 +439,7 @@ function CreatePolicyModal({ onClose }: { onClose: () => void }) {
                 </div>
               ) : (
                 <div>
-                  <Upload size={28} className="mx-auto text-gray-300 group-hover:text-brand-400 mb-2" />
+                  <Upload size={28} className="mx-auto text-gray-300 group-hover:text-gray-500 mb-2" />
                   <p className="text-sm text-gray-500">Click to upload PDF or DOC file</p>
                   <p className="text-xs text-gray-400 mt-1">Max 10MB</p>
                 </div>

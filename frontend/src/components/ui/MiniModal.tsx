@@ -60,23 +60,36 @@ export default function MiniModal({ open, onClose, title, children }: MiniModalP
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 'calc(var(--modal-z-index) + 10)' }}>
+      <div
+        className="absolute inset-0"
+        style={{ background: 'var(--backdrop-color)' }}
+        onClick={onClose}
+      />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="mini-modal-title"
-        className="relative w-full max-w-md bg-white rounded-xl shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-150 flex flex-col"
-        style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
+        className="relative w-full max-w-md flex flex-col animate-scale-in"
+        style={{
+          background: 'var(--modal-background-color)',
+          borderRadius: 'var(--border-radius-big)',
+          boxShadow: 'var(--box-shadow-large)',
+          border: '1px solid var(--layout-border-color)',
+          maxHeight: 'min(90dvh, calc(100dvh - 2rem))',
+        }}
       >
         {/* Sticky header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
-          <h3 id="mini-modal-title" className="text-base font-display font-semibold text-gray-900">{title}</h3>
+          <h3 id="mini-modal-title" className="font-semibold" style={{ font: 'var(--font-text1-bold)', color: 'var(--primary-text-color)' }}>{title}</h3>
           <button
             aria-label="Close"
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            className="p-1 transition-colors"
+            style={{ color: 'var(--icon-color)', borderRadius: 'var(--border-radius-small)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary-background-hover-color)'; e.currentTarget.style.color = 'var(--primary-text-color)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--icon-color)'; }}
           >
             <X size={16} />
           </button>

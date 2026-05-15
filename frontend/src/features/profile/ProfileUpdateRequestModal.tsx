@@ -135,19 +135,20 @@ export default function ProfileUpdateRequestModal({ onClose, defaultCategory }: 
                   key={cat.id}
                   onClick={() => handleCategoryChange(cat.id)}
                   className={`w-full text-left p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                    active ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'
+                    active ? '' : 'border-gray-200'
                   }`}
+                  style={active ? { borderColor: 'var(--primary-color)', background: 'var(--primary-highlighted-color)' } : {}}
+                  onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = 'var(--primary-color)'; e.currentTarget.style.background = 'var(--primary-highlighted-color)'; } }}
+                  onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = ''; e.currentTarget.style.background = ''; } }}
                 >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${active ? 'bg-brand-600' : 'bg-gray-100'}`}>
-                    <Icon size={15} className={active ? 'text-white' : 'text-gray-500'} />
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${active ? '' : 'bg-gray-100'}`} style={active ? { background: 'var(--primary-color)' } : {}}>
+                    <Icon size={15} className={active ? '' : 'text-gray-500'} style={active ? { color: 'var(--text-color-on-primary)' } : {}} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">{cat.title}</p>
                     <p className="text-xs text-gray-500 truncate">{cat.description}</p>
                   </div>
-                  <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
-                    active ? 'border-brand-500 bg-brand-500' : 'border-gray-300'
-                  }`}>
+                  <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${active ? '' : 'border-gray-300'}`} style={active ? { borderColor: 'var(--primary-color)', background: 'var(--primary-color)' } : {}}>
                     {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                   </div>
                 </button>

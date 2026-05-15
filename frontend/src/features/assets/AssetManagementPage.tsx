@@ -72,7 +72,7 @@ export default function AssetManagementPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900 flex items-center gap-2">
-            <Monitor className="text-brand-600" size={28} /> Asset Management
+            <Monitor size={28} style={{ color: 'var(--primary-color)' }} /> Asset Management
           </h1>
           <p className="text-gray-500 text-sm mt-0.5">Manage IT assets, assignments, and tracking</p>
         </div>
@@ -139,7 +139,7 @@ export default function AssetManagementPage() {
 
           {/* Asset Table */}
           {isLoading ? (
-            <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto" /></div>
+            <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>
           ) : assets.length === 0 ? (
             <div className="layer-card p-16 text-center">
               <Package size={48} className="mx-auto text-gray-200 mb-4" />
@@ -174,8 +174,8 @@ export default function AssetManagementPage() {
                       <tr key={asset.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center">
-                              <CatIcon size={18} className="text-brand-600" />
+                            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+                              <CatIcon size={18} style={{ color: 'var(--primary-color)' }} />
                             </div>
                             <div>
                               <p className="text-sm font-medium text-gray-800">{asset.name}</p>
@@ -269,7 +269,7 @@ function ExitChecklistsTab() {
     ['APPROVED', 'NO_DUES_PENDING'].includes(e.exitStatus)
   );
 
-  if (isLoading) return <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto" /></div>;
+  if (isLoading) return <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto" style={{ color: 'var(--primary-color)' }} /></div>;
 
   if (exitRequests.length === 0) return (
     <div className="layer-card p-16 text-center">
@@ -311,7 +311,7 @@ function ExitChecklistCard({ employee }: { employee: any }) {
     <div className="layer-card overflow-hidden">
       <div className="p-4 flex items-center justify-between bg-gray-50/50 border-b border-gray-100">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600 font-bold text-sm">
+          <div className="w-10 h-10 rounded-xl font-bold text-sm flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
             {employee.firstName?.[0]}{employee.lastName?.[0]}
           </div>
           <div>
@@ -709,8 +709,8 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Asset Details</h3>
             <div className="bg-gray-50 rounded-xl p-4 space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center">
-                  <CatIcon size={24} className="text-brand-600" />
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)' }}>
+                  <CatIcon size={24} style={{ color: 'var(--primary-color)' }} />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">{asset.name}</p>
@@ -769,9 +769,9 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
 
             {/* Selected Employee Preview */}
             {selectedEmployee ? (
-              <div className="bg-brand-50/50 border border-brand-100 rounded-xl p-4">
+              <div className="rounded-xl p-4 border" style={{ background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}>
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm">
+                  <div className="w-12 h-12 rounded-full font-bold text-sm flex items-center justify-center" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>
                     {selectedEmployee.firstName?.[0]}{selectedEmployee.lastName?.[0]}
                   </div>
                   <div>
@@ -781,7 +781,7 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
                     <p className="text-xs font-mono text-gray-500" data-mono>{selectedEmployee.employeeCode}</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-brand-100/60">
+                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-200/60">
                   {selectedEmployee.designation?.name && (
                     <div>
                       <p className="text-[10px] text-gray-400">Designation</p>
