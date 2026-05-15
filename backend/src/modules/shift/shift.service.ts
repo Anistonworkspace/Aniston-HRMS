@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError, ConflictError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from '../../middleware/errorHandler.js';
 import type { CreateShiftInput, AssignShiftInput, CreateLocationInput } from './shift.validation.js';
 import { emitToUser } from '../../sockets/index.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
@@ -129,7 +129,7 @@ export class ShiftService {
             startTime: '09:00',
             endTime: '18:00',
             allowWfh: true,
-            isWfhShift: true,
+            isWfhShift: false, // HYBRID enforces dual-geofence — must NOT be isWfhShift=true
           },
         });
       } else {
@@ -147,7 +147,7 @@ export class ShiftService {
             isDefault: false,
             isActive: true,
             allowWfh: true,
-            isWfhShift: true,
+            isWfhShift: false, // HYBRID enforces dual-geofence — must NOT be isWfhShift=true
           },
         });
       }
@@ -268,9 +268,15 @@ export class ShiftService {
       return { message: 'Shift deactivated and employees reassigned to default shift' };
     }
 
-    // Hard delete if no active assignments
-    await prisma.shiftAssignment.deleteMany({ where: { shiftId: id } });
-    await prisma.shift.delete({ where: { id } });
+    // Soft-delete: preserve historical ShiftAssignment rows for audit/payroll trail
+    await prisma.shiftAssignment.updateMany({
+      where: { shiftId: id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await prisma.shift.update({
+      where: { id },
+      data: { isActive: false, code: `${shift.code}_DEL_${Date.now()}` },
+    });
     return { message: 'Shift deleted' };
   }
 
@@ -754,6 +760,10 @@ export class ShiftService {
     });
     if (!request) throw new NotFoundError('Shift change request');
     if (request.status !== 'PENDING') throw new BadRequestError('This request has already been reviewed.');
+    // Self-approval guard: the reviewer cannot approve/reject their own request
+    if (request.requestedBy === reviewedBy) {
+      throw new ForbiddenError('You cannot approve or reject your own shift change request.');
+    }
 
     await prisma.shiftChangeRequest.update({
       where: { id },
@@ -809,7 +819,7 @@ export class ShiftService {
   // ===================== HR ACTION RESTRICTIONS =====================
 
   async getHRRestrictions(employeeId: string, organizationId: string) {
-    const record = await prisma.hRActionRestriction.findFirst({ where: { employeeId } });
+    const record = await prisma.hRActionRestriction.findFirst({ where: { employeeId, organizationId } });
     return record ?? {
       employeeId,
       canHRChangeShift: true,
@@ -928,9 +938,17 @@ export class ShiftService {
     });
     if (!request) throw new NotFoundError('Home location request not found');
 
+    // BUG-002 fix: self-approval guard — HR cannot approve their own home location request
+    if (request.employee.userId === reviewedBy) {
+      throw new ForbiddenError('You cannot approve or reject your own home location request.');
+    }
+
     let result: any;
 
     if (action === 'APPROVED') {
+      // BUG-013 fix: delete old home geofence if employee already had one (orphan prevention)
+      const oldGeofenceId = request.employee.approvedHomeGeofenceId;
+
       result = await prisma.$transaction(async (tx) => {
         const geofence = await tx.geofence.create({
           data: {
@@ -952,11 +970,16 @@ export class ShiftService {
           data: { approvedHomeGeofenceId: geofence.id, workMode: 'HYBRID' },
         });
 
+        // Delete superseded old geofence if one existed (prevents orphaned HOME geofences)
+        if (oldGeofenceId) {
+          await tx.geofence.deleteMany({ where: { id: oldGeofenceId } });
+        }
+
         return { message: 'Home location approved and geofence created', geofenceId: geofence.id };
       });
 
-      // After transaction: assign employee to the org's HYBRID shift.
-      // Preserve the employee's existing officeLocationId so they can still clock in at office.
+      // BUG-009 fix: wrap assignShift call — if it fails, roll back employee to OFFICE workMode
+      // so the state is consistent (no HYBRID workMode without a HYBRID shift assignment).
       const hybridShift = await prisma.shift.findFirst({
         where: { organizationId, shiftType: 'HYBRID', isActive: true },
       });
@@ -968,16 +991,27 @@ export class ShiftService {
           where: { id: request.employeeId },
           select: { officeLocationId: true },
         });
-        await this.assignShift(
-          {
-            employeeId: request.employeeId,
-            shiftId: hybridShift.id,
-            startDate: today.toISOString().split('T')[0],
-            locationId: currentEmployee?.officeLocationId || undefined,
-          },
-          organizationId,
-          reviewedBy,
-        );
+        try {
+          await this.assignShift(
+            {
+              employeeId: request.employeeId,
+              shiftId: hybridShift.id,
+              startDate: today.toISOString().split('T')[0],
+              locationId: currentEmployee?.officeLocationId || undefined,
+            },
+            organizationId,
+            reviewedBy,
+          );
+        } catch (assignErr: any) {
+          // Compensating rollback: revert employee back to OFFICE if shift assignment failed
+          await prisma.employee.update({
+            where: { id: request.employeeId },
+            data: { workMode: 'OFFICE', approvedHomeGeofenceId: null },
+          });
+          throw new BadRequestError(
+            `Home location was approved but shift assignment failed: ${assignErr.message}. Please reassign the HYBRID shift manually.`
+          );
+        }
       }
 
       // Audit log
@@ -990,19 +1024,48 @@ export class ShiftService {
         newValue: { employeeId: request.employeeId, status: 'APPROVED', reviewNotes, hybridShiftAssigned: !!hybridShift },
       });
     } else {
-      // Clear old geofence from employee so they can't clock in from old location
+      // BUG-005 fix: on REJECTION, reset workMode to OFFICE and find default OFFICE shift to reassign
       await prisma.$transaction(async (tx) => {
         await tx.homeLocationRequest.update({
           where: { id },
           data: { status: 'REJECTED', reviewedBy, reviewedAt: new Date(), reviewNotes },
         });
-        if (request.employee.approvedHomeGeofenceId) {
-          await tx.employee.update({
-            where: { id: request.employeeId },
-            data: { approvedHomeGeofenceId: null },
-          });
-        }
+        // Always clear home geofence and reset workMode to OFFICE on rejection
+        await tx.employee.update({
+          where: { id: request.employeeId },
+          data: {
+            approvedHomeGeofenceId: null,
+            workMode: 'OFFICE',
+          },
+        });
       });
+
+      // Reassign employee to default OFFICE shift after rejection
+      const defaultOfficeShift = await prisma.shift.findFirst({
+        where: { organizationId, shiftType: 'OFFICE', isDefault: true, isActive: true },
+      });
+      if (defaultOfficeShift) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        // Fetch current office location to preserve it on the new OFFICE assignment
+        const currentEmployee = await prisma.employee.findUnique({
+          where: { id: request.employeeId },
+          select: { officeLocationId: true },
+        });
+        try {
+          await this.assignShift(
+            {
+              employeeId: request.employeeId,
+              shiftId: defaultOfficeShift.id,
+              startDate: today.toISOString().split('T')[0],
+              locationId: currentEmployee?.officeLocationId || undefined,
+            },
+            organizationId,
+            reviewedBy,
+          );
+        } catch { /* non-blocking — employee still has OFFICE workMode; HR can reassign manually */ }
+      }
+
       result = { message: 'Home location request rejected' };
 
       // Audit log for rejection

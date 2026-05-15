@@ -130,7 +130,7 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
 
   const autoGenerateCode = (name: string, shiftType: string) => {
     const base = name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
-    const suffix = shiftType === 'OFFICE' ? 'GEN' : shiftType === 'FIELD' ? 'LT' : 'SH';
+    const suffix = shiftType === 'OFFICE' ? 'GEN' : shiftType === 'FIELD' ? 'LT' : shiftType === 'HYBRID' ? 'HYB' : 'SH';
     return base ? `${base}-${suffix}` : '';
   };
 
@@ -141,6 +141,9 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
       code: autoGenerateCode(prev.name, shiftType),
       trackingIntervalMinutes: shiftType === 'FIELD' ? 60 : undefined,
       isDefault: shiftType === 'OFFICE',
+      // HYBRID shift always uses dual-geofence — never treat as pure WFH
+      allowWfh: shiftType === 'HYBRID' ? true : prev.allowWfh,
+      isWfhShift: false,
     }));
   };
 
@@ -272,10 +275,11 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                 {!isEditing && (
                   <div>
                     <label className="block text-xs text-gray-500 mb-1.5">Shift Type</label>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       {[
                         { key: 'OFFICE', label: 'General Shift' },
                         { key: 'FIELD', label: 'Live Tracking' },
+                        { key: 'HYBRID', label: 'Hybrid (WFH)' },
                       ].map(t => (
                         <button key={t.key} type="button" onClick={() => handleShiftTypeChange(t.key)}
                           className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
@@ -290,6 +294,16 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                         </button>
                       ))}
                     </div>
+                  </div>
+                )}
+                {/* Show current shift type when editing (read-only) */}
+                {isEditing && editShift?.shiftType && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Shift Type:</span>
+                    <span className={cn('px-2 py-0.5 rounded-full text-xs font-semibold', SHIFT_DISPLAY[editShift.shiftType]?.badgeClass)}>
+                      {SHIFT_DISPLAY[editShift.shiftType]?.label || editShift.shiftType}
+                    </span>
+                    <span className="text-xs text-gray-400">(cannot be changed after creation)</span>
                   </div>
                 )}
 

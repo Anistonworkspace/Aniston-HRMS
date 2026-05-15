@@ -338,6 +338,14 @@ export class AttendanceService {
 
     // ===== HYBRID SHIFT: must be inside HOME geofence OR OFFICE geofence =====
     if (isHybridShift && data.latitude != null && data.longitude != null) {
+      // BUG-007 fix: apply GPS accuracy gate for HYBRID (same 300m threshold as OFFICE)
+      if (data.accuracy && data.accuracy > 300) {
+        throw new BadRequestError(
+          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±300m or better). ` +
+          `Move to an open area away from buildings, wait 10–15 seconds for GPS to stabilize, then try again.`
+        );
+      }
+
       const homeGeofence = (employee as any).approvedHomeGeofence;
       const officeGeofence = assignedLocation?.geofence;
 
@@ -670,9 +678,11 @@ export class AttendanceService {
     const isWfhShiftCheckout = (clockOutShiftAssignment?.shift as any)?.isWfhShift === true;
     const clockOutShiftType = (clockOutShiftAssignment?.shift as any)?.shiftType || 'OFFICE';
 
-    // GPS coordinates are MANDATORY for non-WFH OFFICE and FIELD clock-out — no exceptions.
+    // BUG-004 fix: HYBRID clock-out requires GPS too
+    const isHybridShiftCheckout = clockOutShiftType === 'HYBRID';
+    // GPS coordinates are MANDATORY for non-WFH OFFICE, FIELD, and HYBRID clock-out — no exceptions.
     // Use == null so lat=0/lng=0 (falsy but technically a coordinate) is still treated as missing.
-    if (!isWfhShiftCheckout && (clockOutShiftType === 'OFFICE' || clockOutShiftType === 'FIELD') && (data.latitude == null || data.longitude == null)) {
+    if (!isWfhShiftCheckout && (clockOutShiftType === 'OFFICE' || clockOutShiftType === 'FIELD' || isHybridShiftCheckout) && (data.latitude == null || data.longitude == null)) {
       throw new BadRequestError(
         'Location is required to clock out. Please enable location services on your device and try again.'
       );
@@ -703,6 +713,61 @@ export class AttendanceService {
         }
       }
     }
+
+    // BUG-004 fix: HYBRID clock-out dual-geofence enforcement (mirrors clock-in logic)
+    if (isHybridShiftCheckout && data.latitude != null && data.longitude != null) {
+      const empWithHomeHybrid = await prisma.employee.findFirst({
+        where: { id: employeeId },
+        include: { approvedHomeGeofence: true },
+      });
+      const homeGeofenceHybrid = (empWithHomeHybrid as any)?.approvedHomeGeofence;
+      const officeGeofenceHybrid = geofenceForCheckout;
+
+      if (homeGeofenceHybrid || officeGeofenceHybrid) {
+        let insideHome = false;
+        let insideOffice = false;
+
+        if (homeGeofenceHybrid?.radiusMeters && homeGeofenceHybrid?.coordinates) {
+          const coords = homeGeofenceHybrid.coordinates as any;
+          if (coords?.lat && coords?.lng) {
+            const dist = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+            insideHome = dist <= homeGeofenceHybrid.radiusMeters;
+          }
+        }
+
+        if (officeGeofenceHybrid?.radiusMeters && officeGeofenceHybrid?.coordinates) {
+          const coords = officeGeofenceHybrid.coordinates as any;
+          if (coords?.lat && coords?.lng) {
+            const dist = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+            insideOffice = dist <= officeGeofenceHybrid.radiusMeters;
+          }
+        }
+
+        if (!insideHome && !insideOffice) {
+          const istNowCO = getISTNow();
+          const istHour = istNowCO.getHours();
+          // After 20:00 IST allow remote clock-out (same leniency as OFFICE shift) but flag it
+          if (istHour >= 20) {
+            checkoutGeofenceViolation = true;
+            logger.info(`[Attendance] HYBRID remote checkout allowed after 20:00 for ${employeeId}`);
+          } else {
+            const homeMsg = homeGeofenceHybrid
+              ? ` home (${Math.round(this.haversineDistance(data.latitude, data.longitude, (homeGeofenceHybrid.coordinates as any)?.lat, (homeGeofenceHybrid.coordinates as any)?.lng))}m away)`
+              : '';
+            const officeMsg = officeGeofenceHybrid
+              ? ` office (${Math.round(this.haversineDistance(data.latitude, data.longitude, (officeGeofenceHybrid.coordinates as any)?.lat, (officeGeofenceHybrid.coordinates as any)?.lng))}m away)`
+              : '';
+            throw new BadRequestError(
+              `You are outside both your assigned locations for Hybrid shift.` +
+              (homeMsg ? ` From${homeMsg}.` : '') +
+              (officeMsg ? ` From${officeMsg}.` : '') +
+              ` Please clock out from your home or office location, or wait until after 8:00 PM for remote clock-out.`
+            );
+          }
+        }
+      }
+    }
+
     // ===== WFH HOME GEOFENCE ENFORCEMENT (clock-out) =====
     if (isWfhShiftCheckout && data.latitude != null && data.longitude != null) {
       const empWithHome = await prisma.employee.findFirst({
