@@ -1,5 +1,5 @@
 import { powerMonitor } from 'electron';
-import { execSync } from 'child_process';
+import { exec } from 'child_process';
 
 /**
  * Tracks keyboard and mouse input activity between polling intervals.
@@ -13,6 +13,7 @@ let totalKeystrokes = 0;
 let totalClicks = 0;
 let totalMouseDistance = 0;
 let pollInterval: NodeJS.Timeout | null = null;
+let isPaused = false;
 
 // Track input state between snapshots via PowerShell.
 // Poll every 5 seconds — reduces spawns from 30/min to 12/min while still
@@ -49,39 +50,57 @@ if (([InputHelper]::GetAsyncKeyState(2) -band 1) -ne 0) { $clicks++ }
 
 const PS_ENCODED = Buffer.from(PS_SCRIPT, 'utf16le').toString('base64');
 
+// BUG-006 fix: use async exec so PowerShell runs on a child thread, not the Electron main thread.
+// execSync with a 5s timeout blocked the main thread every 5s, potentially freezing the UI.
+let psRunning = false; // prevent concurrent executions if PS is slow
+
 function pollInputState(): void {
-  try {
-    const result = execSync(
-      `powershell -NoProfile -NonInteractive -EncodedCommand ${PS_ENCODED}`,
-      { timeout: 5000, encoding: 'utf-8', windowsHide: true }
-    ).trim();
+  if (isPaused) return;
+  if (psRunning) return; // skip if previous poll hasn't finished yet
 
-    const [xStr, yStr, keysStr, clicksStr] = result.split('|');
-    const x = parseInt(xStr, 10) || 0;
-    const y = parseInt(yStr, 10) || 0;
-    const keys = parseInt(keysStr, 10) || 0;
-    const clicks = parseInt(clicksStr, 10) || 0;
+  psRunning = true;
+  exec(
+    `powershell -NoProfile -NonInteractive -EncodedCommand ${PS_ENCODED}`,
+    { timeout: 5000, windowsHide: true },
+    (err, stdout) => {
+      psRunning = false;
+      if (isPaused) return; // may have been paused while PS was running
 
-    totalKeystrokes += keys;
-    totalClicks += clicks;
+      if (err) {
+        // PowerShell poll failed — use idle heuristic fallback
+        const idleTime = powerMonitor.getSystemIdleTime();
+        if (idleTime < 3) {
+          totalKeystrokes += 2;
+          totalClicks += 1;
+        }
+        return;
+      }
 
-    // Calculate mouse distance (Euclidean)
-    if (lastMouseX !== 0 || lastMouseY !== 0) {
-      const dx = x - lastMouseX;
-      const dy = y - lastMouseY;
-      totalMouseDistance += Math.round(Math.sqrt(dx * dx + dy * dy));
+      const result = stdout.trim();
+      const [xStr, yStr, keysStr, clicksStr] = result.split('|');
+      const x = parseInt(xStr, 10) || 0;
+      const y = parseInt(yStr, 10) || 0;
+      const keys = parseInt(keysStr, 10) || 0;
+      const clicks = parseInt(clicksStr, 10) || 0;
+
+      totalKeystrokes += keys;
+      totalClicks += clicks;
+
+      // BUG-020 fix: skip (0,0) sentinel — it means cursor pos unavailable, not "at origin"
+      if (x === 0 && y === 0) {
+        // Don't update lastMouseX/Y — treat as no-data frame
+        return;
+      }
+
+      if (lastMouseX !== 0 || lastMouseY !== 0) {
+        const dx = x - lastMouseX;
+        const dy = y - lastMouseY;
+        totalMouseDistance += Math.round(Math.sqrt(dx * dx + dy * dy));
+      }
+      lastMouseX = x;
+      lastMouseY = y;
     }
-    lastMouseX = x;
-    lastMouseY = y;
-  } catch {
-    // PowerShell poll failed — use idle heuristic fallback
-    const idleTime = powerMonitor.getSystemIdleTime();
-    if (idleTime < 3) {
-      // User was active in last 3 seconds — estimate some input
-      totalKeystrokes += 2; // ~1 key per second average when active
-      totalClicks += 1;
-    }
-  }
+  );
 }
 
 /**
@@ -104,6 +123,14 @@ export function stopInputTracking(): void {
     pollInterval = null;
   }
   console.log('[InputTracker] Stopped');
+}
+
+export function pauseInputTracking(): void {
+  isPaused = true;
+}
+
+export function resumeInputTracking(): void {
+  isPaused = false;
 }
 
 /**

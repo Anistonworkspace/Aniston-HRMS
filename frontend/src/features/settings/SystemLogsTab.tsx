@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import {
   AlertTriangle, AlertCircle, Info, Bug, RefreshCw, Download, Search,
   ChevronDown, ChevronRight, Copy, Filter, X, Terminal, Server, Zap,
-  Clock, BarChart2, CheckCircle2, Wifi, WifiOff, Loader2, FileText,
+  Clock, BarChart2, CheckCircle2, Wifi, WifiOff, Loader2, FileText, Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import {
   useGetSystemLogSummaryQuery,
   useGetSystemLogsQuery,
   useGetAiServiceLogsQuery,
+  useDeleteSystemLogsMutation,
 } from './settingsApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -309,6 +310,10 @@ export default function SystemLogsTab() {
   const [page, setPage]               = useState(1);
   const [showAi, setShowAi]           = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [showDeletePanel, setShowDeletePanel] = useState(false);
+  const [deleteFrom, setDeleteFrom]   = useState('');
+  const [deleteTo, setDeleteTo]       = useState('');
+  const [deleteSystemLogs, { isLoading: isDeleting }] = useDeleteSystemLogsMutation();
 
   // Build query params from applied filters
   const queryParams = {
@@ -396,6 +401,21 @@ export default function SystemLogsTab() {
     }
   };
 
+  const handleDeleteLogs = async () => {
+    if (!deleteFrom || !deleteTo) { toast.error('Please select both From and To dates'); return; }
+    if (deleteFrom > deleteTo) { toast.error('From date must be before To date'); return; }
+    if (!window.confirm(`Delete all system log entries from ${deleteFrom} to ${deleteTo}? This cannot be undone.`)) return;
+    try {
+      const res = await deleteSystemLogs({ dateFrom: deleteFrom, dateTo: deleteTo }).unwrap();
+      toast.success(res.message || 'Logs deleted');
+      setDeleteFrom(''); setDeleteTo('');
+      setShowDeletePanel(false);
+      refetchLogs(); refetchSummary();
+    } catch {
+      toast.error('Failed to delete logs');
+    }
+  };
+
   const hasActiveFilters = Object.values(applied).some(Boolean);
 
   return (
@@ -441,8 +461,58 @@ export default function SystemLogsTab() {
               <button onClick={() => download('json')} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center gap-2"><FileText size={12} /> As .json</button>
             </div>
           </div>
+          <button
+            onClick={() => setShowDeletePanel(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+          >
+            <Trash2 size={12} /> Delete Logs
+          </button>
         </div>
       </div>
+
+      {/* ── Delete Logs Panel ──────────────────────────────────────────────── */}
+      {showDeletePanel && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <p className="text-xs font-semibold text-red-700 mb-3 flex items-center gap-1.5">
+            <Trash2 size={13} /> Delete System Logs by Date Range
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-gray-600 mb-1">From</label>
+              <input
+                type="date"
+                value={deleteFrom}
+                onChange={e => setDeleteFrom(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-600 mb-1">To</label>
+              <input
+                type="date"
+                value={deleteTo}
+                onChange={e => setDeleteTo(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 bg-white"
+              />
+            </div>
+            <button
+              onClick={handleDeleteLogs}
+              disabled={isDeleting || !deleteFrom || !deleteTo}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDeleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              {isDeleting ? 'Deleting…' : 'Delete Selected Range'}
+            </button>
+            <button
+              onClick={() => { setShowDeletePanel(false); setDeleteFrom(''); setDeleteTo(''); }}
+              className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-[11px] text-red-500 mt-2">Warning: This permanently removes log entries from the log files. This action cannot be undone.</p>
+        </div>
+      )}
 
       {/* ── Summary cards ─────────────────────────────────────────────────── */}
       {summaryLoading ? (

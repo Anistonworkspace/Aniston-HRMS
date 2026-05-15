@@ -99,6 +99,13 @@ router.get(
 router.post('/screenshot-interval', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.setScreenshotInterval(req, res, next));
 router.get('/screenshot-interval/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.getScreenshotInterval(req, res, next));
 
+// Admin: force-refresh agent status check for a specific employee (PLAN-03 reconnect button)
+router.post('/ping/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => agentController.getEmployeeStatus(req, res, next));
+
+// Admin: delete a single screenshot by ID (PLAN-07)
+// Must come BEFORE the screenshots/:employeeId/:date route to avoid collision
+router.delete('/screenshots/:screenshotId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => agentController.deleteScreenshot(req, res, next));
+
 // Admin: delete all activity data for a specific date
 router.delete('/activity/:employeeId/:date', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.deleteActivityByDate(req, res, next));
 

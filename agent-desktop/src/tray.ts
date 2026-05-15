@@ -2,9 +2,10 @@ import { Tray, Menu, nativeImage, BrowserWindow, app, ipcMain } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { isTracking, pauseTracking, resumeTracking, stopTracking } from './tracker';
+import { isTracking, stopTracking } from './tracker';
 import { stopScreenshots } from './screenshot';
 import { isLoggedIn } from './api';
+import { setManualPause } from './main';
 
 let tray: Tray | null = null;
 let pairWindow: BrowserWindow | null = null;
@@ -27,7 +28,7 @@ export function createTray(onPair: () => void, onLogout: () => void) {
   }
 
   tray = new Tray(icon.resize({ width: 16, height: 16 }));
-  tray.setToolTip('Aniston Agent');
+  tray.setToolTip('Aniston Support');
   updateTrayMenu(onPair, onLogout);
   return tray;
 }
@@ -38,7 +39,7 @@ export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
   const tracking = isTracking();
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Aniston Agent', enabled: false },
+    { label: 'Aniston Support', enabled: false },
     { type: 'separator' },
     { label: loggedIn ? '● Connected' : '○ Not Connected', enabled: false },
     { label: loggedIn ? (tracking ? '● Tracking Active' : '○ Tracking Paused') : '', enabled: false, visible: loggedIn },
@@ -46,8 +47,10 @@ export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
     // Not connected: offer pairing
     { label: 'Enter Pairing Code', visible: !loggedIn, click: onPair },
     // Connected: pause/resume and disconnect options
+    // BUG-018 fix: route through setManualPause() so wasManuallyPaused flag is updated,
+    // preventing sleep/resume from overriding a deliberate user pause
     { label: tracking ? 'Pause Tracking' : 'Resume Tracking', visible: loggedIn, click: () => {
-      if (tracking) pauseTracking(); else resumeTracking();
+      setManualPause(tracking); // true = pause, false = resume
       updateTrayMenu(onPair, onLogout);
     }},
     // Disconnect clears credentials and stays idle — does NOT immediately re-prompt pairing.
@@ -61,7 +64,7 @@ export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip(loggedIn ? `Aniston Agent — ${tracking ? 'Tracking' : 'Paused'}` : 'Aniston Agent — Not Connected');
+  tray.setToolTip(loggedIn ? `Aniston Support — ${tracking ? 'Tracking' : 'Paused'}` : 'Aniston Support — Not Connected');
 }
 
 function writePairHtml(): string {
@@ -80,7 +83,7 @@ export function showPairWindow(): Promise<string> {
 
     pairWindow = new BrowserWindow({
       width: 360, height: 280, resizable: false, minimizable: false, maximizable: false,
-      title: 'Aniston Agent — Pair',
+      title: 'Aniston Support — Pair',
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -143,7 +146,7 @@ function getPairHTML(): string {
       <rect x="10" y="32" width="20" height="3" rx="1.5" fill="#4f46e5"/>
     </svg>
   </div>
-  <h2>Aniston Agent</h2>
+  <h2>Aniston Support</h2>
   <p>Enter the pairing code from your HRMS portal</p>
   <form id="form">
     <input type="text" id="code" placeholder="ANST-XXXX" maxlength="9" required autofocus />

@@ -1,20 +1,22 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
-  WifiOff, X, Maximize2, Radio, Globe, Download, TrendingDown, TrendingUp,
+  Monitor, Search, Calendar, Activity, Clock, Mouse, Keyboard,
+  WifiOff, X, Maximize2, Globe, Download, TrendingDown, TrendingUp,
   Camera, Footprints, Info, ChevronDown, ChevronUp, BarChart2, List,
-  AlertTriangle, MinusCircle, Zap,
+  AlertTriangle, MinusCircle, Zap, Trash2, MoreVertical, Key, Copy, CheckCheck,
+  RefreshCw, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
   useGetActivityBulkSummaryQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
-  useSetAgentLiveModeMutation, useGetAgentLiveModeQuery,
   useLazyDownloadActivityExcelQuery,
   useGetAgentScreenshotIntervalQuery, useSetAgentScreenshotIntervalMutation, useDeleteAgentActivityByDateMutation,
+  useDeleteAgentScreenshotMutation, useForceRefreshAgentStatusMutation,
 } from '../attendance/attendanceApi';
 import { useGetAgentSetupListQuery, useGetEmployeeReportQuery } from '../settings/settingsApi';
+import { store } from '../../app/store';
 import { getInitials, cn } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -74,25 +76,27 @@ export default function ActivityTrackingPage() {
     debounceRef.current = setTimeout(() => setSelectedDate(value), 300);
   };
 
-  const { data: empRes, isLoading: loadingEmps } = useGetEmployeesQuery({ page: 1, limit: 100 });
+  const { data: empRes, isLoading: loadingEmps } = useGetEmployeesQuery({ page: 1, limit: 500 });
   const employees = empRes?.data || [];
 
-  const { data: bulkSummaryRes } = useGetActivityBulkSummaryQuery({ date: selectedDate }, { pollingInterval: 120_000 });
+  const { data: bulkSummaryRes } = useGetActivityBulkSummaryQuery({ date: selectedDate }, { pollingInterval: 120_000, skipPollingIfUnfocused: true });
   const bulkSummary = bulkSummaryRes?.data;
 
-  const { data: agentSetupRes } = useGetAgentSetupListQuery(undefined, { pollingInterval: 30_000 });
+  const { data: agentSetupRes } = useGetAgentSetupListQuery(undefined, { pollingInterval: 30_000, skipPollingIfUnfocused: true });
   const agentStatusMap = useMemo(() => {
-    const map: Record<string, { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null }> = {};
+    const map: Record<string, { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null; pairingCode: string | null }> = {};
     for (const emp of agentSetupRes?.data || []) {
       map[emp.id] = {
         isPaired: !!emp.agentPairedAt,
         isActive: emp.agentStatus?.isActive ?? false,
         lastHeartbeat: emp.agentStatus?.lastHeartbeat ?? null,
+        pairingCode: emp.agentPairingCode ?? null,
       };
     }
     return map;
   }, [agentSetupRes]);
 
+  // Track agents that have sent a heartbeat/ping recently (within 10 min) — used for live online dot
   const [liveConnected, setLiveConnected] = useState<Record<string, number>>({});
   useEffect(() => {
     const handler = (data: any) => {
@@ -234,6 +238,7 @@ export default function ActivityTrackingPage() {
                   onClick={() => setSelectedEmployee(emp)}
                   onReportClick={() => setReportEmployee(emp)}
                 />
+
               ))
             )}
           </div>
@@ -248,6 +253,7 @@ export default function ActivityTrackingPage() {
               onScreenshotClick={setFullScreenshot}
               agentStatus={agentStatusMap[selectedEmployee.id]}
               isLiveConnected={!!liveConnected[selectedEmployee.id]}
+              pairingCode={agentStatusMap[selectedEmployee.id]?.pairingCode ?? null}
             />
           ) : (
             <div className="flex items-center justify-center h-full layer-card">
@@ -288,11 +294,12 @@ export default function ActivityTrackingPage() {
 function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveConnected, onClick, onReportClick }: {
   employee: any; isSelected: boolean;
   bulkSummary: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore: number | null }> | undefined;
-  agentStatus?: { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null };
+  agentStatus?: { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null; pairingCode?: string | null };
   isLiveConnected?: boolean;
   onClick: () => void;
   onReportClick: () => void;
 }) {
+  const [rowCodeCopied, setRowCodeCopied] = useState(false);
   const summary = bulkSummary?.[employee.id];
   const hasActivity = !!summary && summary.logCount > 0;
   const score = summary?.productivityScore ?? null;
@@ -338,6 +345,22 @@ function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveCon
             <span className="text-[10px] text-gray-400">{employee.workMode}</span></>
           )}
         </div>
+        {/* Pairing code inline for unpaired employees */}
+        {!isPaired && agentStatus?.pairingCode && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(agentStatus.pairingCode!);
+              setRowCodeCopied(true);
+              setTimeout(() => setRowCodeCopied(false), 2000);
+            }}
+            className="mt-0.5 flex items-center gap-1 text-[9px] text-amber-600 hover:text-amber-700"
+          >
+            {rowCodeCopied ? <CheckCheck size={9} className="text-emerald-500" /> : <Key size={9} />}
+            <span className="font-mono font-bold tracking-wider" data-mono>{agentStatus.pairingCode}</span>
+            <span className="opacity-50">{rowCodeCopied ? '✓ Copied' : '· tap to copy'}</span>
+          </button>
+        )}
       </div>
 
       {/* Right: score + time + report button */}
@@ -367,54 +390,50 @@ function EmployeeRow({ employee, isSelected, bulkSummary, agentStatus, isLiveCon
 // ─────────────────────────────────────────────────────────────────────────────
 // Activity Detail — full right panel
 // ─────────────────────────────────────────────────────────────────────────────
-function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLiveConnected }: {
+function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLiveConnected, pairingCode }: {
   employee: any; date: string; onScreenshotClick: (url: string) => void;
-  agentStatus?: { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null };
+  agentStatus?: { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null; pairingCode?: string | null };
   isLiveConnected?: boolean;
+  pairingCode?: string | null;
 }) {
-  const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'screenshots' | 'live'>('overview');
-  const [exporting, setExporting] = useState(false);
+  // UX-002 fix: persist viewMode in sessionStorage keyed by employee ID so switching
+  // employees or refreshing the page restores the last-used tab.
+  const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'screenshots'>(() => {
+    try {
+      const saved = sessionStorage.getItem(`activity-viewmode-${employee.id}`);
+      const valid = ['overview', 'timeline', 'screenshots'];
+      return (valid.includes(saved || '') ? saved : 'overview') as any;
+    } catch { return 'overview'; }
+  });
+
+  const handleSetViewMode = (mode: 'overview' | 'timeline' | 'screenshots') => {
+    setViewMode(mode);
+    try { sessionStorage.setItem(`activity-viewmode-${employee.id}`, mode); } catch {}
+  };
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [showExportRange, setShowExportRange] = useState(false);
   const [showDeleteRange, setShowDeleteRange] = useState(false);
-  const employeeUserId: string | undefined = employee?.user?.id;
+  const [showDeleteDate, setShowDeleteDate] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const dateExpired = isExpired(date);
 
   const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 15000 : 60000, skip: dateExpired }
+    { pollingInterval: 60000, skip: dateExpired }
   );
-  const { data: screenshotRes, isLoading: loadingScreenshots } = useGetEmployeeScreenshotsQuery(
+  // PLAN-02: removed `skip: dateExpired` — screenshots have independent retention from activity logs
+  // Skip parent query when Screenshots tab is active — the gallery has its own self-contained query
+  const { data: screenshotRes } = useGetEmployeeScreenshotsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 15000 : 120000, skip: dateExpired }
+    { pollingInterval: 120000, skip: viewMode === 'screenshots' }
   );
   const [triggerExport] = useLazyDownloadActivityExcelQuery();
+  const [forceRefreshStatus, { isLoading: isRefreshing }] = useForceRefreshAgentStatusMutation();
 
   const summary = activityRes?.data?.summary;
   const logs = activityRes?.data?.logs || [];
   const screenshots = screenshotRes?.data || [];
   const hasData = !!summary && summary.logCount > 0;
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const result = await triggerExport({ employeeId: employee.id, date });
-      if (result.error) { toast.error('Export failed. Please try again.'); return; }
-      if (result.data) {
-        const url = URL.createObjectURL(result.data);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `activity-${employee.employeeCode || employee.id}-${date}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-    } catch {
-      toast.error('Export failed. Please try again.');
-    } finally {
-      setExporting(false);
-    }
-  };
 
   const isConnected = isLiveConnected || agentStatus?.isActive;
   const isPaired = agentStatus?.isPaired;
@@ -445,6 +464,38 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Pairing code pill — shown when not paired or not yet connected */}
+            {pairingCode && !isPaired && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(pairingCode);
+                  setCodeCopied(true);
+                  setTimeout(() => setCodeCopied(false), 2000);
+                }}
+                title="Click to copy pairing code"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-300 bg-amber-50 text-amber-700 text-[11px] font-medium hover:bg-amber-100 transition-colors"
+              >
+                {codeCopied ? <CheckCheck size={11} className="text-emerald-600" /> : <Key size={11} />}
+                <span className="font-mono font-bold tracking-wider" data-mono>{pairingCode}</span>
+                {codeCopied ? <span className="text-emerald-600 font-normal">Copied!</span> : <Copy size={10} className="opacity-50" />}
+              </button>
+            )}
+            {pairingCode && isPaired && !isConnected && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(pairingCode);
+                  setCodeCopied(true);
+                  setTimeout(() => setCodeCopied(false), 2000);
+                }}
+                title="Agent paired but offline — click to copy code"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-500 text-[11px] font-medium hover:bg-gray-100 transition-colors"
+              >
+                {codeCopied ? <CheckCheck size={11} className="text-emerald-600" /> : <Key size={11} />}
+                <span className="font-mono tracking-wider" data-mono>{pairingCode}</span>
+                {codeCopied ? <span className="text-emerald-600 font-normal">Copied!</span> : <Copy size={10} className="opacity-50" />}
+              </button>
+            )}
+
             {/* Agent status pill */}
             <div className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium', agentBg, agentLabelColor)}>
               <div className={cn('w-1.5 h-1.5 rounded-full', agentDotColor)} />
@@ -454,52 +505,103 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
               )}
             </div>
 
+            {/* PLAN-03: Refresh Status button — shown when agent is paired but offline */}
+            {isPaired && !isConnected && (
+              <button
+                onClick={async () => {
+                  try {
+                    await forceRefreshStatus({ employeeId: employee.id }).unwrap();
+                    toast.success('Status refreshed — if the agent is running it will appear online shortly');
+                  } catch {
+                    toast.error('Failed to refresh agent status');
+                  }
+                }}
+                disabled={isRefreshing}
+                title="Re-check whether the agent is online"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-600 text-[11px] font-medium hover:bg-blue-100 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={10} className={isRefreshing ? 'animate-spin' : ''} />
+                Refresh Status
+              </button>
+            )}
+
             {/* Date badge */}
             <div className="text-right px-3 py-1 bg-gray-50 border border-gray-200 rounded-lg">
               <p className="text-[10px] text-gray-400">Date</p>
               <p className="text-xs font-mono font-semibold text-gray-700" data-mono>{date}</p>
             </div>
 
-            {/* Export */}
-            {hasData && !dateExpired && (
-              <button onClick={handleExport} disabled={exporting}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50">
-                {exporting
-                  ? <div className="w-3 h-3 border border-emerald-600 border-t-transparent rounded-full animate-spin" />
-                  : <Download size={12} />}
-                Export Excel
+            {/* Single Actions dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowActionsMenu(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <MoreVertical size={13} /> Actions
               </button>
-            )}
-            {hasData && !dateExpired && (
-              <button onClick={() => setShowExportRange(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">
-                <Download size={12} /> Export Range
-              </button>
-            )}
-            {hasData && (
-              <button onClick={() => setShowDeleteRange(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
-                <X size={12} /> Delete Range
-              </button>
-            )}
-            <DeleteDateDataButton employeeId={employee.id} date={date} hasData={hasData} />
+              {showActionsMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowActionsMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-20 w-52 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+                    {hasData && !dateExpired && (
+                      <ActionMenuItem
+                        icon={<Download size={13} className="text-emerald-600" />}
+                        label="Export Today's Excel"
+                        onClick={() => {
+                          setShowActionsMenu(false);
+                          // inline export for single day
+                          (async () => {
+                            const result = await triggerExport({ employeeId: employee.id, date });
+                            if (result.data) {
+                              const url = URL.createObjectURL(result.data);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `activity-${employee.employeeCode || employee.id}-${date}.xlsx`;
+                              document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+                            } else { toast.error('Export failed'); }
+                          })();
+                        }}
+                      />
+                    )}
+                    <ActionMenuItem
+                      icon={<Download size={13} className="text-indigo-600" />}
+                      label="Export Date Range…"
+                      onClick={() => { setShowActionsMenu(false); setShowExportRange(true); }}
+                    />
+                    <div className="border-t border-gray-100 my-0.5" />
+                    {hasData && (
+                      <ActionMenuItem
+                        icon={<Trash2 size={13} className="text-red-500" />}
+                        label={`Delete ${date} Data…`}
+                        danger
+                        onClick={() => { setShowActionsMenu(false); setShowDeleteDate(true); }}
+                      />
+                    )}
+                    <ActionMenuItem
+                      icon={<Trash2 size={13} className="text-red-500" />}
+                      label="Delete Date Range…"
+                      danger
+                      onClick={() => { setShowActionsMenu(false); setShowDeleteRange(true); }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* View mode tabs */}
         <div className="flex bg-gray-100 rounded-lg p-0.5 w-fit mt-3">
           {([
-            { key: 'overview', icon: BarChart2, label: 'Overview', live: false },
-            { key: 'timeline', icon: List, label: 'Timeline', live: false },
-            { key: 'screenshots', icon: Camera, label: 'Screenshots', badge: screenshots.length || null, live: false },
-            { key: 'live', icon: Radio, label: 'Live Feed', live: true },
+            { key: 'overview', icon: BarChart2, label: 'Overview' },
+            { key: 'timeline', icon: List, label: 'Timeline' },
+            { key: 'screenshots', icon: Camera, label: 'Screenshots', badge: screenshots.length || null },
           ] as const).map(tab => (
-            <button key={tab.key} onClick={() => setViewMode(tab.key as any)}
+            <button key={tab.key} onClick={() => handleSetViewMode(tab.key as any)}
               className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
-                viewMode === tab.key
-                  ? tab.live ? 'bg-white text-red-600 shadow-sm' : 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700')}>
-              <tab.icon size={13} className={viewMode === tab.key && tab.live ? 'animate-pulse' : ''} />
+                viewMode === tab.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+              <tab.icon size={13} />
               {tab.label}
               {'badge' in tab && tab.badge != null && tab.badge > 0 && (
                 <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{tab.badge}</span>
@@ -509,8 +611,8 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
         </div>
       </div>
 
-      {/* Screenshot interval + data management */}
-      <ScreenshotIntervalControl employeeId={employee.id} />
+      {/* Screenshot interval — shown only outside the Screenshots tab (inside gallery has compact version) */}
+      {viewMode !== 'screenshots' && <ScreenshotIntervalControl employeeId={employee.id} />}
 
       {/* ── Retention Expired State ── */}
       {dateExpired && (
@@ -522,7 +624,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
       )}
 
       {/* ── No Data State ── */}
-      {!dateExpired && viewMode !== 'live' && !loadingActivity && !activityError && !hasData && (
+      {!dateExpired && !loadingActivity && !activityError && !hasData && (
         <div className="layer-card p-10 text-center">
           <Monitor size={40} className="mx-auto text-gray-200 mb-3" />
           <p className="text-sm font-semibold text-gray-500 mb-1">No activity recorded for {date}</p>
@@ -542,7 +644,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
       )}
 
       {/* ── Loading ── */}
-      {!dateExpired && viewMode !== 'live' && loadingActivity && (
+      {!dateExpired && loadingActivity && (
         <div className="layer-card p-10 text-center">
           <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
           <p className="text-sm text-gray-400 mt-2">Loading activity data…</p>
@@ -550,7 +652,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
       )}
 
       {/* ── Error ── */}
-      {!dateExpired && viewMode !== 'live' && activityError && (
+      {!dateExpired && activityError && (
         <div className="layer-card p-10 text-center">
           <WifiOff size={36} className="mx-auto text-red-300 mb-3" />
           <p className="text-sm text-red-500 mb-1">Failed to load activity data</p>
@@ -616,7 +718,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
                   <Camera size={14} style={{ color: 'var(--primary-color)' }} /> Recent Screenshots
                   <span className="text-xs text-gray-400 font-normal">({screenshots.length} total)</span>
                 </h3>
-                <button onClick={() => setViewMode('screenshots')}
+                <button onClick={() => handleSetViewMode('screenshots')}
                   className="text-[11px] hover:underline" style={{ color: 'var(--primary-color)' }}>View all</button>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -645,21 +747,10 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
       )}
 
       {/* ── SCREENSHOTS TAB ── */}
-      {!dateExpired && viewMode === 'screenshots' && (
+      {viewMode === 'screenshots' && (
         <ScreenshotsGallery
-          screenshots={screenshots}
-          loading={loadingScreenshots}
-          onScreenshotClick={onScreenshotClick}
-          resetKey={`${employee.id}-${date}`}
-        />
-      )}
-
-      {/* ── LIVE FEED TAB ── */}
-      {viewMode === 'live' && (
-        <LiveFeedPanel
           employeeId={employee.id}
-          employeeUserId={employeeUserId}
-          screenshots={screenshots}
+          initialDate={date}
           onScreenshotClick={onScreenshotClick}
         />
       )}
@@ -670,6 +761,68 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus, isLive
       {showDeleteRange && (
         <DeleteRangeModal employeeId={employee.id} onClose={() => setShowDeleteRange(false)} />
       )}
+      {showDeleteDate && (
+        <DeleteDateModal employeeId={employee.id} date={date} onClose={() => setShowDeleteDate(false)} />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actions menu item
+// ─────────────────────────────────────────────────────────────────────────────
+function ActionMenuItem({ icon, label, onClick, danger = false }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-left transition-colors',
+        danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700 hover:bg-gray-50'
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delete Date Modal (replaces DeleteDateDataButton inline)
+// ─────────────────────────────────────────────────────────────────────────────
+function DeleteDateModal({ employeeId, date, onClose }: { employeeId: string; date: string; onClose: () => void }) {
+  const [deleteData, { isLoading }] = useDeleteAgentActivityByDateMutation();
+
+  const handleDelete = async () => {
+    try {
+      const result = await deleteData({ employeeId, date }).unwrap();
+      toast.success(`Deleted ${result.data.logsDeleted} logs and ${result.data.screenshotsDeleted} screenshots for ${date}`);
+      onClose();
+    } catch {
+      toast.error('Failed to delete data — please try again');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-96" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-red-700 flex items-center gap-2">
+            <AlertTriangle size={16} className="text-red-500" /> Delete Data for {date}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+          <p className="text-sm font-semibold text-red-700 mb-1">⚠ This is permanent</p>
+          <p className="text-xs text-red-600">Delete ALL activity logs and screenshots for <strong>{date}</strong>? Screenshot files will also be removed from disk. Cannot be undone.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200">Cancel</button>
+          <button onClick={handleDelete} disabled={isLoading}
+            className="flex-1 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+            {isLoading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Deleting…</> : 'Confirm Delete'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1006,205 +1159,9 @@ function ActivityTimeline({ logs }: { logs: any[] }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Live Feed Panel
-// ─────────────────────────────────────────────────────────────────────────────
-function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotClick }: {
-  employeeId: string; employeeUserId: string | undefined; screenshots: any[]; onScreenshotClick: (url: string) => void;
-}) {
-  const [liveData, setLiveData] = useState<any>(null);
-  const [feedLog, setFeedLog] = useState<any[]>([]);
-  const [interval, setInterval_] = useState(30);
-  const [setLiveMode] = useSetAgentLiveModeMutation();
-  const { data: liveModeRes } = useGetAgentLiveModeQuery(employeeId, { pollingInterval: 10000 });
-  const isLive = liveModeRes?.data?.enabled || false;
-
-  useEffect(() => {
-    if (liveModeRes?.data?.intervalSeconds) setInterval_(liveModeRes.data.intervalSeconds);
-  }, [liveModeRes?.data?.intervalSeconds]);
-
-  useEffect(() => {
-    const handleHeartbeat = (data: any) => {
-      if (data.employeeId === employeeId) {
-        setLiveData(data);
-        setFeedLog(prev => [data, ...prev].slice(0, 100));
-      }
-    };
-    const handlePing = (data: any) => {
-      if (data.employeeId !== employeeId) return;
-      setFeedLog(prev => [{
-        id: Date.now().toString(),
-        timestamp: new Date().toISOString(),
-        activeApp: '— keepalive —',
-        activeWindow: 'Agent alive (idle)',
-        category: 'NEUTRAL',
-        keystrokes: 0,
-        mouseClicks: 0,
-        mouseDistance: 0,
-        durationSeconds: 0,
-      }, ...prev].slice(0, 100));
-    };
-    onSocketEvent('agent:heartbeat', handleHeartbeat);
-    onSocketEvent('agent:ping', handlePing);
-    return () => {
-      offSocketEvent('agent:heartbeat', handleHeartbeat);
-      offSocketEvent('agent:ping', handlePing);
-    };
-  }, [employeeId]);
-
-  const latestScreenshot = screenshots.length > 0 ? screenshots[screenshots.length - 1] : null;
-
-  return (
-    <div className="space-y-3">
-      {/* Live Controls */}
-      <div className="layer-card p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={cn('w-2.5 h-2.5 rounded-full', isLive ? 'bg-red-500 animate-pulse' : 'bg-gray-300')} />
-            <h4 className="text-sm font-semibold text-gray-800">{isLive ? 'Live View Active' : 'Live View Off'}</h4>
-            {isLive && liveData && (
-              <span className="text-[10px] text-gray-400">
-                · Last data at {fmtTime(liveData.timestamp)}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <select value={interval} onChange={e => setInterval_(Number(e.target.value))}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none">
-              <option value={10}>Every 10s</option>
-              <option value={30}>Every 30s</option>
-              <option value={60}>Every 60s</option>
-            </select>
-            {isLive ? (
-              <button onClick={() => setLiveMode({ employeeId, enabled: false })}
-                className="px-4 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
-                Stop Live View
-              </button>
-            ) : (
-              <button onClick={() => setLiveMode({ employeeId, enabled: true, intervalSeconds: interval })}
-                className="px-4 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1">
-                <Radio size={12} /> Start Live View
-              </button>
-            )}
-          </div>
-        </div>
-        {isLive && (
-          <p className="text-[10px] text-gray-400 mt-2">
-            Agent captures a screenshot every <strong>{interval}s</strong> and sends activity data in real-time.
-          </p>
-        )}
-      </div>
-
-      {/* Current window info */}
-      {liveData && (
-        <div className="layer-card p-4">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-            <Monitor size={12} /> Current Activity (live)
-          </h4>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Application</p>
-              <p className="text-sm font-semibold text-gray-800 truncate">{liveData.activeApp || 'Unknown'}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3 col-span-1 lg:col-span-1">
-              <p className="text-[10px] text-gray-400 mb-1">Status</p>
-              <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium',
-                liveData.category === 'PRODUCTIVE' ? 'bg-emerald-100 text-emerald-700' :
-                liveData.category === 'UNPRODUCTIVE' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600')}>
-                {liveData.category || 'NEUTRAL'}
-              </span>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Keystrokes (batch)</p>
-              <p className="text-sm font-bold text-blue-600 font-mono" data-mono>{liveData.keystrokes?.toLocaleString() || 0}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Idle Time</p>
-              <p className={cn('text-sm font-bold font-mono', liveData.idleSeconds > 120 ? 'text-amber-600' : 'text-gray-700')} data-mono>
-                {liveData.idleSeconds > 0 ? `${liveData.idleSeconds}s` : 'Active'}
-              </p>
-            </div>
-          </div>
-          {liveData.activeWindow && (
-            <div className="mt-2 bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-[10px] text-gray-400 mb-0.5">Window Title</p>
-              <p className="text-xs text-gray-700 truncate">{liveData.activeWindow}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Latest Screenshot */}
-      <div className="layer-card p-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
-          <Eye size={12} /> Latest Screenshot
-        </h4>
-        {latestScreenshot ? (
-          <div className="relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 transition-colors"
-            onClick={() => onScreenshotClick(`${API_BASE}${latestScreenshot.imageUrl}`)}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
-            <img src={`${API_BASE}${latestScreenshot.imageUrl}`} alt="Latest screenshot"
-              className="w-full h-auto max-h-96 object-contain bg-gray-900" />
-            <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
-              {fmtTime(latestScreenshot.timestamp)} · {latestScreenshot.activeApp || 'Desktop'}
-            </div>
-          </div>
-        ) : (
-          <div className="bg-gray-100 rounded-lg h-40 flex items-center justify-center">
-            <p className="text-xs text-gray-400">No screenshots yet</p>
-          </div>
-        )}
-      </div>
-
-      {/* Real-time Feed Log */}
-      <div className="layer-card p-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
-          <Activity size={12} /> Real-time Feed
-          <span className="text-[10px] text-gray-400 font-normal ml-1">(socket events, newest first)</span>
-        </h4>
-        {feedLog.length > 0 ? (
-          <div className="divide-y divide-gray-50 rounded-lg border border-gray-100 overflow-hidden max-h-64 overflow-y-auto">
-            {feedLog.map((entry, i) => (
-              <motion.div key={i} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
-                <span className="text-gray-400 font-mono w-16 flex-shrink-0 text-[10px]" data-mono>{fmtTime(entry.timestamp)}</span>
-                <div className={cn('w-2 h-2 rounded-full flex-shrink-0',
-                  entry.category === 'PRODUCTIVE' ? 'bg-emerald-500' :
-                  entry.category === 'UNPRODUCTIVE' ? 'bg-red-400' : 'bg-gray-300')} />
-                <span className="text-gray-700 font-medium w-28 truncate flex-shrink-0 text-[11px]">{entry.activeApp}</span>
-                <span className="text-gray-400 truncate flex-1 text-[11px]">{entry.activeWindow}</span>
-                {entry.keystrokes > 0 && (
-                  <span className="text-blue-500 flex items-center gap-0.5 flex-shrink-0 text-[10px]">
-                    <Keyboard size={9} /> {entry.keystrokes}
-                  </span>
-                )}
-                {entry.mouseClicks > 0 && (
-                  <span className="text-purple-500 flex items-center gap-0.5 flex-shrink-0 text-[10px]">
-                    <Mouse size={9} /> {entry.mouseClicks}
-                  </span>
-                )}
-                {entry.mouseDistance > 0 && (
-                  <span className="text-indigo-400 flex items-center gap-0.5 flex-shrink-0 text-[10px]">
-                    <Footprints size={9} /> {entry.mouseDistance}px
-                  </span>
-                )}
-              </motion.div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-400 text-center py-6">
-            Waiting for live data… Start the agent on the employee's PC and enable Live View above.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Screenshot Interval Control
 // ─────────────────────────────────────────────────────────────────────────────
-function ScreenshotIntervalControl({ employeeId }: { employeeId: string }) {
+function ScreenshotIntervalControl({ employeeId, compact = false }: { employeeId: string; compact?: boolean }) {
   const { data: intervalRes } = useGetAgentScreenshotIntervalQuery(employeeId);
   const [setInterval, { isLoading }] = useSetAgentScreenshotIntervalMutation();
   const current = intervalRes?.data?.intervalSeconds ?? 600;
@@ -1227,6 +1184,20 @@ function ScreenshotIntervalControl({ employeeId }: { employeeId: string }) {
     }
   };
 
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+        <Camera size={12} style={{ color: 'var(--primary-color)' }} className="flex-shrink-0" />
+        <span className="font-medium text-gray-600">Capture interval:</span>
+        <select value={current} onChange={e => handleChange(Number(e.target.value))} disabled={isLoading}
+          className="text-xs border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none disabled:opacity-50 bg-white">
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <span className="text-[10px] text-gray-400 ml-1">· Current: {options.find(o => o.value === current)?.label ?? `${current}s`}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="layer-card p-3 flex items-center gap-3">
       <Camera size={14} style={{ color: 'var(--primary-color)' }} className="flex-shrink-0" />
@@ -1237,50 +1208,6 @@ function ScreenshotIntervalControl({ employeeId }: { employeeId: string }) {
       </select>
       <span className="text-[10px] text-gray-400">Current: {options.find(o => o.value === current)?.label ?? `${current}s`}</span>
     </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Delete Date Data Button
-// ─────────────────────────────────────────────────────────────────────────────
-function DeleteDateDataButton({ employeeId, date, hasData }: { employeeId: string; date: string; hasData: boolean }) {
-  const [deleteData, { isLoading }] = useDeleteAgentActivityByDateMutation();
-  const [confirming, setConfirming] = useState(false);
-
-  if (!hasData) return null;
-
-  const handleDelete = async () => {
-    try {
-      const result = await deleteData({ employeeId, date }).unwrap();
-      toast.success(`Deleted ${result.data.logsDeleted} logs and ${result.data.screenshotsDeleted} screenshots for ${date}`);
-      setConfirming(false);
-    } catch {
-      toast.error('Failed to delete data');
-      setConfirming(false);
-    }
-  };
-
-  if (confirming) {
-    return (
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-red-600 font-medium">Delete all data for {date}?</span>
-        <button onClick={handleDelete} disabled={isLoading}
-          className="px-2.5 py-1 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
-          {isLoading ? 'Deleting…' : 'Confirm'}
-        </button>
-        <button onClick={() => setConfirming(false)}
-          className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
-          Cancel
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <button onClick={() => setConfirming(true)}
-      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
-      <X size={12} /> Delete Date Data
-    </button>
   );
 }
 
@@ -1500,43 +1427,157 @@ function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Screenshots Gallery with pagination
+// Screenshots Gallery — day-wise navigation, manual refresh, per-shot delete
 // ─────────────────────────────────────────────────────────────────────────────
 const SCREENSHOTS_PER_PAGE = 48;
 
-function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey }: {
-  screenshots: any[]; loading: boolean; onScreenshotClick: (url: string) => void; resetKey?: string;
+function ScreenshotsGallery({ employeeId, initialDate, onScreenshotClick }: {
+  employeeId: string; initialDate: string;
+  onScreenshotClick: (url: string) => void;
 }) {
+  // PLAN-06: local date state so user can browse day-by-day inside this tab
+  const [localDate, setLocalDate] = useState(initialDate);
   const [visible, setVisible] = useState(SCREENSHOTS_PER_PAGE);
-  useEffect(() => { setVisible(SCREENSHOTS_PER_PAGE); }, [resetKey]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Sync when parent date changes (e.g. header date picker)
+  useEffect(() => { setLocalDate(initialDate); setVisible(SCREENSHOTS_PER_PAGE); }, [initialDate]);
+  useEffect(() => { setVisible(SCREENSHOTS_PER_PAGE); }, [localDate]);
+
+  const { data: screenshotRes, isLoading, isFetching, refetch } = useGetEmployeeScreenshotsQuery(
+    { employeeId, date: localDate },
+    { pollingInterval: 120000 }
+  );
+  const screenshots = screenshotRes?.data || [];
   const shown = screenshots.slice(0, visible);
   const hasMore = screenshots.length > visible;
 
+  const [deleteScreenshot] = useDeleteAgentScreenshotMutation();
+
+  const goDay = (delta: number) => {
+    const d = new Date(localDate + 'T12:00:00Z');
+    d.setDate(d.getDate() + delta);
+    const next = d.toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+    if (next <= today) setLocalDate(next);
+  };
+
+  const handleDelete = async (s: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete screenshot taken at ${fmtTimeShort(s.timestamp)}? This cannot be undone.`)) return;
+    setDeletingId(s.id);
+    try {
+      await deleteScreenshot({ screenshotId: s.id }).unwrap();
+      toast.success('Screenshot deleted');
+      refetch();
+    } catch {
+      toast.error('Failed to delete screenshot');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const today = new Date().toISOString().split('T')[0];
+  const isToday = localDate === today;
+
   return (
     <div className="layer-card p-4">
-      <div className="flex items-center justify-between mb-3">
+      {/* Header row: title + day navigation + refresh */}
+      <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
           <Camera size={14} style={{ color: 'var(--primary-color)' }} />
           Screenshots
-          <span className="text-xs text-gray-400 font-normal">({loading ? '…' : screenshots.length} captured)</span>
+          <span className="text-xs text-gray-400 font-normal">
+            ({(isLoading || isFetching) ? '…' : screenshots.length} captured)
+          </span>
         </h3>
-        {screenshots.length > SCREENSHOTS_PER_PAGE && (
-          <span className="text-[10px] text-gray-400">Showing {Math.min(visible, screenshots.length)} of {screenshots.length}</span>
-        )}
+
+        <div className="flex items-center gap-2">
+          {/* Day navigator */}
+          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-1 py-0.5">
+            <button onClick={() => goDay(-1)}
+              className="p-1 text-gray-500 hover:text-gray-800 transition-colors rounded">
+              <ChevronLeft size={14} />
+            </button>
+            <input
+              type="date"
+              value={localDate}
+              max={today}
+              onChange={e => { if (e.target.value) setLocalDate(e.target.value); }}
+              className="text-xs font-mono border-none bg-transparent outline-none text-gray-700 w-28 text-center"
+            />
+            <button onClick={() => goDay(1)} disabled={isToday}
+              className="p-1 text-gray-500 hover:text-gray-800 transition-colors rounded disabled:opacity-30">
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {/* Jump to today */}
+          {!isToday && (
+            <button onClick={() => setLocalDate(today)}
+              className="text-[11px] px-2 py-1 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
+              Today
+            </button>
+          )}
+
+          {/* Manual refresh */}
+          <button onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50">
+            <RefreshCw size={11} className={isFetching ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+
+          {screenshots.length > SCREENSHOTS_PER_PAGE && (
+            <span className="text-[10px] text-gray-400">
+              Showing {Math.min(visible, screenshots.length)} of {screenshots.length}
+            </span>
+          )}
+        </div>
       </div>
-      {shown.length > 0 ? (
+
+      {/* Screenshot interval control inside the tab */}
+      <div className="mb-3">
+        <ScreenshotIntervalControl employeeId={employeeId} compact />
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-10">
+          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
+          <p className="text-xs text-gray-400 mt-2">Loading screenshots…</p>
+        </div>
+      ) : shown.length > 0 ? (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {shown.map((s: any) => (
-              <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:shadow-md transition-all"
+              <div key={s.id}
+                className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:shadow-md transition-all"
                 onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
-                <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'} className="w-full h-28 object-cover" loading="lazy" />
+                <img
+                  src={`${API_BASE}${s.imageUrl}`}
+                  alt={s.activeApp || 'Screenshot'}
+                  className="w-full h-28 object-cover bg-gray-100"
+                  loading="lazy"
+                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                />
+                {/* Hover overlay with expand icon */}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                   <Maximize2 size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
+                {/* PLAN-07: Per-screenshot delete button on hover */}
+                <button
+                  onClick={e => handleDelete(s, e)}
+                  disabled={deletingId === s.id}
+                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 disabled:opacity-50 z-10"
+                  title="Delete this screenshot"
+                >
+                  {deletingId === s.id
+                    ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                    : <Trash2 size={10} />}
+                </button>
+                {/* Caption */}
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
                   <p className="text-[9px] text-white truncate font-medium">{s.activeApp || 'Desktop'}</p>
                   <p className="text-[8px] text-gray-300">{fmtTimeShort(s.timestamp)}</p>
@@ -1547,9 +1588,7 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
           {hasMore && (
             <button onClick={() => setVisible(v => v + SCREENSHOTS_PER_PAGE)}
               className="mt-3 w-full py-2 text-xs font-medium rounded-lg border transition-colors"
-              style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+              style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}>
               Load more ({screenshots.length - visible} remaining)
             </button>
           )}
@@ -1557,8 +1596,10 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
       ) : (
         <div className="text-center py-10">
           <Camera size={32} className="mx-auto text-gray-200 mb-2" />
-          <p className="text-xs text-gray-400">No screenshots captured for this date</p>
-          <p className="text-[10px] text-gray-300 mt-1">Agent captures screenshots every 10 minutes by default</p>
+          <p className="text-xs text-gray-400">No screenshots captured for {localDate}</p>
+          <p className="text-[10px] text-gray-300 mt-1">
+            Agent captures screenshots at the configured interval. Check if the agent is online and the interval is set correctly.
+          </p>
         </div>
       )}
     </div>
@@ -1635,14 +1676,16 @@ function ReportCardModal({ employee, onClose }: { employee: any; onClose: () => 
 
   const { from, to } = computePeriodDates(period, customFrom, customTo);
 
-  const { data, isFetching, isError } = useGetEmployeeReportQuery(
+  const [exportingReport, setExportingReport] = useState(false);
+  const { data: rawData, isFetching, isError } = useGetEmployeeReportQuery(
     { employeeId: employee.id, from, to },
     { skip: !employee }
   );
 
-  const report = data;
+  // Backend wraps response: { success: true, data: { summary, days, topApps } }
+  const report = (rawData as any)?.data ?? rawData;
   const summary = report?.summary;
-  const dailyBreakdown = report?.dailyBreakdown || [];
+  const dailyBreakdown = report?.days || [];
   const topApps = report?.topApps || [];
 
   const periods = [
@@ -1693,10 +1736,41 @@ function ReportCardModal({ employee, onClose }: { employee: any; onClose: () => 
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => window.open(`${(import.meta.env.VITE_API_URL || 'http://localhost:4000/api')}/agent/report/${employee.id}/export?from=${from}&to=${to}&format=excel`)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+              disabled={exportingReport}
+              onClick={async () => {
+                setExportingReport(true);
+                try {
+                  // SEC-002 fix: read token from Redux store directly — never from window/cookie
+                  const token = (store.getState() as any).auth?.accessToken || '';
+                  if (!token) { toast.error('Not authenticated — please refresh the page'); return; }
+                  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+                  const res = await fetch(`${apiUrl}/agent/report/${employee.id}?from=${from}&to=${to}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (!res.ok) { toast.error('Export failed — server error'); return; }
+                  const json = await res.json();
+                  const rep = json?.data ?? json;
+                  // Build CSV from daily breakdown
+                  const rows = [
+                    ['Date', 'Active (min)', 'Idle (min)', 'Productive (min)', 'Unproductive (min)', 'Score', 'Grade'],
+                    ...(rep?.days || []).map((d: any) => [d.date, d.activeMins, d.idleMins, d.productiveMins, d.unproductiveMins, d.score, d.grade]),
+                  ];
+                  const csv = rows.map(r => r.join(',')).join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `report-${employee.employeeCode || employee.id}-${from}-to-${to}.csv`;
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  toast.success('Report exported');
+                } catch { toast.error('Export failed'); }
+                finally { setExportingReport(false); }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
             >
-              <Download size={12} /> Export Excel
+              {exportingReport ? <div className="w-3 h-3 border border-emerald-600 border-t-transparent rounded-full animate-spin" /> : <Download size={12} />}
+              Export CSV
             </button>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
               <X size={20} />

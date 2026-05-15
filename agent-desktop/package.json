@@ -1,7 +1,7 @@
 {
-  "name": "aniston-agent",
-  "version": "1.0.3",
-  "description": "Aniston HRMS Desktop Activity Agent",
+  "name": "aniston-support",
+  "version": "1.0.5",
+  "description": "Aniston HRMS Desktop Support Agent",
   "main": "dist/main.js",
   "author": "Aniston Technologies LLP",
   "license": "UNLICENSED",
@@ -37,8 +37,8 @@
     "url": "https://github.com/Anistonworkspace/Aniston-HRMS.git"
   },
   "build": {
-    "appId": "com.aniston.agent",
-    "productName": "Aniston Agent",
+    "appId": "com.aniston.support",
+    "productName": "Aniston Support",
     "copyright": "Copyright © 2026 Aniston Technologies LLP",
     "directories": {
       "output": "build"
@@ -65,7 +65,7 @@
       "oneClick": true,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
-      "artifactName": "aniston-agent-setup.${ext}",
+      "artifactName": "aniston-support-setup.${ext}",
       "deleteAppDataOnUninstall": false
     },
     "asar": true,

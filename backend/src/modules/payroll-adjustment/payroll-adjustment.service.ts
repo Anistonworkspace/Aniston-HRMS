@@ -71,11 +71,18 @@ export class PayrollAdjustmentService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Resolve user name
+    // Resolve user name + self-benefit guard
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { email: true, employee: { select: { firstName: true, lastName: true } } },
+      select: { email: true, employee: { select: { id: true, firstName: true, lastName: true } } },
     });
+
+    // HR cannot add payroll adjustments to their own salary record (conflict of interest)
+    if (userRole === 'HR' && user?.employee?.id && user.employee.id === data.employeeId) {
+      throw new BadRequestError(
+        'You cannot add a payroll adjustment to your own salary record. Please ask an Admin or Super Admin to perform this action.',
+      );
+    }
     const addedByName = user?.employee
       ? `${user.employee.firstName} ${user.employee.lastName}`
       : user?.email || 'Unknown';

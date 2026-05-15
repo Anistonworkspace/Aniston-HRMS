@@ -1,4 +1,4 @@
-import { createReadStream } from 'fs';
+import { createReadStream, writeFileSync } from 'fs';
 import { readdir, stat } from 'fs/promises';
 import path from 'path';
 import readline from 'readline';
@@ -251,6 +251,47 @@ export class SystemLogsService {
         return `[${e.timestamp}] [${e.level.toUpperCase().padEnd(5)}] [${e.source.padEnd(10)}] ${e.message}${meta}${stack}`;
       })
       .join('\n');
+  }
+
+  // Delete log entries within a date range by rewriting the log files in place.
+  async deleteLogs(dateFrom: Date, dateTo: Date): Promise<{ deletedCount: number; filesModified: number }> {
+    const files = await this.resolveLogFiles();
+    let totalDeleted = 0;
+    let filesModified = 0;
+
+    const fromMs = dateFrom.getTime();
+    // Include entire dateTo day by setting to end-of-day
+    const toMs = new Date(dateTo).setHours(23, 59, 59, 999);
+
+    for (const filePath of files) {
+      const kept: string[] = [];
+      let removed = 0;
+
+      await new Promise<void>((resolve, reject) => {
+        const rl = readline.createInterface({
+          input: createReadStream(filePath, { encoding: 'utf8' }),
+          crlfDelay: Infinity,
+        });
+        rl.on('line', (raw) => {
+          if (!raw.trim()) return;
+          let parsed: Record<string, unknown>;
+          try { parsed = JSON.parse(raw); } catch { kept.push(raw); return; }
+          const tsMs = new Date(parsed.timestamp as string).getTime();
+          if (tsMs >= fromMs && tsMs <= toMs) { removed++; }
+          else { kept.push(raw); }
+        });
+        rl.on('close', resolve);
+        rl.on('error', reject);
+      });
+
+      if (removed > 0) {
+        writeFileSync(filePath, kept.join('\n') + (kept.length > 0 ? '\n' : ''), 'utf8');
+        totalDeleted += removed;
+        filesModified++;
+      }
+    }
+
+    return { deletedCount: totalDeleted, filesModified };
   }
 
   // ── Internals ───────────────────────────────────────────────────────────────

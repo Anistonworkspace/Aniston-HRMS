@@ -1,6 +1,6 @@
 import { powerMonitor } from 'electron';
 import { CONFIG, categorizeApp } from './config';
-import { getAndResetInputCounts, startInputTracking, stopInputTracking } from './inputTracker';
+import { getAndResetInputCounts, startInputTracking, stopInputTracking, pauseInputTracking, resumeInputTracking } from './inputTracker';
 
 // ── Browser window-title classification ──────────────────────────────────────
 // Chrome/Edge/Firefox classify the app as PRODUCTIVE by default, but the window
@@ -74,9 +74,27 @@ export function drainBuffer(count: number): void {
   activityBuffer.splice(0, count);
 }
 
-export function pauseTracking() { isPaused = true; }
-export function resumeTracking() { isPaused = false; }
+export function pauseTracking() {
+  isPaused = true;
+  pauseInputTracking();
+}
+export function resumeTracking() {
+  isPaused = false;
+  resumeInputTracking();
+}
 export function isTracking() { return trackingInterval !== null && !isPaused; }
+
+// PERF-006 fix: resolve active-win once at module load rather than on every 30s tick.
+// Dynamic import is intentional (ESM-only package) but the Promise is cached so
+// the module is only loaded once; subsequent calls reuse the resolved value.
+let activeWinPromise: Promise<typeof import('active-win').default> | null = null;
+
+function getActiveWin(): Promise<typeof import('active-win').default> {
+  if (!activeWinPromise) {
+    activeWinPromise = import('active-win').then(m => m.default);
+  }
+  return activeWinPromise;
+}
 
 /**
  * Get active window using the active-win npm package.
@@ -85,8 +103,7 @@ export function isTracking() { return trackingInterval !== null && !isPaused; }
  */
 async function getActiveWindowInfo(): Promise<{ app: string; title: string }> {
   try {
-    // active-win is ESM-only; dynamic import works fine in Electron main process
-    const { default: activeWin } = await import('active-win');
+    const activeWin = await getActiveWin();
     const result = await activeWin();
     return {
       app: result?.owner?.name || 'Unknown',
@@ -104,6 +121,9 @@ export function startTracking() {
   startInputTracking();
 
   trackingInterval = setInterval(async () => {
+    // BUG-005 fix: check isPaused FIRST — before any OS queries (getActiveWindowInfo,
+    // powerMonitor.getSystemIdleTime). During lock-screen, LockApp.exe would otherwise be
+    // captured as NEUTRAL activity even though tracking is paused.
     if (isPaused) {
       // Drain counts accumulated during pause so they don't inflate the first entry on resume
       getAndResetInputCounts();

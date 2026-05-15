@@ -109,10 +109,21 @@ export class AgentService {
     // Scope heartbeat to admins only — employee window titles are sensitive data
     // and must not be broadcast to all org members. We emit per-admin to their
     // personal room; the frontend org-level listeners on admin sessions pick it up.
-    const admins = await prisma.user.findMany({
-      where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
-      select: { id: true },
-    });
+    // PERF-001 fix: cache admin IDs in Redis for 60s to avoid per-heartbeat DB query.
+    const adminCacheKey = `admin-ids:${organizationId}`;
+    let adminIds: string[] | null = null;
+    const cached = await redis.get(adminCacheKey);
+    if (cached) {
+      adminIds = JSON.parse(cached) as string[];
+    } else {
+      const adminsFromDb = await prisma.user.findMany({
+        where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      adminIds = adminsFromDb.map(a => a.id);
+      await redis.set(adminCacheKey, JSON.stringify(adminIds), 'EX', 60);
+    }
+    const admins = adminIds.map(id => ({ id }));
     const heartbeatPayload = {
       employeeId,
       activeApp: lastActivity?.activeApp || 'Unknown',
@@ -147,19 +158,26 @@ export class AgentService {
     // Write ping timestamp to Redis with 15-minute TTL (no DB row)
     await redis.set(`${AGENT_PING_PREFIX}${employeeId}`, now, 'EX', 900);
 
-    // Update lastSeenAt on the employee record so the admin table shows it
-    await prisma.employee.updateMany({
-      where: { id: employeeId, organizationId },
-      data: { agentPairedAt: new Date() },
-    });
+    // BUG-003 fix: do NOT update agentPairedAt here — that field records the original
+    // pairing date and must not be overwritten on every 2-minute keepalive ping.
+    // Redis ping key is the authoritative "last seen" signal.
 
-    // Notify admin sockets
-    const admins = await prisma.user.findMany({
-      where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
-      select: { id: true },
-    });
-    for (const admin of admins) {
-      emitToUser(admin.id, 'agent:ping', { employeeId, timestamp: now });
+    // Notify admin sockets — PERF-002 fix: use cached admin IDs (same 60s TTL cache)
+    const adminCacheKey = `admin-ids:${organizationId}`;
+    let adminIds: string[] | null = null;
+    const cachedAdmins = await redis.get(adminCacheKey);
+    if (cachedAdmins) {
+      adminIds = JSON.parse(cachedAdmins) as string[];
+    } else {
+      const adminsFromDb = await prisma.user.findMany({
+        where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      adminIds = adminsFromDb.map(a => a.id);
+      await redis.set(adminCacheKey, JSON.stringify(adminIds), 'EX', 60);
+    }
+    for (const adminId of adminIds) {
+      emitToUser(adminId, 'agent:ping', { employeeId, timestamp: now });
     }
 
     return { ok: true, timestamp: now };
@@ -393,20 +411,20 @@ export class AgentService {
     const queryDate = new Date(date + 'T00:00:00.000Z');
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
 
-    // Delete screenshots first (collect URLs for file deletion)
+    // Collect screenshot URLs before deletion (for file cleanup afterward)
     const screenshots = await prisma.agentScreenshot.findMany({
       where: { employeeId, date: queryDate, organizationId },
       select: { id: true, imageUrl: true },
     });
 
-    const { count: logsDeleted } = await prisma.activityLog.deleteMany({
-      where: { employeeId, date: queryDate, organizationId },
-    });
-    const { count: screenshotsDeleted } = await prisma.agentScreenshot.deleteMany({
-      where: { employeeId, date: queryDate, organizationId },
-    });
+    // BUG-017 fix: wrap both deletes in a transaction to prevent partial deletes
+    // (e.g., logs deleted but screenshots left orphaned on DB crash between the two writes)
+    const [{ count: logsDeleted }, { count: screenshotsDeleted }] = await prisma.$transaction([
+      prisma.activityLog.deleteMany({ where: { employeeId, date: queryDate, organizationId } }),
+      prisma.agentScreenshot.deleteMany({ where: { employeeId, date: queryDate, organizationId } }),
+    ]);
 
-    // Delete screenshot files (best-effort, non-blocking)
+    // Delete screenshot files (best-effort, non-blocking — happens after atomic DB delete)
     for (const s of screenshots) {
       if (s.imageUrl) {
         try {
@@ -418,6 +436,26 @@ export class AgentService {
 
     await createAuditLog({ userId, organizationId, entity: 'ActivityLog', entityId: employeeId, action: 'DELETE', newValue: { date, logsDeleted, screenshotsDeleted } });
     return { date, logsDeleted, screenshotsDeleted };
+  }
+
+  async deleteScreenshot(screenshotId: string, organizationId: string, userId: string) {
+    const screenshot = await prisma.agentScreenshot.findFirst({
+      where: { id: screenshotId, organizationId },
+      select: { id: true, imageUrl: true, employeeId: true },
+    });
+    if (!screenshot) throw new NotFoundError('Screenshot');
+
+    await prisma.agentScreenshot.delete({ where: { id: screenshotId } });
+
+    if (screenshot.imageUrl) {
+      try {
+        const { storageService } = await import('../../services/storage.service.js');
+        await storageService.deleteFile(screenshot.imageUrl);
+      } catch {}
+    }
+
+    await createAuditLog({ userId, organizationId, entity: 'AgentScreenshot', entityId: screenshotId, action: 'DELETE', newValue: { screenshotId, employeeId: screenshot.employeeId } });
+    return { deleted: true };
   }
 
   async getAgentStatus(employeeId: string, organizationId: string) {
@@ -512,21 +550,26 @@ export class AgentService {
       return { code: employee.agentPairingCode, isNew: false };
     }
 
-    // Generate unique code with retry on collision
-    let code: string;
+    // BUG-019 fix: use a transaction to make the uniqueness-check + update atomic,
+    // preventing a race where two concurrent requests generate and assign the same code.
+    let code: string = '';
     let attempts = 0;
     while (true) {
-      code = this.generateCode();
-      const existing = await prisma.employee.findUnique({ where: { agentPairingCode: code } });
-      if (!existing) break;
-      attempts++;
-      if (attempts > 10) throw new BadRequestError('Failed to generate unique code. Please try again.');
+      const candidate = this.generateCode();
+      try {
+        await prisma.$transaction(async (tx) => {
+          const existing = await tx.employee.findUnique({ where: { agentPairingCode: candidate } });
+          if (existing) throw new Error('collision');
+          await tx.employee.update({ where: { id: employeeId }, data: { agentPairingCode: candidate } });
+        });
+        code = candidate;
+        break;
+      } catch (e: any) {
+        if (e?.message !== 'collision') throw e;
+        attempts++;
+        if (attempts > 10) throw new BadRequestError('Failed to generate unique code. Please try again.');
+      }
     }
-
-    await prisma.employee.update({
-      where: { id: employeeId },
-      data: { agentPairingCode: code },
-    });
 
     await createAuditLog({
       userId, organizationId, entity: 'Employee', entityId: employeeId,
@@ -653,10 +696,9 @@ export class AgentService {
     // 7-minute threshold: agent syncs every 5min, +2min grace to avoid false Offline flickers
     const activeThreshold = new Date(Date.now() - 7 * 60 * 1000);
 
-    // Fetch all Redis ping keys in parallel
-    const pingValues = await Promise.all(
-      employees.map(emp => redis.get(`${AGENT_PING_PREFIX}${emp.id}`))
-    );
+    // PERF-003 fix: use redis.mget instead of N parallel redis.get calls
+    const pingKeys = employees.map(emp => `${AGENT_PING_PREFIX}${emp.id}`);
+    const pingValues = pingKeys.length > 0 ? await redis.mget(...pingKeys) : [];
     const redisPingMap = new Map<string, Date>();
     employees.forEach((emp, i) => {
       const val = pingValues[i];
@@ -738,7 +780,7 @@ export class AgentService {
     if (!employee) throw new NotFoundError('Employee');
 
     const logs = await prisma.activityLog.findMany({
-      where: { employeeId, date: queryDate, organizationId },
+      where: { employeeId, date: queryDate, organizationId, durationSeconds: { gt: 0 } },
       orderBy: { timestamp: 'asc' },
     });
 
@@ -1056,7 +1098,7 @@ export class AgentService {
       .map(([app, seconds]) => ({
         app,
         minutes: Math.round(seconds / 60),
-        percentage: totalAppSeconds > 0 ? Math.round((seconds / totalAppSeconds) * 100) : 0,
+        pct: totalAppSeconds > 0 ? Math.round((seconds / totalAppSeconds) * 100) : 0,
       }));
 
     return {

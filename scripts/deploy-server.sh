@@ -228,8 +228,15 @@ const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
 const prisma = new PrismaClient();
 async function main() {
-  const org = await prisma.organization.findFirst({ where: { slug: "aniston" } });
-  if (!org) { console.log("Org not found — skipping system account check"); return; }
+  // Find the first org — do not rely on a specific slug value
+  const org = await prisma.organization.findFirst({
+    orderBy: { createdAt: "asc" },
+  });
+  if (!org) {
+    console.error("FATAL: No organization found in DB — cannot ensure system accounts");
+    process.exit(1);
+  }
+  console.log("  using org: " + org.name + " (id=" + org.id + ", slug=" + org.slug + ")");
   const engDept = await prisma.department.findFirst({ where: { name: "Engineering", organizationId: org.id } });
   const ceoDes  = await prisma.designation.findFirst({ where: { name: "CEO", organizationId: org.id } });
   const accounts = [
@@ -259,7 +266,7 @@ async function main() {
   }
 }
 main()
-  .catch(e => console.log("system account check failed (non-blocking):", e.message))
+  .catch(e => { console.error("FATAL: system account ensure failed:", e.message); process.exit(1); })
   .finally(() => prisma.$disconnect());
 ENSURE_ACCOUNTS_EOF
 echo "System account check done"

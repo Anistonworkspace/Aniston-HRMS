@@ -278,6 +278,18 @@ export class AgentController {
     } catch (err) { next(err); }
   }
 
+  async deleteScreenshot(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { screenshotId } = req.params;
+      if (!screenshotId) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'screenshotId required' } });
+        return;
+      }
+      const result = await agentService.deleteScreenshot(screenshotId, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   // FIX 7: Employee productivity report over a date range
   async getReport(req: Request, res: Response, next: NextFunction) {
     try {

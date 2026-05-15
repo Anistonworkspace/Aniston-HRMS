@@ -7,6 +7,17 @@ let socket: Socket | null = null;
 // Queue of pending listeners registered before socket was ready
 const pendingListeners: Array<{ event: string; callback: (data: any) => void }> = [];
 
+// Reconnect on tab visibility — browser tabs lose socket connection after laptop sleep/lock.
+// visibilitychange fires when the tab becomes visible again; we force-reconnect if disconnected.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && socket && !socket.connected) {
+      console.log('[Socket] Tab became visible — reconnecting');
+      socket.connect();
+    }
+  });
+}
+
 export function connectSocket(token: string) {
   if (socket?.connected) return socket;
 
@@ -20,8 +31,9 @@ export function connectSocket(token: string) {
     auth: { token },
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 2000,
+    reconnectionDelayMax: 30000,
   });
 
   socket.on('connect', () => {

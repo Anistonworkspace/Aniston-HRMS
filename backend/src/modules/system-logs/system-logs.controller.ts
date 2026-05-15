@@ -74,6 +74,31 @@ export class SystemLogsController {
     }
   }
 
+  /** DELETE /api/settings/system-logs — remove entries within a date range */
+  async deleteLogs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { dateFrom, dateTo } = req.body;
+      if (!dateFrom || !dateTo) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'dateFrom and dateTo are required' } });
+        return;
+      }
+      const from = new Date(dateFrom);
+      const to   = new Date(dateTo);
+      if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Invalid date format' } });
+        return;
+      }
+      if (from > to) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'dateFrom must be before or equal to dateTo' } });
+        return;
+      }
+      const result = await systemLogsService.deleteLogs(from, to);
+      res.json({ success: true, data: result, message: `Deleted ${result.deletedCount} log entries across ${result.filesModified} file(s)` });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   /** GET /api/settings/system-logs/download */
   async downloadLogs(req: Request, res: Response, next: NextFunction) {
     try {

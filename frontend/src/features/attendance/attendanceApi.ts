@@ -475,6 +475,16 @@ export const attendanceApi = api.injectEndpoints({
       query: (body) => ({ url: '/attendance/tag-stop', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
+
+    deleteAgentScreenshot: builder.mutation<{ success: boolean; data: { deleted: boolean } }, { screenshotId: string }>({
+      query: ({ screenshotId }) => ({ url: `/agent/screenshots/${screenshotId}`, method: 'DELETE' }),
+      // No invalidatesTags — the gallery calls refetch() directly after delete to avoid a broad cache bust
+    }),
+
+    forceRefreshAgentStatus: builder.mutation<{ success: boolean }, { employeeId: string }>({
+      query: ({ employeeId }) => ({ url: `/agent/ping/${employeeId}`, method: 'POST' }),
+      invalidatesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -555,4 +565,6 @@ export const {
   useGpsTrackingStopMutation,
   useGpsAlertMutation,
   useTagStopMutation,
+  useDeleteAgentScreenshotMutation,
+  useForceRefreshAgentStatusMutation,
 } = attendanceApi;

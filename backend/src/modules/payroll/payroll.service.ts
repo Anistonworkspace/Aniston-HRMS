@@ -688,10 +688,23 @@ export class PayrollService {
    * Process payroll — calculate payslips for all active employees
    * Now uses dynamic components when available, falls back to legacy columns
    */
-  async processPayroll(runId: string, organizationId: string) {
+  async processPayroll(runId: string, organizationId: string, callerEmployeeId?: string, callerRole?: string) {
     const run = await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } });
     if (!run) throw new NotFoundError('Payroll run');
     if (run.status !== 'DRAFT') throw new BadRequestError('Payroll can only be processed from DRAFT status');
+
+    // HR employees cannot process a payroll run that includes their own salary record.
+    // They must ask ADMIN or SUPER_ADMIN to avoid conflict of interest.
+    if (callerRole === 'HR' && callerEmployeeId) {
+      const selfRecord = await prisma.payrollRecord.findFirst({
+        where: { payrollRunId: runId, employeeId: callerEmployeeId },
+      });
+      if (selfRecord) {
+        throw new BadRequestError(
+          'You cannot process a payroll run that includes your own salary record. Please ask an Admin or Super Admin to process this payroll run.',
+        );
+      }
+    }
 
     // P1-07: Distributed lock — prevent concurrent processing of the same payroll run
     const lockKey = `payroll:processing:lock:${runId}`;

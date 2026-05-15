@@ -78,7 +78,7 @@ export class PayrollController {
           return;
         }
       }
-      const result = await payrollService.processPayroll(req.params.id, req.user!.organizationId);
+      const result = await payrollService.processPayroll(req.params.id, req.user!.organizationId, req.user!.employeeId ?? undefined, req.user!.role);
       res.json({ success: true, data: result, message: 'Payroll processed' });
     } catch (err) { next(err); }
   }
