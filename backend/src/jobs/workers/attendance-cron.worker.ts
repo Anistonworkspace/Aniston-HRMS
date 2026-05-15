@@ -657,6 +657,191 @@ async function shiftEndCheckoutReminder() {
   return { reminded };
 }
 
+/**
+ * Outside-geofence alert monitor for HYBRID employees.
+ * Runs every 5 minutes during business hours (08:00–22:00 IST, Mon–Sat).
+ * For each HYBRID employee currently clocked in with outsideGeofenceAlertEnabled on their shift:
+ *   - Checks their last GPS trail point (within last 10 minutes)
+ *   - Computes haversine distance from their approvedHomeGeofence centre
+ *   - If outside the radius → dedup via Redis (30-min TTL) → email HR/SUPER_ADMIN
+ */
+async function outsideGeofenceAlertMonitor() {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istNow = new Date(utc + IST_OFFSET_MS);
+  const istHour = istNow.getHours();
+
+  // Only run 08:00–22:00 IST
+  if (istHour < 8 || istHour >= 22) return { alerted: 0 };
+
+  const today = getISTToday();
+  const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+
+  logger.info('[Geofence Monitor] Running outside-geofence check…');
+
+  // Find HYBRID employees currently clocked in today (no checkOut) whose active shift
+  // has outsideGeofenceAlertEnabled = true and who have an approvedHomeGeofence set.
+  const openRecords = await prisma.attendanceRecord.findMany({
+    where: {
+      date: today,
+      checkIn: { not: null },
+      checkOut: null,
+      workMode: 'FIELD_SALES', // HYBRID shifts appear as FIELD_SALES work mode
+    },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          employeeCode: true,
+          organizationId: true,
+          approvedHomeGeofenceId: true,
+          approvedHomeGeofence: {
+            select: { coordinates: true, radiusMeters: true },
+          },
+          shiftAssignments: {
+            where: {
+              startDate: { lte: today },
+              OR: [{ endDate: null }, { endDate: { gte: today } }],
+            },
+            include: {
+              shift: {
+                select: {
+                  shiftType: true,
+                  outsideGeofenceAlertEnabled: true,
+                },
+              },
+            },
+            orderBy: { startDate: 'desc' },
+            take: 1,
+          },
+        },
+      },
+    },
+    take: 500,
+  });
+
+  let alerted = 0;
+
+  for (const record of openRecords) {
+    try {
+      const emp = record.employee;
+      const shift = emp.shiftAssignments?.[0]?.shift;
+
+      // Only process HYBRID shifts with the alert flag on
+      if (shift?.shiftType !== 'HYBRID') continue;
+      if (!shift.outsideGeofenceAlertEnabled) continue;
+
+      // Employee must have a home geofence configured
+      if (!emp.approvedHomeGeofence) continue;
+      const geofence = emp.approvedHomeGeofence;
+      const coords = geofence.coordinates as { lat?: number; lng?: number; latitude?: number; longitude?: number } | null;
+      if (!coords) continue;
+      const homeLat = coords.lat ?? coords.latitude;
+      const homeLng = coords.lng ?? coords.longitude;
+      if (homeLat == null || homeLng == null) continue;
+      const radiusM = geofence.radiusMeters ?? 500; // default 500m if unset
+
+      // Get employee's most recent GPS trail point in the last 10 minutes
+      const lastPoint = await prisma.gPSTrailPoint.findFirst({
+        where: {
+          employeeId: emp.id,
+          timestamp: { gte: tenMinutesAgo },
+        },
+        orderBy: { timestamp: 'desc' },
+        select: { lat: true, lng: true, timestamp: true },
+      });
+
+      if (!lastPoint) continue; // no recent GPS — not enough data to alert
+
+      // Haversine distance calculation
+      const R = 6371000; // Earth radius in metres
+      const dLat = ((Number(lastPoint.lat) - homeLat) * Math.PI) / 180;
+      const dLng = ((Number(lastPoint.lng) - homeLng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((homeLat * Math.PI) / 180) *
+          Math.cos((Number(lastPoint.lat) * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
+      const distanceM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      if (distanceM <= radiusM) continue; // within geofence — all good
+
+      // Outside geofence — check Redis dedup (30-min TTL per attendanceId)
+      const dedupKey = `geofence_alert:${record.id}`;
+      const alreadySent = await redis.exists(dedupKey);
+      if (alreadySent) continue;
+
+      // Send email to HR + SUPER_ADMIN of the org
+      const [org, hrUsers] = await Promise.all([
+        prisma.organization.findUnique({
+          where: { id: emp.organizationId },
+          select: { name: true, adminNotificationEmail: true },
+        }),
+        prisma.user.findMany({
+          where: {
+            organizationId: emp.organizationId,
+            role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+            status: 'ACTIVE',
+          },
+          select: { email: true },
+        }),
+      ]);
+
+      const empName = `${emp.firstName} ${emp.lastName}`;
+      const pointTime = new Date(lastPoint.timestamp).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+      const nowStr = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+      const empLat = Number(lastPoint.lat);
+      const empLng = Number(lastPoint.lng);
+
+      const recipientSet = new Set<string>(hrUsers.map(u => u.email).filter(Boolean));
+      if (org?.adminNotificationEmail) recipientSet.add(org.adminNotificationEmail);
+
+      for (const to of recipientSet) {
+        await enqueueEmail({
+          to,
+          subject: `⚠️ Outside Geofence Alert — ${empName} (${emp.employeeCode})`,
+          template: 'gps-alert',
+          context: {
+            empName,
+            empCode: emp.employeeCode,
+            dept: '—',
+            orgName: org?.name || 'Aniston Technologies',
+            alertType: 'Outside Home Geofence',
+            alertDesc: `${empName} is currently ${Math.round(distanceM)} m from their approved home location (allowed radius: ${radiusM} m).`,
+            lastHeartbeatAt: pointTime,
+            lastGpsPointAt: pointTime,
+            lastCoordinates: `${empLat.toFixed(6)}, ${empLng.toFixed(6)}`,
+            checkInAt: new Date(record.checkIn!).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', timeStyle: 'short', dateStyle: 'short' }),
+            device: '—',
+            sdkVersion: '—',
+            mapsUrl: `https://www.google.com/maps?q=${empLat},${empLng}`,
+            isRevoked: false,
+            timestamp: nowStr,
+            dashboardUrl: 'https://hr.anistonav.com/attendance',
+          },
+        }).catch(() => {});
+      }
+
+      // Set dedup key — 30 min TTL so same employee doesn't get spammed
+      await redis.set(dedupKey, '1', 'EX', 1800);
+      alerted++;
+
+      logger.info(`[Geofence Monitor] Alert sent for ${empName} (${emp.employeeCode}) — ${Math.round(distanceM)}m from home geofence`);
+    } catch (err) {
+      logger.error(`[Geofence Monitor] Failed for record ${record.id}:`, err);
+    }
+  }
+
+  logger.info(`[Geofence Monitor] Done — alerted for ${alerted} employee(s).`);
+  return { alerted };
+}
+
 const GPS_RETENTION_DAYS = parseInt(process.env.GPS_TRAIL_RETENTION_DAYS || '90', 10);
 
 /**
@@ -706,6 +891,8 @@ export function startAttendanceCronWorker() {
           return shiftEndCheckoutReminder();
         case 'purge-gps-trail':
           return purgeOldGPSTrailData();
+        case 'outside-geofence-alert':
+          return outsideGeofenceAlertMonitor();
         default:
           logger.warn(`[Attendance Cron] Unknown job name: ${job.name}`);
       }

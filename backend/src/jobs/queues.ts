@@ -89,6 +89,11 @@ logger.info('✅ BullMQ queues initialized');
     await attendanceCronQueue.add('purge-gps-trail', {}, {
       repeat: { pattern: '30 20 * * 0' }, // 20:30 UTC Sunday = 02:00 IST Monday
     });
+    // Outside-geofence alert — every 5 min, 08:00–22:00 IST (02:30–16:30 UTC), Mon–Sat
+    await attendanceCronQueue.add('outside-geofence-alert', {}, {
+      jobId: 'outside-geofence-alert',
+      repeat: { pattern: '*/5 2-16 * * 1-6' }, // UTC 02:30–16:30 covers IST 08:00–22:00
+    });
     logger.info('✅ Attendance cron jobs scheduled');
   } catch (err) {
     logger.warn('Failed to schedule attendance cron jobs:', err);

@@ -79,8 +79,10 @@ public class GpsTrackingService extends Service {
     public static final String EXTRA_ORG_ID                     = "org_id";
     public static final String EXTRA_ATTENDANCE_ID              = "attendance_id";
     public static final String EXTRA_TRACKING_INTERVAL_MINUTES  = "tracking_interval_minutes";
+    public static final String EXTRA_SHIFT_END_EPOCH_MS         = "shift_end_epoch_ms";
     public  static final String PREFS_KEY_GPS_INTERVAL_MS       = "gps_interval_ms";
     public static final String PREFS_KEY_TRACKING_ENABLED       = "tracking_enabled";
+    public static final String PREFS_KEY_SHIFT_END_EPOCH_MS     = "shift_end_epoch_ms";
 
     // ── GPS timing ────────────────────────────────────────────────────────────
     private static final long GPS_INTERVAL_MS_DEFAULT = 60_000L;
@@ -106,6 +108,7 @@ public class GpsTrackingService extends Service {
     private long   gpsIntervalMs = GPS_INTERVAL_MS_DEFAULT;
     private boolean stoppedByEmployee = false;
     private int consecutive403Count = 0; // reset on 2xx; stop GPS after 3 unexplained 403s
+    private long shiftEndEpochMs = 0L;   // 0 = no shift end time set (track indefinitely)
 
     // Batching
     private static final int BATCH_THRESHOLD_HIGH_SPEED = 1;
@@ -210,6 +213,8 @@ public class GpsTrackingService extends Service {
                     GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_GPS_INTERVAL_SOURCE, "default");
                 }
                 GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_INTERVAL_UPDATED_AT, GpsDiagnostics.nowIso());
+                // Shift end time for auto-stop (0 = no limit)
+                shiftEndEpochMs = intent.getLongExtra(EXTRA_SHIFT_END_EPOCH_MS, 0L);
                 saveToPrefs();
             } else {
                 // No credentials in intent — restore from GpsSessionStore
@@ -300,6 +305,9 @@ public class GpsTrackingService extends Service {
         LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, gpsIntervalMs)
             .setMinUpdateIntervalMillis(fastestMs)
             .setWaitForAccurateLocation(false)
+            // Allow OS to batch deliveries but guarantee delivery within 2× the interval.
+            // Prevents silent loss of GPS points when OEM battery optimization buffers locations.
+            .setMaxUpdateDelayMillis(gpsIntervalMs * 2)
             .build();
 
         locationCallback = new LocationCallback() {
@@ -486,10 +494,40 @@ public class GpsTrackingService extends Service {
 
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_HEARTBEAT_AT,    GpsDiagnostics.nowIso());
             GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_HTTP_RESPONSE_AT, GpsDiagnostics.nowIso());
+
+            // Self-healing: if no GPS point received for 3× the expected interval, request fresh location.
+            // This recovers from silent FusedLocationProvider suspension on aggressive OEMs (Xiaomi/Samsung).
+            checkAndHealStalGps();
         } catch (Exception e) {
             Log.w(TAG, "postHeartbeat failed: " + e.getMessage());
             GpsDiagnostics.recordError(this, e.getMessage());
         }
+    }
+
+    private void checkAndHealStalGps() {
+        long nowMs = System.currentTimeMillis();
+
+        // Auto-stop: if shift end time is set and we've passed it, stop tracking.
+        if (shiftEndEpochMs > 0 && nowMs > shiftEndEpochMs) {
+            Log.i(TAG, "Shift end time reached — auto-stopping GPS tracking");
+            GpsDiagnostics.recordEvent(this, "gps_auto_stop_reason", "shift_end");
+            stoppedByEmployee = false;
+            postTrackingStop();
+            stopSelf();
+            return;
+        }
+
+        if (lastGpsPointAt.isEmpty()) return;
+        try {
+            long lastPointMs = ISO_FORMAT.parse(lastGpsPointAt).getTime();
+            long staleThresholdMs = gpsIntervalMs * 3;
+            if (nowMs - lastPointMs > staleThresholdMs) {
+                Log.w(TAG, "GPS stale for >" + (staleThresholdMs / 60_000) + "min — requesting fresh location");
+                GpsDiagnostics.recordEvent(this, "gps_stale_heal_triggered", GpsDiagnostics.nowIso());
+                // Re-register location updates to kick FusedLocationProvider out of any suspended state
+                restartLocationUpdates();
+            }
+        } catch (Exception ignored) {}
     }
 
     private void postTrackingStop() {

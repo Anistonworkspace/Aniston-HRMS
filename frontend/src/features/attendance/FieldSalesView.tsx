@@ -12,8 +12,8 @@ import {
   getCurrentPosition,
   watchPosition,
   clearWatch,
-  startNativeGpsService,
-  stopNativeGpsService,
+  startTrackingForShift,
+  stopTrackingForShift,
   updateNativeGpsToken,
   isNativeGpsRunning,
   requestBatteryOptimizationExemption,
@@ -464,23 +464,26 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       // It handles GPS posting, persistent notification, and heartbeats natively.
       // Geolocation.watchPosition below handles UI-only foreground updates.
       if (isNativeAndroid) {
-        // Always use the hard-coded production origin on native builds.
-        // import.meta.env.VITE_API_URL is undefined in a production APK (env vars are
-        // baked at Vite build time; Capacitor native builds don't set them).
-        // We strip /api suffix so the service can append /api/... paths itself.
         const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
         const backendBase = rawApiUrl
           ? rawApiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '')
           : 'https://hr.anistonav.com';
-        const intervalMins = todayStatus?.shift?.trackingIntervalMinutes;
+        const shift = todayStatus?.shift;
+        const intervalMins = shift?.trackingIntervalMinutes ?? 60;
         const attendanceRecordId = todayStatus?.record?.id || '';
-        await startNativeGpsService({
-          backendUrl: backendBase,
-          authToken: accessToken || '',
-          employeeId: user?.employeeId || '',
-          orgId: user?.organizationId || '',
+        // GPS starts only on check-in (not at app open) and auto-stops at shift end.
+        await startTrackingForShift({
           attendanceId: attendanceRecordId,
-          ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
+          shiftEndTime: shift?.endTime ?? '18:00',
+          graceMinutes: shift?.graceMinutes ?? 15,
+          trackingIntervalMinutes: intervalMins,
+          trackingStartsOnCheckIn: shift?.trackingStartsOnCheckIn ?? true,
+          credentials: {
+            backendUrl: backendBase,
+            authToken: accessToken || '',
+            employeeId: user?.employeeId || '',
+            orgId: user?.organizationId || '',
+          },
         }).catch((e: any) => console.warn('Native GPS service start failed:', e?.message));
       }
 
@@ -592,9 +595,10 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       heartbeatIntervalRef.current = null;
     }
 
-    // Stop native GPS service (Android) and inform backend tracking ended
+    // Stop native GPS service (Android) on check-out — respects per-shift trackingStopsOnCheckOut flag
     if (isNativeAndroid) {
-      stopNativeGpsService().catch(() => {});
+      const trackingStops = todayStatus?.shift?.trackingStopsOnCheckOut ?? true;
+      stopTrackingForShift(trackingStops).catch(() => {});
     }
     sendGpsTrackingStop().catch(() => {}); // remove from Redis active-tracking set
 

@@ -33,6 +33,19 @@ export const createShiftSchema = z.object({
   wfhDays: z.array(z.number().int().min(0).max(6)).default([]),
   // WFH Shift — entire shift is WFH; no geofence or GPS tracking
   isWfhShift: z.boolean().default(false).optional(),
+  // ── Check-in / checkout rules (per shift) ──────────────────────────────────
+  gpsRequiredForMarkIn:          z.boolean().optional(),
+  trackingStartsOnCheckIn:       z.boolean().optional(),
+  trackingStopsOnCheckOut:       z.boolean().optional(),
+  singleCheckInPerDay:           z.boolean().optional(),
+  maxReClockInsPerDay:           z.coerce.number().int().min(0).max(10).optional(),
+  earlyCheckInBlockMinutes:      z.coerce.number().int().min(0).max(240).optional(),
+  remoteCheckoutAllowedAfterHour: z.coerce.number().int().min(0).max(23).optional(),
+  gpsAccuracyGateMeters:         z.coerce.number().int().min(10).max(5000).optional(),
+  gpsSpoofingDistanceKm:         z.coerce.number().int().min(1).max(500).optional(),
+  gpsSpoofingTimeMinutes:        z.coerce.number().int().min(1).max(60).optional(),
+  gpsMaxAgeSeconds:              z.coerce.number().int().min(30).max(600).optional(),
+  outsideGeofenceAlertEnabled:   z.boolean().optional(),
 }).refine(
   (data) => !data.startTime || !data.endTime || data.startTime !== data.endTime,
   { message: 'Shift end time must be different from start time', path: ['endTime'] }

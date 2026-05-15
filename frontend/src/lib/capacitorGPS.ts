@@ -22,7 +22,7 @@ import { Geolocation, type Position } from '@capacitor/geolocation';
 
 // Register our custom native plugin (GpsTrackingPlugin.java in MainActivity)
 interface GpsTrackingPluginDef {
-  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; attendanceId?: string; trackingIntervalMinutes?: number }): Promise<void>;
+  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; attendanceId?: string; trackingIntervalMinutes?: number; shiftEndEpochMs?: number }): Promise<void>;
   stop(): Promise<void>;
   updateToken(opts: { token: string }): Promise<void>;
   updateInterval(opts: { minutes: number }): Promise<void>;
@@ -158,6 +158,8 @@ export interface GPSCredentials {
   orgId: string;
   attendanceId?: string;
   trackingIntervalMinutes?: number;
+  /** Unix epoch ms of shift end time — service auto-stops when this is exceeded. 0 = no limit. */
+  shiftEndEpochMs?: number;
 }
 
 /**
@@ -176,7 +178,58 @@ export async function startNativeGpsService(credentials: GPSCredentials): Promis
     ...(credentials.trackingIntervalMinutes != null
       ? { trackingIntervalMinutes: credentials.trackingIntervalMinutes }
       : {}),
+    ...(credentials.shiftEndEpochMs != null && credentials.shiftEndEpochMs > 0
+      ? { shiftEndEpochMs: credentials.shiftEndEpochMs }
+      : {}),
   });
+}
+
+/**
+ * Start GPS tracking tied to a specific shift check-in.
+ * Should be called only from the check-in success handler, NOT on app init.
+ *
+ * Calculates the shift end epoch from shift times + grace minutes so the
+ * native service can auto-stop when the shift ends.
+ */
+export async function startTrackingForShift(opts: {
+  attendanceId: string;
+  shiftEndTime: string;        // "HH:mm" IST
+  graceMinutes: number;
+  trackingIntervalMinutes: number;
+  trackingStartsOnCheckIn?: boolean;
+  credentials: Omit<GPSCredentials, 'attendanceId' | 'trackingIntervalMinutes' | 'shiftEndEpochMs'>;
+}): Promise<void> {
+  if (!isNativeAndroid) return;
+  // Guard: only start if the shift policy allows tracking to start on check-in
+  if (opts.trackingStartsOnCheckIn === false) return;
+
+  // Compute shift end epoch in UTC. Shift times are IST (UTC+5:30).
+  const [endHour, endMin] = opts.shiftEndTime.split(':').map(Number);
+  const nowIst = new Date(Date.now() + (5.5 * 60 * 60 * 1000)); // approximate IST now
+  const shiftEndIst = new Date(nowIst);
+  shiftEndIst.setHours(endHour, endMin + opts.graceMinutes, 0, 0);
+  // If shift end is before now (night shift past midnight), add 24h
+  if (shiftEndIst.getTime() < nowIst.getTime()) {
+    shiftEndIst.setDate(shiftEndIst.getDate() + 1);
+  }
+  const shiftEndEpochMs = shiftEndIst.getTime() - (5.5 * 60 * 60 * 1000); // convert IST back to UTC epoch
+
+  await startNativeGpsService({
+    ...opts.credentials,
+    attendanceId: opts.attendanceId,
+    trackingIntervalMinutes: opts.trackingIntervalMinutes,
+    shiftEndEpochMs,
+  });
+}
+
+/**
+ * Stop GPS tracking on check-out.
+ * Should be called only from the check-out success handler.
+ */
+export async function stopTrackingForShift(trackingStopsOnCheckOut = true): Promise<void> {
+  if (!isNativeAndroid) return;
+  if (!trackingStopsOnCheckOut) return;
+  await stopNativeGpsService();
 }
 
 /** Stop the native Android GPS foreground service. No-op on iOS/web. */

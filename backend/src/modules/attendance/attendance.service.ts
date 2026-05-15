@@ -42,14 +42,33 @@ function getISTYesterday(): Date {
 }
 
 export class AttendanceService {
-  // ===================== EDGE CASE CONSTANTS =====================
-  private readonly MAX_RECLOCKIN_PER_DAY = 2; // Allow up to 2 re-clock-ins per day (step-out & return)
-  private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120; // warn if >2h before shift
-  private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;    // flag if >2h after shift
-  private readonly MAX_BREAK_PERCENT = 50;              // breaks can't exceed 50% of shift
+  // ===================== EDGE CASE CONSTANTS (fallback defaults) =====================
+  // These are used when no shift is assigned or the shift does not override the value.
+  private readonly MAX_RECLOCKIN_PER_DAY = 2;
+  private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120;
+  private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;
+  private readonly MAX_BREAK_PERCENT = 50;
   private readonly GPS_SPOOF_DISTANCE_M = 10000;        // 10km
   private readonly GPS_SPOOF_TIME_MINUTES = 5;          // within 5 minutes
-  private readonly OVERTIME_FLAG_EXTRA_HOURS = 2;       // flag if totalHours > fullDay + 2
+  private readonly OVERTIME_FLAG_EXTRA_HOURS = 2;
+
+  /** Extract per-shift policy values, falling back to class-level defaults. */
+  private shiftPolicy(shift: any) {
+    return {
+      maxReClockIns:              shift?.maxReClockInsPerDay           ?? this.MAX_RECLOCKIN_PER_DAY,
+      earlyBlockMin:              shift?.earlyCheckInBlockMinutes      ?? 60,
+      remoteCheckoutAfterHour:    shift?.remoteCheckoutAllowedAfterHour ?? 20,
+      gpsAccuracyGateM:           shift?.gpsAccuracyGateMeters         ?? 300,
+      gpsSpoofDistanceM:          (shift?.gpsSpoofingDistanceKm        ?? 10) * 1000,
+      gpsSpoofTimeMin:            shift?.gpsSpoofingTimeMinutes        ?? this.GPS_SPOOF_TIME_MINUTES,
+      gpsMaxAgeMs:                (shift?.gpsMaxAgeSeconds             ?? 120) * 1000,
+      gpsRequired:                shift?.gpsRequiredForMarkIn          ?? false,
+      singleCheckInPerDay:        shift?.singleCheckInPerDay           ?? true,
+      trackingStartsOnCheckIn:    shift?.trackingStartsOnCheckIn       ?? true,
+      trackingStopsOnCheckOut:    shift?.trackingStopsOnCheckOut       ?? true,
+      outsideGeofenceAlert:       shift?.outsideGeofenceAlertEnabled   ?? false,
+    };
+  }
 
   /**
    * Clock in — handles all 3 work modes with comprehensive edge case handling
@@ -90,12 +109,12 @@ export class AttendanceService {
     }
 
     // ===== GPS TIMESTAMP STALENESS CHECK =====
-    // GPS coordinates must be acquired within the last 120 seconds — live location only.
-    // 120s (was 60s) to handle slow network conditions on mobile without blocking legitimate check-ins.
+    // GPS max age is configurable per shift (default 120s) to handle slow network on mobile.
+    // Evaluated before shift is loaded — use class default; re-evaluated after shift load below.
     if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
-      const GPS_MAX_AGE_MS = 120 * 1000; // 120 seconds
-      const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
+      const GPS_MAX_AGE_MS = 120 * 1000; // pre-shift-load default; overridden below after shift loads
+      const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
       if (gpsAgeMs < -FUTURE_TOLERANCE_MS) {
         throw new BadRequestError(
           'GPS timestamp appears to be set in the future. Please check your device clock and try again.'
@@ -185,6 +204,27 @@ export class AttendanceService {
       }
     }
 
+    // ===== PER-SHIFT POLICY: extract configurable rules now that shift is loaded =====
+    const sp = this.shiftPolicy(shift);
+
+    // Re-run GPS staleness check with per-shift max age (overrides the pre-shift-load 120s check above)
+    if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
+      const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
+      if (gpsAgeMs > sp.gpsMaxAgeMs) {
+        throw new BadRequestError(
+          `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old (max allowed: ${Math.round(sp.gpsMaxAgeMs / 1000)}s). ` +
+          `Please tap the location button again to refresh your GPS and try again.`
+        );
+      }
+    }
+
+    // GPS required gate: if shift requires GPS, block check-in without coordinates
+    if (sp.gpsRequired && (data.latitude == null || data.longitude == null)) {
+      throw new BadRequestError(
+        'Your shift requires GPS to mark attendance. Please enable location services and try again.'
+      );
+    }
+
     // Atomic check-and-validate to prevent race conditions (double-tap / concurrent requests)
     const existing = await prisma.$transaction(async (tx) => {
       // Use findUnique inside transaction for row-level lock
@@ -204,9 +244,14 @@ export class AttendanceService {
     // Allow re-clock-in after clock-out (e.g., accidental clock-out or returning after break)
     const isReClockIn = !!(existing?.checkOut);
 
+    // ===== PHASE 1: Single-check-in gate =====
+    if (!isReClockIn && sp.singleCheckInPerDay && existing?.checkIn) {
+      throw new BadRequestError('Only one check-in is allowed per day for your shift. Please contact HR for manual attendance correction.');
+    }
+
     // ===== PHASE 1: Re-clock-in limit =====
-    if (isReClockIn && existing && existing.clockInCount >= this.MAX_RECLOCKIN_PER_DAY) {
-      throw new BadRequestError(`Maximum re-clock-in limit (${this.MAX_RECLOCKIN_PER_DAY}) reached for today. Please contact HR for manual attendance.`);
+    if (isReClockIn && existing && existing.clockInCount >= sp.maxReClockIns) {
+      throw new BadRequestError(`Maximum re-clock-in limit (${sp.maxReClockIns}) reached for today. Please contact HR for manual attendance.`);
     }
 
     const currentShiftType = shift?.shiftType || 'OFFICE';
@@ -272,10 +317,9 @@ export class AttendanceService {
 
     // ===== PHASE 1.4: GPS spoofing detection — block if detected =====
     if (data.latitude != null && data.longitude != null) {
-      const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude);
+      const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude, sp.gpsSpoofDistanceM, sp.gpsSpoofTimeMin);
       if (spoofResult.spoofing) {
         logger.warn(`[Attendance] GPS spoofing blocked for ${employeeId}: ${spoofResult.distance}m jump in ${spoofResult.timeDiff}min`);
-        // Alert HR non-blocking
         setImmediate(() => {
           this._alertHrGpsSpoof(employeeId, organizationId, spoofResult.distance!, spoofResult.timeDiff!).catch((e) =>
             logger.warn(`[Attendance] GPS spoof HR alert failed: ${e.message}`)
@@ -297,11 +341,10 @@ export class AttendanceService {
     let geofenceStatus = 'NO_GEOFENCE';
 
     if (!effectiveWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude != null && data.longitude != null) {
-      // GPS accuracy check — reject if accuracy is too poor for reliable geofence decisions.
-      // 300m threshold (was 150m) to accommodate Android devices with network-assisted GPS.
-      if (data.accuracy && data.accuracy > 300) {
+      // GPS accuracy gate — per-shift configurable (default 300m).
+      if (data.accuracy && data.accuracy > sp.gpsAccuracyGateM) {
         throw new BadRequestError(
-          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±300m or better). ` +
+          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±${sp.gpsAccuracyGateM}m or better). ` +
           `Move to an open area away from buildings, wait 10–15 seconds for GPS to stabilize, then try again. ` +
           `Tip: briefly turning Wi-Fi off can help GPS lock faster.`
         );
@@ -339,10 +382,10 @@ export class AttendanceService {
     // ===== HYBRID SHIFT: must be inside HOME geofence OR OFFICE geofence =====
     let hybridClockInMode: 'HOME' | 'OFFICE' | null = null; // captured here, used when creating the attendance record
     if (isHybridShift && data.latitude != null && data.longitude != null) {
-      // BUG-007 fix: apply GPS accuracy gate for HYBRID (same 300m threshold as OFFICE)
-      if (data.accuracy && data.accuracy > 300) {
+      // GPS accuracy gate for HYBRID — same per-shift configurable threshold as OFFICE
+      if (data.accuracy && data.accuracy > sp.gpsAccuracyGateM) {
         throw new BadRequestError(
-          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±300m or better). ` +
+          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±${sp.gpsAccuracyGateM}m or better). ` +
           `Move to an open area away from buildings, wait 10–15 seconds for GPS to stabilize, then try again.`
         );
       }
@@ -433,18 +476,17 @@ export class AttendanceService {
       const graceEnd = new Date(shiftStart);
       graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
 
-      // ===== PHASE 3: Early clock-in — hard block if more than 60 min before shift start =====
+      // ===== PHASE 3: Early clock-in — hard block if more than earlyBlockMin before shift start =====
       if (!isReClockIn) {
         const earlyMin = Math.round((shiftStart.getTime() - istNow.getTime()) / 60000);
-        if (earlyMin > 60) {
-          // Format shift start as 12-hour time for the error message
+        if (earlyMin > sp.earlyBlockMin) {
           const fmtShift = (() => {
             const h = shiftHour; const m = shiftMin;
             return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
           })();
           throw new BadRequestError(
             `Check-in not allowed yet. Your shift (${shift.name}) starts at ${fmtShift}. ` +
-            `You can check in up to 60 minutes before your shift starts.`
+            `You can check in up to ${sp.earlyBlockMin} minutes before your shift starts.`
           );
         }
       }
@@ -633,7 +675,12 @@ export class AttendanceService {
       });
     } catch { /* non-blocking */ }
 
-    return { ...record, isLate, lateMinutes, shift: shiftInfo, isReClockIn, geofenceViolation, usingDefaultShift };
+    return {
+      ...record,
+      isLate, lateMinutes, shift: shiftInfo, isReClockIn, geofenceViolation, usingDefaultShift,
+      // GPS lifecycle flags — used by frontend to start/stop native GPS service
+      trackingStartsOnCheckIn: sp.trackingStartsOnCheckIn,
+    };
   }
 
   /**
@@ -648,26 +695,7 @@ export class AttendanceService {
       throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
     }
 
-    // ===== GPS TIMESTAMP STALENESS CHECK (clock-out) =====
-    // GPS coordinates must be acquired within the last 120 seconds — live location only.
-    if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
-      const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
-      const GPS_MAX_AGE_MS = 120 * 1000; // 120 seconds (was 60s)
-      const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
-      if (gpsAgeMs < -FUTURE_TOLERANCE_MS) {
-        throw new BadRequestError(
-          'GPS timestamp appears to be set in the future. Please check your device clock and try again.'
-        );
-      }
-      if (gpsAgeMs > GPS_MAX_AGE_MS) {
-        throw new BadRequestError(
-          `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old. ` +
-          `Please tap the location button again to refresh your GPS and try again.`
-        );
-      }
-    }
-
-    // ===== GEOFENCE ENFORCEMENT (clock-out) — use shift's assigned location, fall back to employee's office location =====
+    // ===== GEOFENCE ENFORCEMENT (clock-out) — load shift first for per-shift policy =====
     const today = getISTToday();
     const clockOutShiftAssignment = await prisma.shiftAssignment.findFirst({
       where: {
@@ -678,9 +706,29 @@ export class AttendanceService {
       include: { shift: true, location: { include: { geofence: true } } },
       orderBy: { startDate: 'desc' },
     });
+    const coShift = clockOutShiftAssignment?.shift as any;
+    const coSp = this.shiftPolicy(coShift);
+
+    // ===== GPS TIMESTAMP STALENESS CHECK (clock-out) — per-shift max age =====
+    if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
+      const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
+      const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+      if (gpsAgeMs < -FUTURE_TOLERANCE_MS) {
+        throw new BadRequestError(
+          'GPS timestamp appears to be set in the future. Please check your device clock and try again.'
+        );
+      }
+      if (gpsAgeMs > coSp.gpsMaxAgeMs) {
+        throw new BadRequestError(
+          `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old (max allowed: ${Math.round(coSp.gpsMaxAgeMs / 1000)}s). ` +
+          `Please tap the location button again to refresh your GPS and try again.`
+        );
+      }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isWfhShiftCheckout = (clockOutShiftAssignment?.shift as any)?.isWfhShift === true;
-    const clockOutShiftType = (clockOutShiftAssignment?.shift as any)?.shiftType || 'OFFICE';
+    const isWfhShiftCheckout = coShift?.isWfhShift === true;
+    const clockOutShiftType = coShift?.shiftType || 'OFFICE';
 
     // BUG-004 fix: HYBRID clock-out requires GPS too
     const isHybridShiftCheckout = clockOutShiftType === 'HYBRID';
@@ -695,22 +743,21 @@ export class AttendanceService {
     const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
     let checkoutGeofenceViolation = false;
     if (!isWfhShiftCheckout && clockOutShiftType === 'OFFICE' && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude != null && data.longitude != null) {
-      if (!(data.accuracy && data.accuracy > 150)) {
+      if (!(data.accuracy && data.accuracy > coSp.gpsAccuracyGateM)) {
         const gfCoords = geofenceForCheckout.coordinates as any;
         if (gfCoords?.lat && gfCoords?.lng) {
           const dist = this.haversineDistance(data.latitude, data.longitude, gfCoords.lat, gfCoords.lng);
           if (dist > geofenceForCheckout.radiusMeters) {
             const istNowCO = getISTNow();
             const istHour = istNowCO.getHours();
-            // After 20:00 IST allow remote clock-out but flag anomaly so HR sees it
-            if (istHour >= 20) {
+            if (istHour >= coSp.remoteCheckoutAfterHour) {
               checkoutGeofenceViolation = true;
-              logger.info(`[Attendance] Remote checkout allowed after 20:00 for ${employeeId} — ${Math.round(dist)}m from office`);
+              logger.info(`[Attendance] Remote checkout allowed after ${coSp.remoteCheckoutAfterHour}:00 for ${employeeId} — ${Math.round(dist)}m from office`);
             } else {
               throw new BadRequestError(
                 `You are ${Math.round(dist)}m away from ${empStatus?.officeLocation?.name || 'office'}. ` +
                 `Maximum allowed: ${geofenceForCheckout.radiusMeters}m. Please move closer to the office to clock out, ` +
-                `or wait until after 8:00 PM for remote clock-out.`
+                `or wait until after ${coSp.remoteCheckoutAfterHour}:00 for remote clock-out.`
               );
             }
           }
@@ -720,10 +767,10 @@ export class AttendanceService {
 
     // BUG-004 fix: HYBRID clock-out dual-geofence enforcement (mirrors clock-in logic)
     if (isHybridShiftCheckout && data.latitude != null && data.longitude != null) {
-      // MED-004: GPS accuracy gate — same 300m threshold as clock-in
-      if (data.accuracy && data.accuracy > 300) {
+      // GPS accuracy gate — per-shift configurable
+      if (data.accuracy && data.accuracy > coSp.gpsAccuracyGateM) {
         throw new BadRequestError(
-          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±300m or better). ` +
+          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±${coSp.gpsAccuracyGateM}m or better). ` +
           `Move to an open area and try again.`
         );
       }
@@ -758,10 +805,9 @@ export class AttendanceService {
         if (!insideHome && !insideOffice) {
           const istNowCO = getISTNow();
           const istHour = istNowCO.getHours();
-          // After 20:00 IST allow remote clock-out (same leniency as OFFICE shift) but flag it
-          if (istHour >= 20) {
+          if (istHour >= coSp.remoteCheckoutAfterHour) {
             checkoutGeofenceViolation = true;
-            logger.info(`[Attendance] HYBRID remote checkout allowed after 20:00 for ${employeeId}`);
+            logger.info(`[Attendance] HYBRID remote checkout allowed after ${coSp.remoteCheckoutAfterHour}:00 for ${employeeId}`);
           } else {
             const homeMsg = homeGeofenceHybrid
               ? ` home (${Math.round(this.haversineDistance(data.latitude, data.longitude, (homeGeofenceHybrid.coordinates as any)?.lat, (homeGeofenceHybrid.coordinates as any)?.lng))}m away)`
@@ -773,7 +819,7 @@ export class AttendanceService {
               `You are outside both your assigned locations for Hybrid shift.` +
               (homeMsg ? ` From${homeMsg}.` : '') +
               (officeMsg ? ` From${officeMsg}.` : '') +
-              ` Please clock out from your home or office location, or wait until after 8:00 PM for remote clock-out.`
+              ` Please clock out from your home or office location, or wait until after ${coSp.remoteCheckoutAfterHour}:00 for remote clock-out.`
             );
           }
         }
@@ -1330,7 +1376,12 @@ export class AttendanceService {
       }
     }
 
-    return { ...updated, isEarlyCheckout, earlyMinutes, isPreviousDayClockOut, overtimeFlag, overtimeHours };
+    return {
+      ...updated,
+      isEarlyCheckout, earlyMinutes, isPreviousDayClockOut, overtimeFlag, overtimeHours,
+      // GPS lifecycle flag — used by frontend to stop native GPS service
+      trackingStopsOnCheckOut: coSp.trackingStopsOnCheckOut,
+    };
   }
 
   /**
@@ -3024,9 +3075,14 @@ export class AttendanceService {
   }
 
   /**
-   * Detect GPS spoofing — flag if location jumps >10km in <5 minutes
+   * Detect GPS spoofing — flag if location jumps beyond threshold in too short a time.
+   * Thresholds are per-shift configurable; defaults match previous hardcoded values.
    */
-  private async detectGPSSpoofing(employeeId: string, lat: number, lng: number): Promise<{ spoofing: boolean; distance?: number; timeDiff?: number }> {
+  private async detectGPSSpoofing(
+    employeeId: string, lat: number, lng: number,
+    spoofDistanceM = this.GPS_SPOOF_DISTANCE_M,
+    spoofTimeMin = this.GPS_SPOOF_TIME_MINUTES,
+  ): Promise<{ spoofing: boolean; distance?: number; timeDiff?: number }> {
     try {
       const lastPoint = await prisma.gPSTrailPoint.findFirst({
         where: { employeeId },
@@ -3034,7 +3090,6 @@ export class AttendanceService {
       });
 
       if (!lastPoint) {
-        // Also check last attendance log with location
         const lastLog = await prisma.attendanceLog.findFirst({
           where: { attendance: { employeeId }, location: { not: undefined } } as any,
           orderBy: { timestamp: 'desc' },
@@ -3045,20 +3100,20 @@ export class AttendanceService {
         if (!loc?.lat || !loc?.lng) return { spoofing: false };
 
         const timeDiffMin = (Date.now() - new Date(lastLog.timestamp).getTime()) / (1000 * 60);
-        if (timeDiffMin > this.GPS_SPOOF_TIME_MINUTES) return { spoofing: false };
+        if (timeDiffMin > spoofTimeMin) return { spoofing: false };
 
         const distance = this.haversineDistance(loc.lat, loc.lng, lat, lng);
-        if (distance > this.GPS_SPOOF_DISTANCE_M) {
+        if (distance > spoofDistanceM) {
           return { spoofing: true, distance: Math.round(distance), timeDiff: Math.round(timeDiffMin) };
         }
         return { spoofing: false };
       }
 
       const timeDiffMin = (Date.now() - new Date(lastPoint.timestamp).getTime()) / (1000 * 60);
-      if (timeDiffMin > this.GPS_SPOOF_TIME_MINUTES) return { spoofing: false };
+      if (timeDiffMin > spoofTimeMin) return { spoofing: false };
 
       const distance = this.haversineDistance(Number(lastPoint.lat), Number(lastPoint.lng), lat, lng);
-      if (distance > this.GPS_SPOOF_DISTANCE_M) {
+      if (distance > spoofDistanceM) {
         return { spoofing: true, distance: Math.round(distance), timeDiff: Math.round(timeDiffMin) };
       }
       return { spoofing: false };

@@ -125,8 +125,22 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
     compOffEnabled: false, compOffMinOTHours: 4, compOffExpiryDays: 30, sundayWorkEnabled: false, sundayPayMultiplier: 2.0,
     allowWfh: false, wfhDays: [] as number[],
     isWfhShift: false,
+    // Check-in / checkout rules
+    gpsRequiredForMarkIn: false,
+    trackingStartsOnCheckIn: true,
+    trackingStopsOnCheckOut: true,
+    singleCheckInPerDay: true,
+    maxReClockInsPerDay: 2,
+    earlyCheckInBlockMinutes: 60,
+    remoteCheckoutAllowedAfterHour: 20,
+    gpsAccuracyGateMeters: 300,
+    gpsSpoofingDistanceKm: 10,
+    gpsSpoofingTimeMinutes: 5,
+    gpsMaxAgeSeconds: 120,
+    outsideGeofenceAlertEnabled: false,
   };
   const [form, setForm] = useState(emptyForm);
+  const [shiftFormTab, setShiftFormTab] = useState<'basic' | 'checkin-rules'>('basic');
 
   const autoGenerateCode = (name: string, shiftType: string) => {
     const base = name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
@@ -156,13 +170,23 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
       compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
-      allowWfh, wfhDays, isWfhShift } = form;
+      allowWfh, wfhDays, isWfhShift,
+      gpsRequiredForMarkIn, trackingStartsOnCheckIn, trackingStopsOnCheckOut,
+      singleCheckInPerDay, maxReClockInsPerDay, earlyCheckInBlockMinutes,
+      remoteCheckoutAllowedAfterHour, gpsAccuracyGateMeters, gpsSpoofingDistanceKm,
+      gpsSpoofingTimeMinutes, gpsMaxAgeSeconds, outsideGeofenceAlertEnabled,
+    } = form;
     // graceMinutes is an alias for lateGraceMinutes — send both so the backend can accept either
     const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes: lateGraceMinutes, halfDayHours, fullDayHours, isDefault,
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
       compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
-      allowWfh, wfhDays: allowWfh ? wfhDays : [], isWfhShift };
+      allowWfh, wfhDays: allowWfh ? wfhDays : [], isWfhShift,
+      gpsRequiredForMarkIn, trackingStartsOnCheckIn, trackingStopsOnCheckOut,
+      singleCheckInPerDay, maxReClockInsPerDay, earlyCheckInBlockMinutes,
+      remoteCheckoutAllowedAfterHour, gpsAccuracyGateMeters, gpsSpoofingDistanceKm,
+      gpsSpoofingTimeMinutes, gpsMaxAgeSeconds, outsideGeofenceAlertEnabled,
+    };
     if (shiftType === 'FIELD' && trackingIntervalMinutes) payload.trackingIntervalMinutes = trackingIntervalMinutes;
     return payload;
   };
@@ -200,6 +224,18 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
       allowWfh: s.allowWfh ?? false,
       wfhDays: s.wfhDays ?? [],
       isWfhShift: s.isWfhShift ?? false,
+      gpsRequiredForMarkIn: s.gpsRequiredForMarkIn ?? false,
+      trackingStartsOnCheckIn: s.trackingStartsOnCheckIn ?? true,
+      trackingStopsOnCheckOut: s.trackingStopsOnCheckOut ?? true,
+      singleCheckInPerDay: s.singleCheckInPerDay ?? true,
+      maxReClockInsPerDay: s.maxReClockInsPerDay ?? 2,
+      earlyCheckInBlockMinutes: s.earlyCheckInBlockMinutes ?? 60,
+      remoteCheckoutAllowedAfterHour: s.remoteCheckoutAllowedAfterHour ?? 20,
+      gpsAccuracyGateMeters: s.gpsAccuracyGateMeters ?? 300,
+      gpsSpoofingDistanceKm: s.gpsSpoofingDistanceKm ?? 10,
+      gpsSpoofingTimeMinutes: s.gpsSpoofingTimeMinutes ?? 5,
+      gpsMaxAgeSeconds: s.gpsMaxAgeSeconds ?? 120,
+      outsideGeofenceAlertEnabled: s.outsideGeofenceAlertEnabled ?? false,
     });
   };
 
@@ -269,8 +305,26 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
               <div className="p-5 space-y-3">
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Shift' : 'Create Shift'}</h3>
-                  <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                  <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShiftFormTab('basic'); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
                 </div>
+                {/* Tab switcher */}
+                <div className="flex gap-1 border-b border-gray-200 mb-2">
+                  {([
+                    { key: 'basic' as const, label: 'Shift Settings' },
+                    { key: 'checkin-rules' as const, label: 'Check-in Rules' },
+                  ]).map(t => (
+                    <button key={t.key} type="button"
+                      onClick={() => setShiftFormTab(t.key)}
+                      className={cn('px-3 py-1.5 text-xs font-medium rounded-t-md border-b-2 transition-all',
+                        shiftFormTab === t.key
+                          ? 'border-indigo-600 text-indigo-600 bg-indigo-50'
+                          : 'border-transparent text-gray-500 hover:text-gray-700'
+                      )}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                {shiftFormTab === 'basic' && (<>
                 {/* Shift Type Selector */}
                 {!isEditing && (
                   <div>
@@ -489,6 +543,79 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                     )}
                   </div>
                 </div>
+                </>)}
+
+                {/* Check-in Rules tab panel */}
+                {shiftFormTab === 'checkin-rules' && (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 space-y-4">
+                      <p className="text-xs text-gray-500">These rules override global defaults for this shift only. Leave at defaults to use the system values.</p>
+
+                      {/* GPS + tracking */}
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">GPS & Tracking</p>
+                        {[
+                          { label: 'GPS required to mark attendance', key: 'gpsRequiredForMarkIn' as const },
+                          { label: 'Start GPS tracking on check-in only', key: 'trackingStartsOnCheckIn' as const },
+                          { label: 'Stop GPS tracking on check-out', key: 'trackingStopsOnCheckOut' as const },
+                        ].map(({ label, key }) => (
+                          <div key={key} className="flex items-center justify-between">
+                            <span className="text-xs text-gray-600">{label}</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input type="checkbox" checked={!!(form as any)[key]} onChange={e => setForm({ ...form, [key]: e.target.checked })} className="sr-only peer" />
+                              <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                                style={{ background: (form as any)[key] ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
+                            </label>
+                          </div>
+                        ))}
+                        {(form.shiftType === 'HYBRID') && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-600">Alert HR when hybrid employee leaves home location</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input type="checkbox" checked={form.outsideGeofenceAlertEnabled} onChange={e => setForm({ ...form, outsideGeofenceAlertEnabled: e.target.checked })} className="sr-only peer" />
+                              <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                                style={{ background: form.outsideGeofenceAlertEnabled ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
+                            </label>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Check-in / checkout timing */}
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Timing Rules</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-600">Single check-in per day</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked={form.singleCheckInPerDay} onChange={e => setForm({ ...form, singleCheckInPerDay: e.target.checked })} className="sr-only peer" />
+                            <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                              style={{ background: form.singleCheckInPerDay ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
+                          </label>
+                        </div>
+                        {!form.singleCheckInPerDay && (
+                          <div><label className="block text-xs text-gray-500 mb-1">Max re-check-ins per day</label>
+                            <input type="number" min={0} max={10} value={form.maxReClockInsPerDay} onChange={e => setForm({ ...form, maxReClockInsPerDay: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+                        )}
+                        <div><label className="block text-xs text-gray-500 mb-1">Early check-in block (minutes before shift)</label>
+                          <input type="number" min={0} max={240} value={form.earlyCheckInBlockMinutes} onChange={e => setForm({ ...form, earlyCheckInBlockMinutes: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+                        <div><label className="block text-xs text-gray-500 mb-1">Remote checkout allowed after hour (24h, e.g. 20 = 8 PM)</label>
+                          <input type="number" min={0} max={23} value={form.remoteCheckoutAllowedAfterHour} onChange={e => setForm({ ...form, remoteCheckoutAllowedAfterHour: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+                      </div>
+
+                      {/* GPS quality thresholds */}
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">GPS Quality Thresholds</p>
+                        <div><label className="block text-xs text-gray-500 mb-1">GPS accuracy gate (meters — reject if worse than this)</label>
+                          <input type="number" min={10} max={5000} value={form.gpsAccuracyGateMeters} onChange={e => setForm({ ...form, gpsAccuracyGateMeters: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+                        <div><label className="block text-xs text-gray-500 mb-1">GPS max age (seconds — reject stale location)</label>
+                          <input type="number" min={30} max={600} value={form.gpsMaxAgeSeconds} onChange={e => setForm({ ...form, gpsMaxAgeSeconds: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+                        <div><label className="block text-xs text-gray-500 mb-1">Spoof detection: distance threshold (km)</label>
+                          <input type="number" min={1} max={500} value={form.gpsSpoofingDistanceKm} onChange={e => setForm({ ...form, gpsSpoofingDistanceKm: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+                        <div><label className="block text-xs text-gray-500 mb-1">Spoof detection: time window (minutes)</label>
+                          <input type="number" min={1} max={60} value={form.gpsSpoofingTimeMinutes} onChange={e => setForm({ ...form, gpsSpoofingTimeMinutes: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating || updating}
@@ -497,7 +624,7 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                       ? updating ? <><Loader2 size={14} className="animate-spin" /> Updating...</> : <><Save size={14} /> Update</>
                       : creating ? <><Loader2 size={14} className="animate-spin" /> Creating...</> : 'Create'}
                   </button>
-                  <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="btn-secondary text-sm">Cancel</button>
+                  <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShiftFormTab('basic'); }} className="btn-secondary text-sm">Cancel</button>
                 </div>
               </div>
             </div>

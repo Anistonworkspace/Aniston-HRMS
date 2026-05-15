@@ -39,6 +39,8 @@ public class GpsTrackingPlugin extends Plugin {
         String orgId        = call.getString("orgId", "");
         String attendanceId = call.getString("attendanceId", "");
         int intervalMinutes = call.getInt("trackingIntervalMinutes", 60);
+        long shiftEndEpochMs = call.getLong("shiftEndEpochMs") != null
+            ? call.getLong("shiftEndEpochMs") : 0L;
 
         if (authToken == null || authToken.isEmpty()) {
             call.reject("authToken is required");
@@ -95,6 +97,7 @@ public class GpsTrackingPlugin extends Plugin {
         intent.putExtra(GpsTrackingService.EXTRA_ORG_ID,                   orgId);
         intent.putExtra(GpsTrackingService.EXTRA_ATTENDANCE_ID,            attendanceId);
         intent.putExtra(GpsTrackingService.EXTRA_TRACKING_INTERVAL_MINUTES, intervalMinutes);
+        intent.putExtra(GpsTrackingService.EXTRA_SHIFT_END_EPOCH_MS,       shiftEndEpochMs);
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
