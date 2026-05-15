@@ -129,12 +129,22 @@ export default function EmployeeAttendanceDetailPage() {
   const { data: empRes } = useGetEmployeeQuery(employeeId || '');
   const employee = empRes?.data;
   const { data: policyRes } = useGetAttendancePolicyQuery();
-  const weekOffDays: number[] = (policyRes?.data?.weekOffDays as number[]) || [0];
 
   const { data: shiftRes } = useGetEmployeeShiftQuery(employeeId || '');
   const shiftAssignment = shiftRes?.data;
   const shift = shiftAssignment?.shift;
   const shiftType = shift?.shiftType || 'OFFICE';
+
+  // Merge policy weekOffDays + shift weekOffDays; always include Sunday (0) as fallback
+  const weekOffDays: number[] = useMemo(() => {
+    const policyDays = (policyRes?.data?.weekOffDays as number[] | null | undefined);
+    const shiftDays = (shift?.weekOffDays as number[] | null | undefined);
+    const merged = new Set<number>([
+      ...(Array.isArray(policyDays) && policyDays.length ? policyDays : [0]),
+      ...(Array.isArray(shiftDays) ? shiftDays : []),
+    ]);
+    return Array.from(merged);
+  }, [policyRes?.data?.weekOffDays, shift?.weekOffDays]);
 
   const y = currentMonth.getFullYear();
   const m = currentMonth.getMonth() + 1;

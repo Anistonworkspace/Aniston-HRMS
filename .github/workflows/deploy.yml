@@ -146,6 +146,16 @@ jobs:
       - name: Build shared package
         run: npm run build --workspace=shared
 
+      - name: Run tests
+        run: npm run test --workspace=backend
+        env:
+          JWT_SECRET: test-secret-key-that-is-at-least-32-characters-long-for-ci
+          JWT_REFRESH_SECRET: test-refresh-secret-that-is-at-least-32-characters-long
+          ENCRYPTION_KEY: test-encryption-key-at-least-32-chars-long!!
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+
       - name: Build backend
         run: npm run build --workspace=backend
 
@@ -156,16 +166,6 @@ jobs:
         run: cd frontend && npx vite build
         env:
           VITE_API_URL: /api
-
-      - name: Run tests
-        run: npm run test --workspace=backend
-        env:
-          JWT_SECRET: test-secret-key-that-is-at-least-32-characters-long-for-ci
-          JWT_REFRESH_SECRET: test-refresh-secret-that-is-at-least-32-characters-long
-          ENCRYPTION_KEY: test-encryption-key-at-least-32-chars-long!!
-          DATABASE_URL: postgresql://test:test@localhost:5432/test
-          REDIS_URL: redis://localhost:6379
-          NODE_ENV: test
 
       # ── Download build artifacts ─────────────────────────────────────────
 
@@ -228,11 +228,14 @@ jobs:
           # ── SMTP (fallback if DB email config is not set) ─────────────────────
           DEPLOY_SMTP_USER: ${{ secrets.SMTP_USER }}
           DEPLOY_SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          # ── System account credentials (never hardcoded) ─────────────────────
+          DEPLOY_SUPERADMIN_PASSWORD: ${{ secrets.DEPLOY_SUPERADMIN_PASSWORD }}
+          DEPLOY_DEVELOPER_PASSWORD: ${{ secrets.DEPLOY_DEVELOPER_PASSWORD }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DEPLOY_DATABASE_URL,DEPLOY_JWT_SECRET,DEPLOY_JWT_REFRESH_SECRET,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD,DEPLOY_OPENAI_KEY,DEPLOY_STORAGE_ENDPOINT,DEPLOY_STORAGE_ACCESS_KEY,DEPLOY_STORAGE_SECRET_KEY,DEPLOY_MAPBOX_TOKEN,DEPLOY_TEAMS_CLIENT_ID,DEPLOY_TEAMS_CLIENT_SECRET,DEPLOY_TEAMS_TENANT_ID,DEPLOY_AI_SERVICE_API_KEY,DEPLOY_SMTP_USER,DEPLOY_SMTP_PASS
+          envs: DEPLOY_DATABASE_URL,DEPLOY_JWT_SECRET,DEPLOY_JWT_REFRESH_SECRET,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD,DEPLOY_OPENAI_KEY,DEPLOY_STORAGE_ENDPOINT,DEPLOY_STORAGE_ACCESS_KEY,DEPLOY_STORAGE_SECRET_KEY,DEPLOY_MAPBOX_TOKEN,DEPLOY_TEAMS_CLIENT_ID,DEPLOY_TEAMS_CLIENT_SECRET,DEPLOY_TEAMS_TENANT_ID,DEPLOY_AI_SERVICE_API_KEY,DEPLOY_SMTP_USER,DEPLOY_SMTP_PASS,DEPLOY_SUPERADMIN_PASSWORD,DEPLOY_DEVELOPER_PASSWORD
           script_stop: true
           timeout: 300s
           command_timeout: 30m

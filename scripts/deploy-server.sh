@@ -145,7 +145,10 @@ for migration in \
 done
 echo "Migration baseline complete"
 
-npx prisma migrate deploy --schema=prisma/schema.prisma || echo "migrate deploy exited non-zero (drift from db:push) — continuing"
+if ! npx prisma migrate deploy --schema=prisma/schema.prisma; then
+  echo "ERROR: prisma migrate deploy failed — aborting deploy to prevent running new code against wrong schema"
+  exit 1
+fi
 echo "Schema migration complete"
 
 echo "=== [6.3/17] Restoring agent pairing state ==="
@@ -242,9 +245,15 @@ async function main() {
   console.log("  using org: " + org.name + " (id=" + org.id + ", slug=" + org.slug + ")");
   const engDept = await prisma.department.findFirst({ where: { name: "Engineering", organizationId: org.id } });
   const ceoDes  = await prisma.designation.findFirst({ where: { name: "CEO", organizationId: org.id } });
+  const superPwd   = process.env.DEPLOY_SUPERADMIN_PASSWORD;
+  const developerPwd = process.env.DEPLOY_DEVELOPER_PASSWORD;
+  if (!superPwd || !developerPwd) {
+    console.error("FATAL: DEPLOY_SUPERADMIN_PASSWORD or DEPLOY_DEVELOPER_PASSWORD secret is not set. System accounts cannot be ensured without passwords.");
+    process.exit(1);
+  }
   const accounts = [
-    { email: "superadmin@anistonav.com", password: "Superadmin@1234", role: "SUPER_ADMIN", code: "SYS-001", first: "Super",     last: "Admin"   },
-    { email: "developer@anistonav.com",  password: "Developer@2026!", role: "SUPER_ADMIN", code: "SYS-DEV", first: "Developer", last: "Account" },
+    { email: "superadmin@anistonav.com", password: superPwd,      role: "SUPER_ADMIN", code: "SYS-001", first: "Super",     last: "Admin"   },
+    { email: "developer@anistonav.com",  password: developerPwd,  role: "SUPER_ADMIN", code: "SYS-DEV", first: "Developer", last: "Account" },
   ];
   for (const acct of accounts) {
     const existing = await prisma.user.findUnique({ where: { email: acct.email } });
