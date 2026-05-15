@@ -14,7 +14,10 @@ export const clockInSchema = z.object({
   siteName: z.string().optional(),
   siteAddress: z.string().optional(),
   checkInPhoto: z.string().optional(),
-});
+}).refine(
+  (d) => !(d.latitude != null || d.longitude != null) || d.gpsTimestamp != null,
+  { message: 'gpsTimestamp is required when GPS coordinates are provided', path: ['gpsTimestamp'] }
+);
 
 export const clockOutSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
@@ -29,7 +32,10 @@ export const clockOutSchema = z.object({
   // The server flags an anomaly instead of hard-blocking, so genuine early departures are allowed.
   earlyCheckoutConfirmed: z.boolean().optional(),
   earlyCheckoutReason: z.string().max(500).optional(),
-});
+}).refine(
+  (d) => !(d.latitude != null || d.longitude != null) || d.gpsTimestamp != null,
+  { message: 'gpsTimestamp is required when GPS coordinates are provided', path: ['gpsTimestamp'] }
+);
 
 export const gpsTrailBatchSchema = z.object({
   points: z.array(z.object({

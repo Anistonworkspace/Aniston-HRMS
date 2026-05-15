@@ -63,7 +63,16 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
     if (!firstName || !lastName || !phone || !role) {
       res.status(400).json({ success: false, error: { message: 'firstName, lastName, phone, and role are required' } }); return;
     }
-    if (role === 'SUPER_ADMIN') { res.status(403).json({ success: false, error: { message: 'Cannot invite as Super Admin' } }); return; }
+    // Role escalation guard: HR can invite EMPLOYEE/INTERN/MANAGER/GUEST_INTERVIEWER only.
+    // ADMIN and SUPER_ADMIN can invite HR. No one can invite SUPER_ADMIN via this endpoint.
+    const ALLOWED_ROLES = ['EMPLOYEE', 'MANAGER', 'INTERN', 'GUEST_INTERVIEWER', 'HR'];
+    if (!ALLOWED_ROLES.includes(role)) {
+      res.status(403).json({ success: false, error: { message: 'Cannot create an invitation for this role' } }); return;
+    }
+    const callerRole = req.user?.role;
+    if (role === 'HR' && callerRole === 'HR') {
+      res.status(403).json({ success: false, error: { message: 'HR cannot invite another HR user. Only Admin or Super Admin can invite HR.' } }); return;
+    }
     // Strip formatting chars only — preserve country code for international support.
     // For bare 10-digit Indian numbers, add 91 prefix so sendToNumber resolves correctly.
     const rawDigits = phone.toString().replace(/\D/g, '');

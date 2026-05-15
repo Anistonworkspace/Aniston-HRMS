@@ -26,7 +26,7 @@ import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
-import { startNativeGpsService, stopNativeGpsService, isNativeAndroid, getCurrentPosition } from '../../lib/capacitorGPS';
+import { stopNativeGpsService, isNativeAndroid, getCurrentPosition } from '../../lib/capacitorGPS';
 import CommandCenter from './components/CommandCenter';
 import RegularizationTab from './components/RegularizationTab';
 import SelfServiceReport from './components/SelfServiceReport';
@@ -546,20 +546,11 @@ function AttendancePersonalView() {
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
       toast.success(t('attendance.checkedIn'));
       cancelShiftReminder().catch(() => {});
-      // FIELD shift: start native background GPS service only when consent is already granted.
-      // If consent is missing, FieldSalesView (rendered below) will show the consent modal
-      // and start tracking after the employee accepts — no double-prompt needed here.
-      if (isFieldShift && isNativeAndroid && hasGpsConsent) {
-        const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
-        const intervalMins = (today?.shift as any)?.trackingIntervalMinutes;
-        startNativeGpsService({
-          backendUrl: backendBase,
-          authToken: accessToken || '',
-          employeeId: authUser?.employeeId || '',
-          orgId: authUser?.organizationId || '',
-          ...(intervalMins != null ? { trackingIntervalMinutes: intervalMins } : {}),
-        }).catch((e: any) => console.warn('Native GPS service start failed:', e?.message));
-      }
+      // FIELD shift: GPS lifecycle is handled exclusively by FieldSalesView's useEffect,
+      // which calls startTrackingForShift() with attendanceId + shiftEndEpochMs after
+      // the RTK Query invalidation causes isCheckedIn to become true.
+      // Do NOT call startNativeGpsService here — it would start GPS without attendanceId
+      // and without the shift-end auto-stop epoch, and would race with FieldSalesView.
     } catch (err: any) {
       if (!navigator.onLine && coords) {
         const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';

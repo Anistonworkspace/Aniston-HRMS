@@ -18,10 +18,10 @@ router.post('/shifts', hrAuth, validateRequest(createShiftSchema), (req, res, ne
 router.patch('/shifts/:id', hrAuth, validateRequest(updateShiftSchema), (req, res, next) => shiftController.updateShift(req, res, next));
 router.delete('/shifts/:id', hrAuth, (req, res, next) => shiftController.deleteShift(req, res, next));
 
-// Shift assignments — direct assign restricted to SUPER_ADMIN/ADMIN only (HR must use change request)
+// Shift assignments
 router.get('/shifts/my-history', (req, res, next) => shiftController.getMyShiftHistory(req, res, next));
 router.get('/shifts/assignments', hrAuth, (req, res, next) => shiftController.getAllAssignments(req, res, next));
-router.post('/shifts/assign', superAdminAuth, validateRequest(assignShiftSchema), (req, res, next) => shiftController.assignShift(req, res, next));
+router.post('/shifts/assign', hrAuth, validateRequest(assignShiftSchema), (req, res, next) => shiftController.assignShift(req, res, next));
 router.post('/shifts/auto-assign', superAdminAuth, (req, res, next) => shiftController.autoAssignDefault(req, res, next));
 router.get('/shifts/employee/:employeeId', (req, res, next) => {
   const requester = (req as any).user;
@@ -37,7 +37,7 @@ router.get('/shifts/employee/:employeeId', (req, res, next) => {
 router.post('/shifts/change-request', allStaff, (req, res, next) => shiftController.createShiftChangeRequest(req, res, next));
 router.get('/shifts/change-requests', hrAuth, (req, res, next) => shiftController.getShiftChangeRequests(req, res, next));
 router.get('/shifts/my-change-requests', allStaff, (req, res, next) => shiftController.getMyShiftChangeRequests(req, res, next));
-router.patch('/shifts/change-request/:id', superAdminAuth, (req, res, next) => shiftController.reviewShiftChangeRequest(req, res, next));
+router.patch('/shifts/change-request/:id', hrAuth, (req, res, next) => shiftController.reviewShiftChangeRequest(req, res, next));
 
 // HR Action Restrictions (SuperAdmin only)
 router.get('/shifts/hr-restrictions/:employeeId', superAdminAuth, (req, res, next) => shiftController.getHRRestrictions(req, res, next));

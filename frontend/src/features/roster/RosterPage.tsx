@@ -202,6 +202,7 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
   };
 
   const handleEdit = (s: any) => {
+    setShiftFormTab('basic');
     setEditShift(s);
     setForm({
       name: s.name, code: s.code, shiftType: s.shiftType || 'OFFICE', startTime: s.startTime, endTime: s.endTime,

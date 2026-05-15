@@ -1450,6 +1450,8 @@ export class AttendanceService {
         halfDayHours: Number(shift.halfDayHours),
         shiftType: shift.shiftType,
         trackingIntervalMinutes: shift.trackingIntervalMinutes || 60,
+        trackingStartsOnCheckIn: shift.trackingStartsOnCheckIn ?? true,
+        trackingStopsOnCheckOut: shift.trackingStopsOnCheckOut ?? true,
       } : null,
       hasShift: !!shift,
       weekOffDays: (policy?.weekOffDays as number[]) || [0],

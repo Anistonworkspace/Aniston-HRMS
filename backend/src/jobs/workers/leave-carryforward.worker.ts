@@ -160,8 +160,9 @@ async function processYearEndCarryForward(targetYear?: number) {
         try {
           const allocated = Number(prev.allocated);
           const used      = Number(prev.used);
-          const pending   = Number((prev as any).pending ?? 0);
-          const unused    = Math.max(0, allocated - used - pending);
+          // Do NOT subtract pending: if a pending leave is approved after April 1 the
+          // employee should not lose carry-forward days they legitimately earned.
+          const unused    = Math.max(0, allocated - used);
 
           if (unused <= 0) {
             totalSkipped++;

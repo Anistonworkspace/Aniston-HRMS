@@ -174,7 +174,7 @@ async function autoMarkAbsent() {
         where: {
           organizationId: org.id,
           deletedAt: null,
-          status: { in: ['ACTIVE', 'PROBATION'] },
+          status: { in: ['ACTIVE', 'PROBATION', 'NOTICE_PERIOD'] },
           isSystemAccount: { not: true },
         },
         select: { id: true },
@@ -681,12 +681,23 @@ async function outsideGeofenceAlertMonitor() {
 
   // Find HYBRID employees currently clocked in today (no checkOut) whose active shift
   // has outsideGeofenceAlertEnabled = true and who have an approvedHomeGeofence set.
+  // HYBRID employees clock in with workMode='HOME' or 'OFFICE', so we must join through
+  // ShiftAssignment to identify them — filtering by workMode='FIELD_SALES' would miss them.
   const openRecords = await prisma.attendanceRecord.findMany({
     where: {
       date: today,
       checkIn: { not: null },
       checkOut: null,
-      workMode: 'FIELD_SALES', // HYBRID shifts appear as FIELD_SALES work mode
+      employee: {
+        approvedHomeGeofenceId: { not: null },
+        shiftAssignments: {
+          some: {
+            startDate: { lte: today },
+            OR: [{ endDate: null }, { endDate: { gte: today } }],
+            shift: { shiftType: 'HYBRID', outsideGeofenceAlertEnabled: true },
+          },
+        },
+      },
     },
     include: {
       employee: {
@@ -700,22 +711,6 @@ async function outsideGeofenceAlertMonitor() {
           approvedHomeGeofence: {
             select: { coordinates: true, radiusMeters: true },
           },
-          shiftAssignments: {
-            where: {
-              startDate: { lte: today },
-              OR: [{ endDate: null }, { endDate: { gte: today } }],
-            },
-            include: {
-              shift: {
-                select: {
-                  shiftType: true,
-                  outsideGeofenceAlertEnabled: true,
-                },
-              },
-            },
-            orderBy: { startDate: 'desc' },
-            take: 1,
-          },
         },
       },
     },
@@ -727,11 +722,6 @@ async function outsideGeofenceAlertMonitor() {
   for (const record of openRecords) {
     try {
       const emp = record.employee;
-      const shift = emp.shiftAssignments?.[0]?.shift;
-
-      // Only process HYBRID shifts with the alert flag on
-      if (shift?.shiftType !== 'HYBRID') continue;
-      if (!shift.outsideGeofenceAlertEnabled) continue;
 
       // Employee must have a home geofence configured
       if (!emp.approvedHomeGeofence) continue;

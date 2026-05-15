@@ -6,18 +6,41 @@ import type { ApiResponse } from '@aniston/shared';
 export interface Shift {
   id: string;
   name: string;
+  code?: string;
   startTime: string;
   endTime: string;
   shiftType: string;
   gracePeriodMinutes?: number;
   graceMinutes?: number;
+  lateGraceMinutes?: number;
+  lateHalfDayAfterMins?: number;
+  latePenaltyEnabled?: boolean;
+  latePenaltyPerCount?: number;
   fullDayHours?: number;
   halfDayHours?: number;
   trackingIntervalMinutes?: number | null;
+  weekOffDays?: number[];
+  otEnabled?: boolean;
+  compOffEnabled?: boolean;
+  allowWfh?: boolean;
+  isWfhShift?: boolean;
   isDefault: boolean;
   organizationId: string;
   createdAt: string;
   updatedAt: string;
+  // Check-in / checkout rules
+  gpsRequiredForMarkIn?: boolean;
+  trackingStartsOnCheckIn?: boolean;
+  trackingStopsOnCheckOut?: boolean;
+  singleCheckInPerDay?: boolean;
+  maxReClockInsPerDay?: number;
+  earlyCheckInBlockMinutes?: number;
+  remoteCheckoutAllowedAfterHour?: number;
+  gpsAccuracyGateMeters?: number;
+  gpsSpoofingDistanceKm?: number;
+  gpsSpoofingTimeMinutes?: number;
+  gpsMaxAgeSeconds?: number;
+  outsideGeofenceAlertEnabled?: boolean;
 }
 
 export interface CreateShiftRequest {
@@ -27,6 +50,19 @@ export interface CreateShiftRequest {
   shiftType?: string;
   gracePeriodMinutes?: number;
   isDefault?: boolean;
+  // Check-in / checkout rules
+  gpsRequiredForMarkIn?: boolean;
+  trackingStartsOnCheckIn?: boolean;
+  trackingStopsOnCheckOut?: boolean;
+  singleCheckInPerDay?: boolean;
+  maxReClockInsPerDay?: number;
+  earlyCheckInBlockMinutes?: number;
+  remoteCheckoutAllowedAfterHour?: number;
+  gpsAccuracyGateMeters?: number;
+  gpsSpoofingDistanceKm?: number;
+  gpsSpoofingTimeMinutes?: number;
+  gpsMaxAgeSeconds?: number;
+  outsideGeofenceAlertEnabled?: boolean;
 }
 
 export interface UpdateShiftRequest {
@@ -36,6 +72,19 @@ export interface UpdateShiftRequest {
   shiftType?: string;
   gracePeriodMinutes?: number;
   isDefault?: boolean;
+  // Check-in / checkout rules
+  gpsRequiredForMarkIn?: boolean;
+  trackingStartsOnCheckIn?: boolean;
+  trackingStopsOnCheckOut?: boolean;
+  singleCheckInPerDay?: boolean;
+  maxReClockInsPerDay?: number;
+  earlyCheckInBlockMinutes?: number;
+  remoteCheckoutAllowedAfterHour?: number;
+  gpsAccuracyGateMeters?: number;
+  gpsSpoofingDistanceKm?: number;
+  gpsSpoofingTimeMinutes?: number;
+  gpsMaxAgeSeconds?: number;
+  outsideGeofenceAlertEnabled?: boolean;
 }
 
 export interface AssignShiftRequest {

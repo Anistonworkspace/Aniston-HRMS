@@ -104,11 +104,11 @@ export class LeaveService {
    * Get leave balances for an employee (current year).
    * Single path: policy-engine always. If no policy rules configured yet, returns empty balances.
    */
-  async getBalances(employeeId: string, year?: number) {
+  async getBalances(employeeId: string, year?: number, organizationId?: string) {
     const currentYear = year || new Date().getFullYear();
 
-    const employee = await prisma.employee.findUnique({
-      where: { id: employeeId },
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, ...(organizationId ? { organizationId } : {}) },
       select: { id: true, organizationId: true, gender: true, status: true, joiningDate: true, user: { select: { role: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
@@ -452,6 +452,7 @@ export class LeaveService {
           if (app === 'ACTIVE_ONLY') return status === 'ACTIVE' || status === 'NOTICE_PERIOD';
           if (app === 'TRAINEE_ONLY') return isTrainee;
           if (app === 'ALL_ELIGIBLE') return isEligible;
+          if (app === 'SPECIFIC') return specificEmpIds ? specificEmpIds.includes(employeeId) : false;
           // Legacy values
           if (app === 'PROBATION') return status === 'PROBATION';
           if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE' || status === 'NOTICE_PERIOD';
@@ -1271,15 +1272,17 @@ export class LeaveService {
         const app = leaveType.applicableTo;
         const status = employee.status;
         const isTrainee = status === 'PROBATION' || status === 'INTERN' || empUserRole === 'INTERN';
-        const isEligible = status === 'ACTIVE' || isTrainee;
+        // NOTICE_PERIOD employees can consume accrued leave — matches applyLeave() eligibility
+        const isEligible = status === 'ACTIVE' || status === 'NOTICE_PERIOD' || isTrainee;
         const allowed = (() => {
           // Modern audience values
-          if (app === 'ACTIVE_ONLY') return status === 'ACTIVE';
+          if (app === 'ACTIVE_ONLY') return status === 'ACTIVE' || status === 'NOTICE_PERIOD';
           if (app === 'TRAINEE_ONLY') return isTrainee;
           if (app === 'ALL_ELIGIBLE') return isEligible;
+          if (app === 'SPECIFIC') return true; // specificEmpIdsForDraft check above already handled this
           // Legacy values
           if (app === 'PROBATION') return status === 'PROBATION';
-          if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
+          if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE' || status === 'NOTICE_PERIOD';
           if (app === 'NOTICE_PERIOD') return status === 'NOTICE_PERIOD';
           if (app === 'ONBOARDING') return false;
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
@@ -2088,12 +2091,13 @@ export class LeaveService {
 
         if (app && app !== 'ALL') {
           const STATUS_MAP: Record<string, (s: string, r: string) => boolean> = {
-            ACTIVE_ONLY: (s) => s === 'ACTIVE',
+            ACTIVE_ONLY: (s) => s === 'ACTIVE' || s === 'NOTICE_PERIOD',
             TRAINEE_ONLY: (s, r) => s === 'PROBATION' || s === 'INTERN' || r === 'INTERN',
-            ALL_ELIGIBLE: (s, r) => s === 'ACTIVE' || s === 'PROBATION' || s === 'INTERN' || r === 'INTERN',
+            ALL_ELIGIBLE: (s, r) => s === 'ACTIVE' || s === 'NOTICE_PERIOD' || s === 'PROBATION' || s === 'INTERN' || r === 'INTERN',
+            SPECIFIC: () => true, // specific-ID check already ran at apply time; skip re-check at approval
             PROBATION: (s) => s === 'PROBATION',
-            ACTIVE: (s) => s === 'ACTIVE',
-            CONFIRMED: (s) => s === 'ACTIVE',
+            ACTIVE: (s) => s === 'ACTIVE' || s === 'NOTICE_PERIOD',
+            CONFIRMED: (s) => s === 'ACTIVE' || s === 'NOTICE_PERIOD',
             INTERN: (s, r) => s === 'INTERN' || r === 'INTERN',
             NOTICE_PERIOD: (s) => s === 'NOTICE_PERIOD',
           };

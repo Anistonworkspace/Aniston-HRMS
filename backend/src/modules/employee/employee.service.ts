@@ -67,7 +67,7 @@ export class EmployeeService {
           manager: { select: { id: true, firstName: true, lastName: true, employeeCode: true, deletedAt: true } },
           officeLocation: { select: { id: true, name: true } },
           shiftAssignments: {
-            where: { endDate: null },
+            where: { endDate: null, deletedAt: null },
             take: 1,
             orderBy: { startDate: 'desc' as const },
             include: { shift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } } },
@@ -182,7 +182,7 @@ export class EmployeeService {
           take: 50,
         },
         shiftAssignments: {
-          where: { endDate: null },
+          where: { endDate: null, deletedAt: null },
           take: 1,
           orderBy: { startDate: 'desc' as const },
           include: { shift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } } },
@@ -1197,6 +1197,24 @@ export class EmployeeService {
       }},
       // Unlink manager references from other employees
       { name: 'Employee(managerId)', fn: () => prisma.employee.updateMany({ where: { managerId: id }, data: { managerId: null } }) },
+      // Home location requests
+      { name: 'HomeLocationRequest', fn: () => (prisma as any).homeLocationRequest?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // OvertimeRequest (has attendanceId FK and employeeId FK)
+      { name: 'OvertimeRequest', fn: () => (prisma as any).overtimeRequest?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // AttendanceAnomaly
+      { name: 'AttendanceAnomaly', fn: () => (prisma as any).attendanceAnomaly?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // AttendanceRegularization
+      { name: 'AttendanceRegularization', fn: () => (prisma as any).attendanceRegularization?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // WhatsAppOtp
+      { name: 'WhatsAppOtp', fn: () => (prisma as any).whatsAppOtp?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // ProfileEditRequest
+      { name: 'ProfileEditRequest', fn: () => (prisma as any).profileEditRequest?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // HRActionRestriction
+      { name: 'HRActionRestriction', fn: () => (prisma as any).hRActionRestriction?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // CompOffCredit
+      { name: 'CompOffCredit', fn: () => (prisma as any).compOffCredit?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
+      // CrashReport
+      { name: 'CrashReport', fn: () => (prisma as any).crashReport?.deleteMany({ where: { employeeId: id } }) ?? Promise.resolve() },
     ];
 
     // Audit logs are intentionally preserved on employee deletion — they form the immutable audit trail.
@@ -1208,13 +1226,17 @@ export class EmployeeService {
       }
     }
 
-    // ── Phase 2: Atomic soft-delete (small isolated transaction) ─────────────────
-    // Only the two critical writes are here — no try-catch inside, no tables that
-    // could cause 25P02 from earlier failures.
+    // ── Phase 2: Hard-delete (permanent removal) ─────────────────────────────────
+    // AuditLog, Notification, DeviceSession all FK on User — clear them first
+    if (existing.userId) {
+      await prisma.auditLog.updateMany({ where: { userId: existing.userId }, data: { userId: null as any } }).catch(() => {});
+      await prisma.notification.deleteMany({ where: { userId: existing.userId } }).catch(() => {});
+      await prisma.deviceSession.deleteMany({ where: { userId: existing.userId } }).catch(() => {});
+    }
     await prisma.$transaction(async (tx) => {
-      await tx.employee.update({ where: { id }, data: { deletedAt: new Date(), status: 'INACTIVE' } });
+      await tx.employee.delete({ where: { id } });
       if (existing.userId) {
-        await tx.user.update({ where: { id: existing.userId }, data: { status: 'INACTIVE' } });
+        await tx.user.delete({ where: { id: existing.userId } });
       }
     });
 

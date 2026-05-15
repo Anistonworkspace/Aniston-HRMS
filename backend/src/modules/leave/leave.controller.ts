@@ -24,7 +24,7 @@ export class LeaveController {
         return;
       }
       const year = req.query.year ? Number(req.query.year) : undefined;
-      const balances = await leaveService.getBalances(employeeId, year);
+      const balances = await leaveService.getBalances(employeeId, year, req.user!.organizationId);
       res.json({ success: true, data: balances });
     } catch (err) { next(err); }
   }

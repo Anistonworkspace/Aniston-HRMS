@@ -109,6 +109,7 @@ logger.info('✅ BullMQ queues initialized');
       await leaveCarryForwardQueue.removeRepeatableByKey(job.key);
     }
     await leaveCarryForwardQueue.add('year-end-carry-forward', {}, {
+      jobId: 'year-end-carry-forward',
       repeat: { pattern: '0 1 1 4 *' }, // 01:00 UTC on April 1 every year
     });
     logger.info('✅ Leave carry-forward cron scheduled (April 1 at 01:00 UTC)');
