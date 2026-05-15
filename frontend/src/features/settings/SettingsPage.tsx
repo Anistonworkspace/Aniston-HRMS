@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Building2, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText, Bug, Clock, Shield, Activity } from 'lucide-react';
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useRetryFailedEmailsMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useRetryFailedEmailsMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation, useGetAgentCodeHistoryQuery, useDeleteAgentHistoryCodeMutation } from './settingsApi';
 import { useGetAgentDownloadStatusQuery } from '../attendance/attendanceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
@@ -2116,6 +2116,7 @@ function AgentSetupTab() {
   const [regenerateCode, { isLoading: regenerating }] = useRegenerateAgentCodeMutation();
   const [bulkGenerate, { isLoading: bulkGenerating }] = useBulkGenerateAgentCodesMutation();
   const [search, setSearch] = useState('');
+  const [codeHistoryEmpId, setCodeHistoryEmpId] = useState<string | null>(null);
   const [liveStatuses, setLiveStatuses] = useState<Record<string, { isActive: boolean; lastHeartbeat: string }>>({});
 
   const employees: any[] = res?.data || [];
@@ -2337,11 +2338,18 @@ function AgentSetupTab() {
                           {generating ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />} Generate Code
                         </button>
                       ) : (
-                        <button onClick={() => handleRegenerate(emp.id)} disabled={regenerating}
-                          className="text-[11px] py-1 px-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 flex items-center gap-1"
-                          title="Generate new code (invalidates old)">
-                          <RefreshCw size={10} /> Regenerate
-                        </button>
+                        <>
+                          <button onClick={() => handleRegenerate(emp.id)} disabled={regenerating}
+                            className="text-[11px] py-1 px-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 flex items-center gap-1"
+                            title="Generate new code (old code saved to history)">
+                            <RefreshCw size={10} /> Regenerate
+                          </button>
+                          <button onClick={() => setCodeHistoryEmpId(emp.id)}
+                            className="text-[11px] py-1 px-2.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1"
+                            title="View all pairing codes and their status">
+                            <Clock size={10} /> Code History
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -2363,7 +2371,141 @@ function AgentSetupTab() {
           <li>Download and install the agent (.exe) on the employee's computer.</li>
           <li>Open the agent and paste the pairing code when prompted.</li>
           <li>Once connected, the status will turn green and activity tracking begins automatically.</li>
+          <li>If you regenerate a code, the old code is saved in history. Agents using old tokens continue working until their tokens expire (30–90 days).</li>
         </ol>
+      </div>
+
+      {/* Code History Modal */}
+      {codeHistoryEmpId && (
+        <AgentCodeHistoryModal
+          employeeId={codeHistoryEmpId}
+          employeeName={employees.find(e => e.id === codeHistoryEmpId)?.firstName + ' ' + employees.find(e => e.id === codeHistoryEmpId)?.lastName}
+          onClose={() => setCodeHistoryEmpId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ===== AGENT CODE HISTORY MODAL ===== */
+function AgentCodeHistoryModal({ employeeId, employeeName, onClose }: { employeeId: string; employeeName: string; onClose: () => void }) {
+  const { data: res, isLoading, refetch } = useGetAgentCodeHistoryQuery(employeeId);
+  const [deleteCode, { isLoading: deleting }] = useDeleteAgentHistoryCodeMutation();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const data = res?.data;
+
+  const handleDelete = async (historyId: string) => {
+    setDeletingId(historyId);
+    try {
+      await deleteCode({ historyId, employeeId }).unwrap();
+      toast.success('Unused code deleted');
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to delete code');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-[540px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+              <Clock size={16} style={{ color: 'var(--primary-color)' }} /> Pairing Code History
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">{employeeName}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 space-y-3">
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
+            </div>
+          ) : (
+            <>
+              {/* Current Code */}
+              <div>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Current Code</p>
+                {data?.currentCode ? (
+                  <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <div className="flex items-center gap-2.5">
+                      <div className={cn('w-2 h-2 rounded-full', data.currentCodeConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400')} />
+                      <code className="text-sm font-mono font-bold text-gray-800 select-all tracking-wider" data-mono>{data.currentCode}</code>
+                      <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium', data.currentCodeConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>
+                        {data.currentCodeConnected ? '● Connected' : '○ Not yet used'}
+                      </span>
+                    </div>
+                    <button onClick={() => { navigator.clipboard.writeText(data.currentCode!); toast.success('Code copied'); }}
+                      className="text-gray-400 hover:text-gray-600 p-1" title="Copy">
+                      <Copy size={13} />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">No code generated yet</p>
+                )}
+              </div>
+
+              {/* History */}
+              {data?.history && data.history.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Previous Codes</p>
+                  <div className="space-y-1.5">
+                    {data.history.map((entry: any) => (
+                      <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                          <div className={cn('w-2 h-2 rounded-full flex-shrink-0', entry.isConnected ? 'bg-blue-400' : 'bg-gray-300')} />
+                          <code className="text-sm font-mono text-gray-600 select-all tracking-wider" data-mono>{entry.code}</code>
+                          <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0', entry.isConnected ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-400')}>
+                            {entry.isConnected ? '● Was connected' : '○ Never used'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                          <div className="text-right">
+                            {entry.connectedAt && <p className="text-[9px] text-gray-400">Used: {fmtDate(entry.connectedAt)}</p>}
+                            {entry.revokedAt && <p className="text-[9px] text-gray-300">Revoked: {fmtDate(entry.revokedAt)}</p>}
+                          </div>
+                          {!entry.isConnected && (
+                            <button onClick={() => handleDelete(entry.id)} disabled={deleting && deletingId === entry.id}
+                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete unused code">
+                              {deleting && deletingId === entry.id
+                                ? <Loader2 size={12} className="animate-spin" />
+                                : <Trash2 size={12} />}
+                            </button>
+                          )}
+                          {entry.isConnected && (
+                            <div className="p-1.5 text-gray-200" title="Cannot delete — agent may still hold tokens from this code">
+                              <Lock size={12} />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(!data?.history || data.history.length === 0) && data?.currentCode && (
+                <p className="text-xs text-gray-400 text-center py-4 italic">No previous codes — history appears here when you regenerate</p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+          <p className="text-[10px] text-gray-400">
+            <strong>Connected</strong> codes had their tokens issued — agents using them continue working until their JWT expires (30–90 days).
+            Only <strong>never-used</strong> codes can be deleted.
+          </p>
+        </div>
       </div>
     </div>
   );

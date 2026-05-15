@@ -72,12 +72,12 @@ export class AgentService {
     // Skipping when count===0 prevents double-incrementing on agent retries where all
     // entries were already stored (skipDuplicates) but the previous HTTP response was lost.
     const totalActiveSeconds = activities.reduce((sum, a) => sum + a.durationSeconds, 0);
-    const activeMinutesIncrement = Math.ceil(totalActiveSeconds / 60);
+    const activeMinutesIncrement = Math.round(totalActiveSeconds / 60);
     if (totalActiveSeconds > 0 && inserted.count > 0) {
       // Scale increment proportionally if only some records were new (partial batch retry)
       const scaledIncrement = inserted.count === activities.length
         ? activeMinutesIncrement
-        : Math.ceil((totalActiveSeconds * inserted.count / activities.length) / 60);
+        : Math.round((totalActiveSeconds * inserted.count / activities.length) / 60);
       await prisma.attendanceRecord.updateMany({
         where: { employeeId, date: today, checkOut: null },
         data: {
@@ -482,12 +482,27 @@ export class AgentService {
 
   /**
    * Regenerate a new code for an employee (replaces old one).
+   * The old code is saved to AgentPairingCodeHistory before being replaced.
    */
   async regenerateCode(employeeId: string, organizationId: string, userId: string) {
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
     });
     if (!employee) throw new NotFoundError('Employee');
+
+    // Save old code to history before replacing
+    if (employee.agentPairingCode) {
+      await prisma.agentPairingCodeHistory.create({
+        data: {
+          employeeId,
+          organizationId,
+          code: employee.agentPairingCode,
+          isConnected: !!employee.agentPairedAt,
+          connectedAt: employee.agentPairedAt || null,
+          revokedAt: new Date(),
+        },
+      });
+    }
 
     let code: string;
     let attempts = 0;
@@ -510,6 +525,49 @@ export class AgentService {
     });
 
     return { code, isNew: false };
+  }
+
+  /**
+   * Get all pairing code history for an employee (current + historical).
+   */
+  async getCodeHistory(employeeId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true, agentPairingCode: true, agentPairedAt: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const history = await prisma.agentPairingCodeHistory.findMany({
+      where: { employeeId, organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      currentCode: employee.agentPairingCode,
+      currentCodeConnected: !!employee.agentPairedAt,
+      history,
+    };
+  }
+
+  /**
+   * Delete an unused historical pairing code entry.
+   * Connected codes cannot be deleted (agent may still hold valid tokens issued from that code).
+   */
+  async deleteHistoryCode(historyId: string, employeeId: string, organizationId: string, userId: string) {
+    const entry = await prisma.agentPairingCodeHistory.findFirst({
+      where: { id: historyId, employeeId, organizationId },
+    });
+    if (!entry) throw new NotFoundError('Code history entry');
+    if (entry.isConnected) {
+      throw new BadRequestError('Cannot delete a code that was used to connect an agent — the agent may still be using tokens issued from this code.');
+    }
+
+    await prisma.agentPairingCodeHistory.delete({ where: { id: historyId } });
+    await createAuditLog({
+      userId, organizationId, entity: 'Employee', entityId: employeeId,
+      action: 'DELETE', newValue: { deletedCode: entry.code, action: 'delete_unused_agent_code' },
+    });
+    return { deleted: true };
   }
 
   /**

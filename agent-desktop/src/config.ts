@@ -15,11 +15,6 @@ export const CONFIG = {
   IDLE_THRESHOLD_S: 300,                // 5 minutes idle = inactive
   APP_NAME: 'Aniston Agent',
   STORE_ENCRYPTION_KEY: deriveMachineKey(),
-  // TURN server for WebRTC NAT traversal in enterprise networks.
-  // Set ANISTON_TURN_URL (e.g. "turn:turn.example.com:3478") via env var or electron-builder config.
-  TURN_URL: process.env.ANISTON_TURN_URL || '',
-  TURN_USERNAME: process.env.ANISTON_TURN_USERNAME || '',
-  TURN_CREDENTIAL: process.env.ANISTON_TURN_CREDENTIAL || '',
 };
 
 // App categories for productivity classification

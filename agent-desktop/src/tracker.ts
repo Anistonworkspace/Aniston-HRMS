@@ -130,7 +130,7 @@ export function startTracking() {
         activeUrl: '',
         category,
         durationSeconds: CONFIG.TRACKING_INTERVAL_MS / 1000,
-        idleSeconds: idleTime,
+        idleSeconds: Math.min(idleTime, CONFIG.TRACKING_INTERVAL_MS / 1000),
         keystrokes: inputCounts.keystrokes,
         mouseClicks: inputCounts.mouseClicks,
         mouseDistance: inputCounts.mouseDistance,

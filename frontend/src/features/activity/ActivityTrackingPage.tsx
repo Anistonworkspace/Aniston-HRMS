@@ -1,22 +1,22 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
   WifiOff, X, Maximize2, Radio, Globe, Download, TrendingDown, TrendingUp,
   Camera, Footprints, Info, ChevronDown, ChevronUp, BarChart2, List,
-  AlertTriangle, CheckCircle2, MinusCircle, Zap,
+  AlertTriangle, MinusCircle, Zap,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
   useGetActivityBulkSummaryQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
-  useSetAgentLiveModeMutation, useGetAgentLiveModeQuery, useGetEmployeeAgentStatusQuery,
+  useSetAgentLiveModeMutation, useGetAgentLiveModeQuery,
   useLazyDownloadActivityExcelQuery,
   useGetAgentScreenshotIntervalQuery, useSetAgentScreenshotIntervalMutation, useDeleteAgentActivityByDateMutation,
 } from '../attendance/attendanceApi';
 import { useGetAgentSetupListQuery } from '../settings/settingsApi';
 import { getInitials, cn } from '../../lib/utils';
-import { onSocketEvent, offSocketEvent, getSocket } from '../../lib/socket';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
 
@@ -346,6 +346,8 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
 }) {
   const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'screenshots' | 'live'>('overview');
   const [exporting, setExporting] = useState(false);
+  const [showExportRange, setShowExportRange] = useState(false);
+  const [showDeleteRange, setShowDeleteRange] = useState(false);
   const employeeUserId: string | undefined = employee?.user?.id;
   const dateExpired = isExpired(date);
 
@@ -440,6 +442,18 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
                 Export Excel
               </button>
             )}
+            {hasData && !dateExpired && (
+              <button onClick={() => setShowExportRange(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">
+                <Download size={12} /> Export Range
+              </button>
+            )}
+            {hasData && (
+              <button onClick={() => setShowDeleteRange(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+                <X size={12} /> Delete Range
+              </button>
+            )}
             <DeleteDateDataButton employeeId={employee.id} date={date} hasData={hasData} />
           </div>
         </div>
@@ -524,23 +538,28 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
             <KpiCard
               icon={Clock} iconBg="bg-emerald-50" iconColor="text-emerald-600"
               label="Active Time" value={fmtMinutes(summary.totalActiveMinutes)}
-              sub="tracked work time" />
+              sub="tracked work time"
+              infoText="Sum of all 30-second activity ticks where the system was not idle. Each tick = 30s of recorded work. Total = number of ticks × 30s ÷ 60." />
             <KpiCard
               icon={MinusCircle} iconBg="bg-amber-50" iconColor="text-amber-600"
               label="Idle Time" value={fmtMinutes(summary.totalIdleMinutes)}
-              sub="no input detected" />
+              sub="no input detected"
+              infoText="Per-tick idle time: the shorter of (system idle counter, 30s). Idle means no keyboard or mouse input detected for that 30s window. Total idle ≠ total active — both are independent measures." />
             <KpiCard
               icon={Keyboard} iconBg="bg-blue-50" iconColor="text-blue-600"
               label="Keystrokes" value={summary.totalKeystrokes.toLocaleString()}
-              sub="keys pressed" />
+              sub="keys pressed"
+              infoText="Total keyboard key-press events captured by the desktop agent's global input hook across the entire day. Counts individual key-down events." />
             <KpiCard
               icon={Mouse} iconBg="bg-purple-50" iconColor="text-purple-600"
               label="Mouse Clicks" value={summary.totalClicks.toLocaleString()}
-              sub="click events" />
+              sub="click events"
+              infoText="Total mouse button click events (left + right + middle) captured by the desktop agent across the entire day." />
             <KpiCard
               icon={Footprints} iconBg="bg-indigo-50" iconColor="text-indigo-600"
               label="Mouse Travel" value={`${(summary.totalMouseDistance / 1000).toFixed(1)}k px`}
-              sub="cursor distance" />
+              sub="cursor distance"
+              infoText="Total cursor travel distance in pixels accumulated across the day. Measured as the sum of Euclidean distances between consecutive mouse positions." />
             <ProductivityRing
               score={summary.productivityScore}
               productiveMinutes={summary.productiveMinutes}
@@ -616,6 +635,13 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
           onScreenshotClick={onScreenshotClick}
         />
       )}
+
+      {showExportRange && (
+        <ExportRangeModal employeeId={employee.id} employeeCode={employee.employeeCode || employee.id} onClose={() => setShowExportRange(false)} />
+      )}
+      {showDeleteRange && (
+        <DeleteRangeModal employeeId={employee.id} onClose={() => setShowDeleteRange(false)} />
+      )}
     </div>
   );
 }
@@ -623,17 +649,34 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // KPI Card
 // ─────────────────────────────────────────────────────────────────────────────
-function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub }: {
-  icon: any; iconBg: string; iconColor: string; label: string; value: string; sub: string;
+function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub, infoText }: {
+  icon: any; iconBg: string; iconColor: string; label: string; value: string; sub: string; infoText?: string;
 }) {
+  const [showInfo, setShowInfo] = useState(false);
   return (
-    <div className="layer-card p-4">
-      <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center mb-2', iconBg)}>
-        <Icon size={16} className={iconColor} />
+    <div className="layer-card p-4 relative">
+      <div className="flex items-center justify-between mb-2">
+        <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', iconBg)}>
+          <Icon size={16} className={iconColor} />
+        </div>
+        {infoText && (
+          <button onClick={() => setShowInfo(s => !s)} className="text-gray-300 hover:text-gray-500 transition-colors">
+            <Info size={13} />
+          </button>
+        )}
       </div>
       <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
       <p className="text-xl font-bold font-mono text-gray-800 leading-tight" data-mono>{value}</p>
       <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+      {showInfo && infoText && (
+        <div className="absolute top-full left-0 mt-1 z-20 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-[11px] text-gray-600 leading-relaxed">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <span className="font-semibold text-gray-800 text-xs">{label} — How it's calculated</span>
+            <button onClick={() => setShowInfo(false)} className="text-gray-300 hover:text-gray-500 flex-shrink-0"><X size={12} /></button>
+          </div>
+          {infoText}
+        </div>
+      )}
     </div>
   );
 }
@@ -1044,9 +1087,6 @@ function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotCl
         </div>
       )}
 
-      {/* WebRTC Live Screen */}
-      <LiveVideoStream employeeId={employeeId} employeeUserId={employeeUserId} />
-
       {/* Latest Screenshot */}
       <div className="layer-card p-4">
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
@@ -1115,10 +1155,19 @@ function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotCl
   );
 }
 
+// LiveVideoStream removed — WebRTC streaming is no longer supported.
+// The Live Feed tab now shows real-time activity feed + latest screenshots only.
+
 // ─────────────────────────────────────────────────────────────────────────────
-// WebRTC Live Video Stream
+// Screenshot Interval Control (placeholder to preserve line structure)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WebRTC Live Video Stream — REMOVED
 // ─────────────────────────────────────────────────────────────────────────────
 function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; employeeUserId: string | undefined }) {
+  // WebRTC removed — this component is no longer rendered
+  return null;
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const agentSocketIdRef = useRef<string | null>(null);
@@ -1369,6 +1418,216 @@ function DeleteDateDataButton({ employeeId, date, hasData }: { employeeId: strin
       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
       <X size={12} /> Delete Date Data
     </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export Range Modal
+// ─────────────────────────────────────────────────────────────────────────────
+function ExportRangeModal({ employeeId, employeeCode, onClose }: { employeeId: string; employeeCode: string; onClose: () => void }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().split('T')[0];
+  });
+  const [toDate, setToDate] = useState(today);
+  const [loading, setLoading] = useState(false);
+  const [triggerExport] = useLazyDownloadActivityExcelQuery();
+
+  const setPreset = (days: number) => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days + 1);
+    setFromDate(from.toISOString().split('T')[0]);
+    setToDate(to.toISOString().split('T')[0]);
+  };
+
+  const handleExport = async () => {
+    const from = new Date(fromDate + 'T00:00:00Z');
+    const to = new Date(toDate + 'T00:00:00Z');
+    if (from > to) { toast.error('From date must be before To date'); return; }
+    const maxDays = 31;
+    const diffDays = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    if (diffDays > maxDays) { toast.error(`Range too large — max ${maxDays} days at once`); return; }
+
+    setLoading(true);
+    const dates: string[] = [];
+    const cur = new Date(from);
+    while (cur <= to) {
+      dates.push(cur.toISOString().split('T')[0]);
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    let exported = 0;
+    for (const date of dates) {
+      try {
+        const result = await triggerExport({ employeeId, date });
+        if (result.data) {
+          const url = URL.createObjectURL(result.data);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `activity-${employeeCode}-${date}.xlsx`;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          exported++;
+        }
+      } catch { /* skip empty dates */ }
+      await new Promise(r => setTimeout(r, 300)); // small delay between downloads
+    }
+    toast.success(`Exported ${exported} file(s) for ${fromDate} → ${toDate}`);
+    setLoading(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-96" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+            <Download size={16} style={{ color: 'var(--primary-color)' }} /> Export Activity Range
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          {[{ label: 'This week', days: 7 }, { label: '2 weeks', days: 14 }, { label: 'This month', days: 30 }].map(p => (
+            <button key={p.label} onClick={() => setPreset(p.days)}
+              className="flex-1 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-3 mb-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+              max={today} className="input-glass text-sm w-full" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+              max={today} className="input-glass text-sm w-full" />
+          </div>
+        </div>
+
+        <p className="text-[10px] text-gray-400 mb-4">One Excel file per day will be downloaded. Max 31 days.</p>
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors">Cancel</button>
+          <button onClick={handleExport} disabled={loading}
+            className="flex-1 py-2 text-sm font-medium text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+            style={{ background: 'var(--primary-color)' }}>
+            {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Exporting…</> : <><Download size={14} /> Export</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delete Range Modal
+// ─────────────────────────────────────────────────────────────────────────────
+function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose: () => void }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().split('T')[0];
+  });
+  const [toDate, setToDate] = useState(today);
+  const [confirming, setConfirming] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [deleteData] = useDeleteAgentActivityByDateMutation();
+
+  const setPreset = (days: number) => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days + 1);
+    setFromDate(from.toISOString().split('T')[0]);
+    setToDate(to.toISOString().split('T')[0]);
+  };
+
+  const handleDelete = async () => {
+    const from = new Date(fromDate + 'T00:00:00Z');
+    const to = new Date(toDate + 'T00:00:00Z');
+    if (from > to) { toast.error('From date must be before To date'); return; }
+
+    setLoading(true);
+    const dates: string[] = [];
+    const cur = new Date(from);
+    while (cur <= to) {
+      dates.push(cur.toISOString().split('T')[0]);
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    let totalLogs = 0, totalScreenshots = 0;
+    for (const date of dates) {
+      try {
+        const result = await deleteData({ employeeId, date }).unwrap();
+        totalLogs += result.data?.logsDeleted || 0;
+        totalScreenshots += result.data?.screenshotsDeleted || 0;
+      } catch { /* skip empty dates */ }
+    }
+    toast.success(`Deleted ${totalLogs} logs and ${totalScreenshots} screenshots (${fromDate} → ${toDate})`);
+    setLoading(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-96" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-red-700 flex items-center gap-2">
+            <AlertTriangle size={16} className="text-red-500" /> Delete Activity Range
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {!confirming ? (
+          <>
+            <div className="flex gap-2 mb-4">
+              {[{ label: 'This week', days: 7 }, { label: '2 weeks', days: 14 }, { label: 'This month', days: 30 }].map(p => (
+                <button key={p.label} onClick={() => setPreset(p.days)}
+                  className="flex-1 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                  max={today} className="input-glass text-sm w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+                  max={today} className="input-glass text-sm w-full" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200">Cancel</button>
+              <button onClick={() => setConfirming(true)} className="flex-1 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700">
+                Review & Delete
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+              <p className="text-sm font-semibold text-red-700 mb-1">⚠ This is permanent</p>
+              <p className="text-xs text-red-600">Delete ALL activity logs and screenshots from <strong>{fromDate}</strong> to <strong>{toDate}</strong>? This also deletes screenshot files from disk. Cannot be undone.</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirming(false)} className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl">Back</button>
+              <button onClick={handleDelete} disabled={loading}
+                className="flex-1 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {loading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Deleting…</> : 'Confirm Delete'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

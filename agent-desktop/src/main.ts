@@ -9,7 +9,6 @@ import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig, Una
 import { startTracking, stopTracking, getBuffer, drainBuffer } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
-import { initStreamWindow, startStream, stopStream, handleSignalingMessage } from './stream';
 import io from 'socket.io-client';
 
 // ── Global error handlers ─────────────────────────────────────────────────────
@@ -203,7 +202,16 @@ function startAgent() {
   startSyncLoop();
   startConfigPoll();
   connectAgentSocket();
-  initStreamWindow();
+  // FIX-3: Read server config immediately so screenshot interval is applied at startup
+  // (not just after the first CONFIG_POLL_INTERVAL_MS cycle)
+  setTimeout(async () => {
+    try {
+      const config = await getAgentConfig();
+      if (config?.screenshotIntervalSeconds) {
+        updateInterval(config.screenshotIntervalSeconds * 1000);
+      }
+    } catch { /* non-critical, next poll will retry */ }
+  }, 5000); // 5s delay — wait for socket to connect first
 }
 
 function connectAgentSocket() {
@@ -233,22 +241,6 @@ function connectAgentSocket() {
     registerAgent();
   });
 
-  // Admin requests live stream
-  agentSocket.on('stream:start', (data: { adminSocketId: string }) => {
-    console.log('[Socket] Stream start requested by admin:', data.adminSocketId);
-    startStream(data.adminSocketId, apiUrl);
-  });
-
-  agentSocket.on('stream:stop', () => {
-    console.log('[Socket] Stream stop requested');
-    stopStream();
-  });
-
-  // WebRTC signaling from admin browser
-  agentSocket.on('stream:signal', (data: unknown) => {
-    handleSignalingMessage(data);
-  });
-
   // Live mode toggled by admin — immediately apply new screenshot interval
   // (agent also polls /config every 5min as fallback, but this gives instant response)
   agentSocket.on('agent:config-update', (data: { liveMode: boolean; intervalSeconds: number }) => {
@@ -264,24 +256,6 @@ function connectAgentSocket() {
     console.log('[Socket] Agent disconnected');
   });
 }
-
-// Forward WebRTC signals from renderer to server
-ipcMain.on('webrtc-signal', (_, data) => {
-  if (agentSocket?.connected) {
-    agentSocket.emit('stream:signal', data);
-  }
-});
-
-// Forward WebRTC errors from renderer to admin via server
-ipcMain.on('webrtc-error', (_, data: { message: string; adminSocketId?: string }) => {
-  console.error('[Stream] WebRTC renderer error:', data.message);
-  if (agentSocket?.connected) {
-    agentSocket.emit('stream:agent-error', {
-      message: data.message,
-      targetSocketId: data.adminSocketId,
-    });
-  }
-});
 
 function startConfigPoll() {
   if (configPollInterval) return;
@@ -364,8 +338,12 @@ async function verifyStoredToken(): Promise<boolean> {
       store.delete('accessToken');
       store.delete('refreshToken');
       setTokens('', '');
+      return false;
     }
-    return false;
+    // Network timeout / server error at boot — keep stored token, assume still valid.
+    // Agent will retry on next heartbeat cycle.
+    console.warn('[Verify] Network error at startup — keeping stored token:', (err as Error).message);
+    return true;
   }
 }
 

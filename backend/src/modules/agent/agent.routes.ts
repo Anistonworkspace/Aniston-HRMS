@@ -53,6 +53,8 @@ router.get('/setup/employees', setupAuth, (req, res, next) => agentController.ge
 router.post('/setup/generate-code', setupAuth, (req, res, next) => agentController.generateSetupCode(req, res, next));
 router.post('/setup/regenerate-code', setupAuth, (req, res, next) => agentController.regenerateSetupCode(req, res, next));
 router.post('/setup/bulk-generate', setupAuth, (req, res, next) => agentController.bulkGenerateCodes(req, res, next));
+router.get('/setup/code-history/:employeeId', setupAuth, (req, res, next) => agentController.getCodeHistory(req, res, next));
+router.delete('/setup/code-history/:historyId', setupAuth, (req, res, next) => agentController.deleteHistoryCode(req, res, next));
 
 // HR/Admin view endpoints
 

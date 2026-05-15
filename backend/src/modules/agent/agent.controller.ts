@@ -199,6 +199,27 @@ export class AgentController {
     } catch (err) { next(err); }
   }
 
+  async getCodeHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId } = req.params;
+      const result = await agentService.getCodeHistory(employeeId, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async deleteHistoryCode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { historyId } = req.params;
+      const { employeeId } = req.body;
+      if (!employeeId) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'employeeId required' } });
+        return;
+      }
+      const result = await agentService.deleteHistoryCode(historyId, employeeId, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   async exportActivity(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;

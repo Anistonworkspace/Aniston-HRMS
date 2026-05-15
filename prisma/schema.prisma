@@ -61,6 +61,7 @@ model Organization {
 
   itOffboardingChecklists ITOffboardingChecklist[]
   exitInterviews          ExitInterview[]
+  agentCodeHistory        AgentPairingCodeHistory[]
 
   // Denormalized child relations (nullable FK — backfill required for existing rows)
   breaks               Break[]
@@ -268,6 +269,7 @@ model Employee {
   // Sunday / special-day work override
   allowSundayWork        Boolean               @default(false)  // Employee-level override for Sunday attendance
   crashReports           CrashReport[]
+  agentCodeHistory       AgentPairingCodeHistory[]
 
   // Payroll statutory — EPF opt-in (off by default; employee opts in during onboarding or HR enables)
   epfEnabled             Boolean               @default(false) // EPF deduction active — false = not deducted in payroll
@@ -2790,6 +2792,23 @@ model AgentScreenshot {
   @@index([employeeId, date])
   @@index([organizationId, date])
   @@index([organizationId, employeeId, date])
+}
+
+model AgentPairingCodeHistory {
+  id             String    @id @default(uuid())
+  employeeId     String
+  organizationId String
+  code           String
+  isConnected    Boolean   @default(false)  // true if an agent paired with this code
+  connectedAt    DateTime?                  // when agent first used this code
+  revokedAt      DateTime?                  // when it was replaced by a new code
+  createdAt      DateTime  @default(now())
+
+  employee       Employee      @relation(fields: [employeeId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+
+  @@index([employeeId])
+  @@index([organizationId])
 }
 
 // =====================

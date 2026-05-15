@@ -74,6 +74,23 @@ interface BulkGenerateResponse {
   total: number;
 }
 
+export interface AgentPairingCodeHistoryEntry {
+  id: string;
+  employeeId: string;
+  organizationId: string;
+  code: string;
+  isConnected: boolean;
+  connectedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+interface AgentCodeHistoryResponse {
+  currentCode: string | null;
+  currentCodeConnected: boolean;
+  history: AgentPairingCodeHistoryEntry[];
+}
+
 export const settingsApi = api.injectEndpoints({
   endpoints: (builder) => ({
     getOrgSettings: builder.query<any, void>({ query: () => '/settings/organization', providesTags: ['Settings'] }),
@@ -161,6 +178,18 @@ export const settingsApi = api.injectEndpoints({
     bulkGenerateAgentCodes: builder.mutation<{ success: boolean; data: BulkGenerateResponse }, void>({
       query: () => ({ url: '/agent/setup/bulk-generate', method: 'POST' }),
       invalidatesTags: ['AgentSetup'],
+    }),
+    getAgentCodeHistory: builder.query<{ success: boolean; data: AgentCodeHistoryResponse }, string>({
+      query: (employeeId) => `/agent/setup/code-history/${employeeId}`,
+      providesTags: (_, __, employeeId) => [{ type: 'AgentSetup', id: employeeId }],
+    }),
+    deleteAgentHistoryCode: builder.mutation<{ success: boolean; data: { deleted: boolean } }, { historyId: string; employeeId: string }>({
+      query: ({ historyId, employeeId }) => ({
+        url: `/agent/setup/code-history/${historyId}`,
+        method: 'DELETE',
+        body: { employeeId },
+      }),
+      invalidatesTags: (_, __, { employeeId }) => [{ type: 'AgentSetup', id: employeeId }, 'AgentSetup'],
     }),
 
     // Backup — availability pre-flight
@@ -267,6 +296,8 @@ export const {
   useGenerateAgentCodeMutation,
   useRegenerateAgentCodeMutation,
   useBulkGenerateAgentCodesMutation,
+  useGetAgentCodeHistoryQuery,
+  useDeleteAgentHistoryCodeMutation,
   useCheckBackupAvailabilityQuery,
   useListBackupsQuery,
   useGetBackupStatsQuery,
