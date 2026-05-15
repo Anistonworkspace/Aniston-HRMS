@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 // downloads/ lives at project root — 4 levels up from backend/dist/modules/agent/
 const DOWNLOADS_ROOT = path.resolve(__dirname, '../../../../downloads');
 // CI/CD SCP preserves the artifact directory name, so the exe lands in agent/agent-build/
-const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-support-setup.exe');
+const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-agent-setup.exe');
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
@@ -126,8 +126,8 @@ export class AgentController {
         success: true,
         data: {
           available,
-          downloadUrl: available ? '/downloads/aniston-support-setup.exe' : null,
-          filename: 'aniston-support-setup.exe',
+          downloadUrl: available ? '/downloads/aniston-agent-setup.exe' : null,
+          filename: 'aniston-agent-setup.exe',
         },
       });
     } catch (err) { next(err); }
@@ -274,18 +274,6 @@ export class AgentController {
         req.user!.organizationId,
         req.user!.userId
       );
-      res.json({ success: true, data: result });
-    } catch (err) { next(err); }
-  }
-
-  async deleteScreenshot(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { screenshotId } = req.params;
-      if (!screenshotId) {
-        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'screenshotId required' } });
-        return;
-      }
-      const result = await agentService.deleteScreenshot(screenshotId, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
