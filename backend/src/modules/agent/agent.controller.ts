@@ -14,6 +14,13 @@ const DOWNLOADS_ROOT = path.resolve(__dirname, '../../../../downloads');
 const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-agent-setup.exe');
 
 export class AgentController {
+  async ping(req: Request, res: Response, next: NextFunction) {
+    try {
+      await agentService.recordPing(req.user!.employeeId!, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: { ok: true } });
+    } catch (err) { next(err); }
+  }
+
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
     try {
       const { activities } = heartbeatSchema.parse(req.body);

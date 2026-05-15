@@ -5,7 +5,7 @@ import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
 import { ipcMain } from 'electron';
-import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig, UnauthorizedError, setTokenRefreshCallback } from './api';
+import { pairWithCode, setTokens, sendHeartbeat, sendPing, isLoggedIn, getAgentConfig, UnauthorizedError, setTokenRefreshCallback } from './api';
 import { startTracking, stopTracking, getBuffer, drainBuffer } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
@@ -143,6 +143,7 @@ if (!gotSingleLock) {
 let autoLauncher: AutoLaunch | null = null;
 
 let syncInterval: NodeJS.Timeout | null = null;
+let pingInterval: NodeJS.Timeout | null = null;
 let isRepairing = false; // guard against concurrent re-pair attempts
 
 async function handlePair() {
@@ -182,6 +183,7 @@ function handleLogout() {
   stopTracking();
   stopScreenshots();
   stopSyncLoop();
+  stopPingLoop();
   stopConfigPoll();
   agentSocket?.disconnect();
   agentSocket = null;
@@ -200,6 +202,7 @@ function startAgent() {
   startTracking();
   startScreenshots();
   startSyncLoop();
+  startPingLoop();
   startConfigPoll();
   connectAgentSocket();
   // FIX-3: Read server config immediately so screenshot interval is applied at startup
@@ -310,6 +313,31 @@ function stopSyncLoop() {
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;
+  }
+}
+
+// ── Ping loop — lightweight keepalive every 2 minutes ─────────────────────────
+// Separate from the 5-min heartbeat sync so the server's 15-min online threshold
+// stays green even when the employee is idle (no new activity entries to sync).
+// Each ping is a tiny POST with no payload — ~200 bytes. Contributes 0 active seconds.
+function startPingLoop() {
+  if (pingInterval) return;
+  pingInterval = setInterval(async () => {
+    if (!isLoggedIn()) return;
+    try {
+      await sendPing();
+      console.log('[Ping] keepalive sent');
+    } catch (err) {
+      // Non-critical — heartbeat sync already handles token expiry
+      console.warn('[Ping] failed (non-critical):', (err as Error).message);
+    }
+  }, 2 * 60 * 1000); // every 2 minutes
+}
+
+function stopPingLoop() {
+  if (pingInterval) {
+    clearInterval(pingInterval);
+    pingInterval = null;
   }
 }
 

@@ -93,16 +93,23 @@ export default function ActivityTrackingPage() {
 
   const [liveConnected, setLiveConnected] = useState<Record<string, boolean>>({});
   useEffect(() => {
+    // Both heartbeat and ping events keep the employee's dot green in real-time
     const handler = (data: any) => {
       if (data?.employeeId) setLiveConnected(prev => ({ ...prev, [data.employeeId]: true }));
     };
     onSocketEvent('agent:heartbeat', handler);
-    return () => { offSocketEvent('agent:heartbeat', handler); };
+    onSocketEvent('agent:ping', handler);
+    return () => {
+      offSocketEvent('agent:heartbeat', handler);
+      offSocketEvent('agent:ping', handler);
+    };
   }, []);
   useEffect(() => {
+    // Clear liveConnected after 10 minutes with no new heartbeat socket event.
+    // 10min matches the backend's 15min threshold with headroom for poll lag.
     const ticker = setInterval(() => {
       setLiveConnected(prev => Object.keys(prev).length === 0 ? prev : {});
-    }, 120_000);
+    }, 10 * 60_000);
     return () => clearInterval(ticker);
   }, []);
 

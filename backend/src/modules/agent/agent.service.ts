@@ -375,11 +375,52 @@ export class AgentService {
     return { date, logsDeleted, screenshotsDeleted };
   }
 
+  /**
+   * Lightweight ping — no activity payload, just proves the agent is alive.
+   * Stored as a minimal ActivityLog row (0 keystrokes, 0 idle, 30s duration) so
+   * the 15-min threshold check still works without a separate DB table or Redis key.
+   * Called every 2 minutes by the agent — much cheaper than a full heartbeat.
+   */
+  async recordPing(employeeId: string, organizationId: string, userId: string) {
+    const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
+    const today = getOrgToday(org?.timezone ?? 'Asia/Kolkata');
+
+    await prisma.activityLog.create({
+      data: {
+        employeeId,
+        organizationId,
+        date: today,
+        timestamp: new Date(),
+        activeApp: null,
+        activeWindow: null,
+        activeUrl: null,
+        category: null,
+        durationSeconds: 0,   // ping contributes 0 active seconds — does NOT inflate Active Time
+        idleSeconds: 0,
+        keystrokes: 0,
+        mouseClicks: 0,
+        mouseDistance: 0,
+      },
+    });
+
+    // Emit real-time status to admin sockets so dashboard updates immediately
+    const admins = await prisma.user.findMany({
+      where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    for (const admin of admins) {
+      emitToUser(admin.id, 'agent:ping', { employeeId, timestamp: new Date().toISOString() });
+    }
+
+    return { ok: true };
+  }
+
   async getAgentStatus(employeeId: string, organizationId: string) {
     const now = new Date();
-    // Agent syncs every 5 minutes — use 7-minute window (5min sync + 2min grace)
-    // to prevent agents from flickering Offline between sync cycles.
-    const thresholdAgo = new Date(now.getTime() - 7 * 60 * 1000);
+    // Agent syncs heartbeat every 5min + sends a lightweight ping every 2min.
+    // Use 15-minute window to survive: sleep/wake cycles, brief network drops,
+    // VPN reconnect, corporate proxy timeouts, and slow Windows startup.
+    const thresholdAgo = new Date(now.getTime() - 15 * 60 * 1000);
 
     const lastLog = await prisma.activityLog.findFirst({
       where: { employeeId, organizationId },
@@ -587,8 +628,8 @@ export class AgentService {
 
     // Batch lookup: find last heartbeat per employee (within last 24h for "last seen")
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    // 7-minute threshold: agent syncs every 5min, +2min grace to avoid false Offline flickers
-    const activeThreshold = new Date(Date.now() - 7 * 60 * 1000);
+    // 15-minute threshold: survives sleep/wake, VPN drops, brief network outages
+    const activeThreshold = new Date(Date.now() - 15 * 60 * 1000);
 
     const recentLogs = await prisma.activityLog.groupBy({
       by: ['employeeId'],

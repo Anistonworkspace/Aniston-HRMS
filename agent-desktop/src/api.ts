@@ -97,6 +97,13 @@ export async function getAgentConfig() {
   return data.data;
 }
 
+/** Lightweight keepalive — no payload, just proves the agent is alive to the server.
+ *  Called every 2 minutes independent of the heartbeat cycle. */
+export async function sendPing() {
+  const res = await authFetch('/agent/ping', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (!res.ok) throw new Error(`Ping rejected: ${res.status}`);
+}
+
 export async function sendHeartbeat(activities: unknown[]) {
   if (!Array.isArray(activities)) throw new Error('activities must be an array');
   const res = await authFetch('/agent/heartbeat', {

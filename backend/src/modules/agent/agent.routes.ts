@@ -28,6 +28,9 @@ const agentDataLimiter = rateLimiter({
 });
 
 // Agent endpoints (employee sends data from desktop agent)
+// Lightweight ping — proves agent is alive, no activity payload, 0 active-time contribution
+// Called every 2 minutes so status stays green during idle/no-activity periods
+router.post('/ping', agentDataLimiter, (req, res, next) => agentController.ping(req, res, next));
 router.post('/heartbeat', agentDataLimiter, (req, res, next) => agentController.submitHeartbeat(req, res, next));
 router.post('/screenshot', agentDataLimiter, uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
