@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send, Repeat, Navigation, Map } from 'lucide-react';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send, Repeat, Navigation, Map as MapIcon } from 'lucide-react';
 import HomeLocationRequestsTab from './HomeLocationRequestsTab';
 import ShiftChangeRequestsTab from './ShiftChangeRequestsTab';
 import {

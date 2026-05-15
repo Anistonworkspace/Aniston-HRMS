@@ -177,7 +177,7 @@ export default function HomeLocationRequestsTab() {
   const [mapPopupReq, setMapPopupReq] = useState<any | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const { data: res, isLoading, refetch } = useGetHomeLocationRequestsQuery(statusFilter ? { status: statusFilter } : undefined);
-  const [reviewRequest] = useReviewHomeLocationRequestMutation();
+  const [reviewRequest, { isLoading: reviewing }] = useReviewHomeLocationRequestMutation();
 
   const requests: any[] = res?.data || [];
 
