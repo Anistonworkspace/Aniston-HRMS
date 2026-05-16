@@ -2,10 +2,9 @@ import { Tray, Menu, nativeImage, BrowserWindow, app, ipcMain } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { isTracking, stopTracking } from './tracker';
-import { stopScreenshots } from './screenshot';
+import { isTracking, startTracking, stopTracking } from './tracker';
+import { startScreenshots, stopScreenshots } from './screenshot';
 import { isLoggedIn } from './api';
-import { setManualPause } from './main';
 
 let tray: Tray | null = null;
 let pairWindow: BrowserWindow | null = null;
@@ -50,7 +49,7 @@ export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
     // BUG-018 fix: route through setManualPause() so wasManuallyPaused flag is updated,
     // preventing sleep/resume from overriding a deliberate user pause
     { label: tracking ? 'Pause Tracking' : 'Resume Tracking', visible: loggedIn, click: () => {
-      setManualPause(tracking); // true = pause, false = resume
+      if (tracking) { stopTracking(); stopScreenshots(); } else { startTracking(); startScreenshots(); }
       updateTrayMenu(onPair, onLogout);
     }},
     // Disconnect clears credentials and stays idle — does NOT immediately re-prompt pairing.

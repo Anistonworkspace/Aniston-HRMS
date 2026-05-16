@@ -314,4 +314,5 @@ export const {
   useDeleteDocumentTemplateMutation,
   useGetAccountActivityQuery,
   useDeleteActivityLogsMutation,
+  useDeleteActivityLogsMutation as useDeleteSystemLogsMutation,
 } = settingsApi;
