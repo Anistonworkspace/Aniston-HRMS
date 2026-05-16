@@ -42,6 +42,7 @@ export default function SearchableSelect({
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const justOpenedRef = useRef(false);
 
   const selected = options.find((o) => o.value === value);
 
@@ -66,8 +67,9 @@ export default function SearchableSelect({
   }, [open]);
 
   useEffect(() => {
-    if (open && inputRef.current) {
+    if (open && justOpenedRef.current && inputRef.current) {
       inputRef.current.focus();
+      justOpenedRef.current = false;
     }
   }, [open]);
 
@@ -82,7 +84,7 @@ export default function SearchableSelect({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setOpen(!open)}
+        onClick={() => { justOpenedRef.current = !open; setOpen(!open); }}
         className="w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-all disabled:cursor-not-allowed"
         style={{
           height: '40px',
