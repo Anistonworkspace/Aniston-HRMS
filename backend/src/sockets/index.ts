@@ -51,7 +51,10 @@ export function initSocketServer(httpServer: HttpServer) {
     const tokenExp: number = socket.data.tokenExp ?? 0;
     if (tokenExp > 0) {
       const warnAt = (tokenExp - Math.floor(Date.now() / 1000) - 60) * 1000;
-      if (warnAt > 0) {
+      // Cap to 24 hours max — setTimeout only supports 32-bit ms (~24.8 days max).
+      // Tokens with longer expiry (e.g. 7d refresh) would cause TimeoutOverflowWarning.
+      const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+      if (warnAt > 0 && warnAt <= MAX_TIMEOUT_MS) {
         const warnTimer = setTimeout(() => {
           socket.emit('token:expire-soon', { expiresAt: tokenExp });
         }, warnAt);

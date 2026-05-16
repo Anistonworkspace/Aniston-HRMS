@@ -140,7 +140,8 @@ for migration in \
   20260511000000_expand_hr_action_restrictions \
   20260511000001_add_gps_no_data_anomaly_type \
   20260511000002_add_gps_v1_5_5_tracking_fields \
-  20260515000000_fix_employee_code_org_unique; do
+  20260515000000_fix_employee_code_org_unique \
+  20260516000001_asset_code_org_scoped_unique; do
   npx prisma migrate resolve --applied "$migration" --schema=prisma/schema.prisma 2>/dev/null || true
 done
 echo "Migration baseline complete"

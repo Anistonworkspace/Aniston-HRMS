@@ -1856,7 +1856,7 @@ model WhatsAppContact {
 model Asset {
   id             String         @id @default(uuid())
   name           String
-  assetCode      String         @unique
+  assetCode      String
   category       AssetCategory
   brand          String?
   modelNumber    String?
@@ -1878,6 +1878,7 @@ model Asset {
   tickets            Ticket[]
   exitChecklistItems ExitChecklistItem[]
 
+  @@unique([assetCode, organizationId])
   @@index([organizationId, status])
 }
 

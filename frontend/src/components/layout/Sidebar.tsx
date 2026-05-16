@@ -50,7 +50,7 @@ interface NavItem {
 }
 
 // Paths visible to ADMIN role (IT/system admin) — HR paths are intentionally excluded
-const ADMIN_ALLOWED_PATHS = new Set(['/dashboard', '/activity-tracking', '/exit-management', '/assets', '/announcements', '/helpdesk', '/settings', '/profile']);
+const ADMIN_ALLOWED_PATHS = new Set(['/dashboard', '/activity-tracking', '/exit-management', '/assets', '/my-assets', '/announcements', '/helpdesk', '/settings', '/profile']);
 
 const navItems: NavItem[] = [
   { nameKey: 'nav.dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard', permissionKey: 'canViewDashboardStats' },
@@ -65,7 +65,7 @@ const navItems: NavItem[] = [
   { nameKey: 'nav.employeeExit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.interviewTasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
   { nameKey: 'nav.assets', managementNameKey: 'nav.assetManagement', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { nameKey: 'nav.myAssets', path: '/my-assets', icon: Laptop, roles: ['MANAGER', 'EMPLOYEE', 'INTERN'] },
+  { nameKey: 'nav.myAssets', path: '/my-assets', icon: Laptop, roles: ['ADMIN', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
   { nameKey: 'nav.myDocuments', path: '/my-documents', icon: FileCheck, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], exitAccessKey: 'canViewDocuments', permissionKey: 'canViewDocuments' },
   { nameKey: 'nav.performance', path: '/performance', icon: BarChart3, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPerformance' },
   { nameKey: 'nav.policies', path: '/policies', icon: FileText, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'], permissionKey: 'canViewPolicies' },

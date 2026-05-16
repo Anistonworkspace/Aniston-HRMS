@@ -53,7 +53,7 @@ const ALL_ROUTES: RouteItem[] = [
 
   // Documents & Assets — visible to all non-ADMIN roles; ADMIN can view assets (IT manages them)
   { id: 'my-documents', label: 'My Documents', description: 'Upload and manage your documents', path: '/my-documents', icon: FolderOpen, category: 'Documents & Assets', keywords: ['documents', 'files', 'upload', 'certificate', 'aadhaar', 'pan'], roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
-  { id: 'my-assets', label: 'My Assets', description: 'Company assets assigned to you', path: '/my-assets', icon: Package, category: 'Documents & Assets', keywords: ['assets', 'laptop', 'device', 'equipment', 'assigned'], roles: [] },
+  { id: 'my-assets', label: 'My Assets', description: 'Company assets assigned to you', path: '/my-assets', icon: Package, category: 'Documents & Assets', keywords: ['assets', 'laptop', 'device', 'equipment', 'assigned'], roles: ['ADMIN', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
   { id: 'policies', label: 'Policies', description: 'Company policies and documents', path: '/policies', icon: FileText, category: 'Documents & Assets', keywords: ['policy', 'policies', 'rules', 'handbook', 'compliance'], roles: [] },
 
   // Communication — ADMIN (IT) can use announcements, helpdesk, WhatsApp, bulk-email

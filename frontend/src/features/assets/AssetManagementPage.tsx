@@ -13,6 +13,7 @@ import {
 } from './assetApi';
 import { useGetExitRequestsQuery } from '../exit/exitApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
+import { useAppSelector } from '../../app/hooks';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -44,6 +45,9 @@ const CONDITIONS: Record<string, { label: string; color: string }> = {
 const TABS = ['All Assets', 'Exit Checklists'] as const;
 
 export default function AssetManagementPage() {
+  const user = useAppSelector((state) => state.auth.user);
+  const canManageAssets = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -76,10 +80,12 @@ export default function AssetManagementPage() {
           </h1>
           <p className="text-gray-500 text-sm mt-0.5">Manage IT assets, assignments, and tracking</p>
         </div>
-        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-2 self-start">
-          <Plus size={18} /> Add Asset
-        </motion.button>
+        {canManageAssets && (
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-2 self-start">
+            <Plus size={18} /> Add Asset
+          </motion.button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -213,13 +219,15 @@ export default function AssetManagementPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button onClick={() => setViewingAsset(asset)} title="View"
                               className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><Eye size={14} /></button>
-                            <button onClick={() => setEditingAsset(asset)} title="Edit"
-                              className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={14} /></button>
-                            {asset.status === 'AVAILABLE' && (
+                            {canManageAssets && (
+                              <button onClick={() => setEditingAsset(asset)} title="Edit"
+                                className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={14} /></button>
+                            )}
+                            {canManageAssets && asset.status === 'AVAILABLE' && (
                               <button onClick={() => setAssigningAsset(asset)} title="Assign"
                                 className="p-1.5 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg"><UserPlus size={14} /></button>
                             )}
-                            {asset.status === 'ASSIGNED' && activeAssignment && (
+                            {canManageAssets && asset.status === 'ASSIGNED' && activeAssignment && (
                               <button onClick={() => setReturningAsset({ asset, assignmentId: activeAssignment.id })} title="Return"
                                 className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg"><RotateCcw size={14} /></button>
                             )}
@@ -250,13 +258,13 @@ export default function AssetManagementPage() {
 
       {activeTab === 'Exit Checklists' && <ExitChecklistsTab />}
 
-      {/* Modals */}
+      {/* Modals — only rendered for roles with manage permission */}
       <AnimatePresence>
-        {showAddModal && <AddAssetModal onClose={() => setShowAddModal(false)} />}
-        {editingAsset && <EditAssetModal asset={editingAsset} onClose={() => setEditingAsset(null)} />}
-        {assigningAsset && <AssignAssetModal asset={assigningAsset} onClose={() => setAssigningAsset(null)} />}
+        {canManageAssets && showAddModal && <AddAssetModal onClose={() => setShowAddModal(false)} />}
+        {canManageAssets && editingAsset && <EditAssetModal asset={editingAsset} onClose={() => setEditingAsset(null)} />}
+        {canManageAssets && assigningAsset && <AssignAssetModal asset={assigningAsset} onClose={() => setAssigningAsset(null)} />}
         {viewingAsset && <AssetDetailModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
-        {returningAsset && <ReturnAssetModal data={returningAsset} onClose={() => setReturningAsset(null)} />}
+        {canManageAssets && returningAsset && <ReturnAssetModal data={returningAsset} onClose={() => setReturningAsset(null)} />}
       </AnimatePresence>
     </div>
   );
@@ -673,7 +681,7 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
   const [assignAsset, { isLoading }] = useAssignAssetMutation();
   const { data: employeesRes } = useGetEmployeesQuery({ limit: 200 });
   const [employeeId, setEmployeeId] = useState('');
-  const [condition, setCondition] = useState('Good');
+  const [condition, setCondition] = useState('GOOD');
   const [notes, setNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -742,8 +750,7 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
             <div>
               <label className="block text-sm font-medium text-gray-600 mb-1">Assign Condition</label>
               <select value={condition} onChange={e => setCondition(e.target.value)} className="input-glass w-full text-sm">
-                <option value="New">New</option><option value="Good">Good</option>
-                <option value="Fair">Fair</option><option value="Poor">Poor</option>
+                {Object.entries(CONDITIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             </div>
             <div>

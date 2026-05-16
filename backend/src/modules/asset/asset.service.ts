@@ -80,7 +80,7 @@ export class AssetService {
 
   async create(data: CreateAssetInput, organizationId: string, userId?: string) {
     const existing = await prisma.asset.findUnique({
-      where: { assetCode: data.assetCode },
+      where: { assetCode_organizationId: { assetCode: data.assetCode, organizationId } },
     });
     if (existing) throw new ConflictError('An asset with this code already exists');
 
@@ -111,7 +111,9 @@ export class AssetService {
     if (!existing) throw new NotFoundError('Asset');
 
     if (data.assetCode && data.assetCode !== existing.assetCode) {
-      const duplicate = await prisma.asset.findUnique({ where: { assetCode: data.assetCode } });
+      const duplicate = await prisma.asset.findUnique({
+        where: { assetCode_organizationId: { assetCode: data.assetCode, organizationId } },
+      });
       if (duplicate) throw new ConflictError('An asset with this code already exists');
     }
 
