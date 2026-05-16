@@ -2438,12 +2438,28 @@ export class LeaveService {
       });
 
       if (balance) {
-        if (request.status === 'PENDING' || request.status === 'MANAGER_APPROVED') {
+        if (request.status === 'PENDING') {
           // Reverse pending balance — guard against going below 0
           const safeDecrement = Math.min(Number(balance.pending), Number(request.days));
           await tx.leaveBalance.update({
             where: { id: balance.id },
             data: { pending: { decrement: safeDecrement } },
+          });
+        } else if (request.status === 'MANAGER_APPROVED') {
+          // Reverse pending balance AND remove any ON_LEAVE attendance records
+          // (attendance marks may have been created when manager approved)
+          const safeDecrement = Math.min(Number(balance.pending), Number(request.days));
+          await tx.leaveBalance.update({
+            where: { id: balance.id },
+            data: { pending: { decrement: safeDecrement } },
+          });
+          await tx.attendanceRecord.deleteMany({
+            where: {
+              employeeId: leaveOwnerId,
+              date: { gte: new Date(request.startDate), lte: new Date(request.endDate) },
+              status: 'ON_LEAVE',
+              source: 'MANUAL_HR',
+            },
           });
         } else if (request.status === 'APPROVED') {
           // Reverse used balance — guard against going below 0

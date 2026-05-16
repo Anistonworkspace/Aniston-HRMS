@@ -53,7 +53,7 @@ export class AttendanceService {
   private readonly OVERTIME_FLAG_EXTRA_HOURS = 2;
 
   /** Extract per-shift policy values, falling back to class-level defaults. */
-  private shiftPolicy(shift: any) {
+  private shiftPolicy(shift: any, orgPolicy?: any) {
     return {
       maxReClockIns:              shift?.maxReClockInsPerDay           ?? this.MAX_RECLOCKIN_PER_DAY,
       earlyBlockMin:              shift?.earlyCheckInBlockMinutes      ?? 60,
@@ -67,6 +67,10 @@ export class AttendanceService {
       trackingStartsOnCheckIn:    shift?.trackingStartsOnCheckIn       ?? true,
       trackingStopsOnCheckOut:    shift?.trackingStopsOnCheckOut       ?? true,
       outsideGeofenceAlert:       shift?.outsideGeofenceAlertEnabled   ?? false,
+      // New fields: fall back to org policy, then to hardcoded defaults
+      autoAbsentAfterHours:       shift?.autoAbsentAfterHours          ?? orgPolicy?.autoAbsentAfterHours ?? 4,
+      lateMarkCutoffMinutes:      shift?.lateMarkCutoffMinutes         ?? orgPolicy?.lateMarkCutoffMinutes ?? null,
+      breakDeductionMinutes:      shift?.breakDeductionMinutes         ?? orgPolicy?.breakDeductionMinutes ?? 0,
     };
   }
 
@@ -131,10 +135,12 @@ export class AttendanceService {
     const today = getISTToday();
     const now = new Date();
 
-    // ===== PHASE 3: Block clock-in on approved leave =====
+    // ===== PHASE 3: Block clock-in on approved full-day leave =====
+    // Half-day leaves must NOT block clock-in — employee is working the other half.
     const leaveToday = await prisma.leaveRequest.findFirst({
       where: {
         employeeId,
+        isHalfDay: false,
         status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] },
         startDate: { lte: today },
         endDate: { gte: today },
@@ -205,7 +211,7 @@ export class AttendanceService {
     }
 
     // ===== PER-SHIFT POLICY: extract configurable rules now that shift is loaded =====
-    const sp = this.shiftPolicy(shift);
+    const sp = this.shiftPolicy(shift, policy);
 
     // Re-run GPS staleness check with per-shift max age (overrides the pre-shift-load 120s check above)
     if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
@@ -499,11 +505,19 @@ export class AttendanceService {
       }
 
       // Auto-mark HALF_DAY note: prefer shift-level lateHalfDayAfterMins
+      // Also check lateMarkCutoffMinutes: if late beyond cutoff, force ABSENT
       if (!isReClockIn) {
         const halfDayThreshold = (shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins) ?? 60;
         const minutesLate = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         if (minutesLate > halfDayThreshold) {
           data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
+        }
+        // lateMarkCutoffMinutes: if too late, reject clock-in and force ABSENT status
+        if (sp.lateMarkCutoffMinutes !== null && sp.lateMarkCutoffMinutes !== undefined && minutesLate > sp.lateMarkCutoffMinutes) {
+          throw new BadRequestError(
+            `Clock-in blocked: you are ${minutesLate} minutes late, which exceeds the shift limit of ${sp.lateMarkCutoffMinutes} minutes. ` +
+            `Your attendance will be marked Absent. Please contact HR for a regularization.`
+          );
         }
       }
 
@@ -707,7 +721,9 @@ export class AttendanceService {
       orderBy: { startDate: 'desc' },
     });
     const coShift = clockOutShiftAssignment?.shift as any;
-    const coSp = this.shiftPolicy(coShift);
+    // Load org attendance policy once — used both for shiftPolicy fallbacks and clock-out status calc
+    const coOrgPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: empStatus?.organizationId || '' } });
+    const coSp = this.shiftPolicy(coShift, coOrgPolicy);
 
     // ===== GPS TIMESTAMP STALENESS CHECK (clock-out) — per-shift max age =====
     if (data.gpsTimestamp && data.latitude != null && data.longitude != null) {
@@ -1043,7 +1059,7 @@ export class AttendanceService {
     const checkIn = new Date(record.checkIn!);
 
     // ===== PHASE 2: Calculate accurate totalHours (subtract gap periods) =====
-    const totalHours = await this.calculateAccurateTotalHours(record.id, checkIn, now);
+    const rawTotalHours = await this.calculateAccurateTotalHours(record.id, checkIn, now);
 
     // Get employee's shift for shift-aware status calculation
     const recordDate = new Date(record.date);
@@ -1054,9 +1070,13 @@ export class AttendanceService {
     });
 
     const shift = shiftAssignment?.shift;
-    // Fetch org attendance policy for fallback values
+    // employee record for organizationId used below (e.g. OvertimeRequest, holiday check)
     const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } });
-    const clockOutPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: employee?.organizationId || '' } });
+    // Reuse coOrgPolicy fetched earlier; fall back to a fresh query if somehow unavailable
+    const clockOutPolicy = coOrgPolicy ?? await prisma.attendancePolicy.findUnique({ where: { organizationId: employee?.organizationId || '' } });
+    // Apply break deduction: prefer shift-level, then org policy, then 0
+    const effectiveBreakDeductionMins = Number(shift?.breakDeductionMinutes ?? clockOutPolicy?.breakDeductionMinutes ?? 0);
+    const totalHours = Math.max(0, rawTotalHours - effectiveBreakDeductionMins / 60);
     // Shift-level overrides policy-level; policy is org-wide default; hardcoded is last resort
     const fullDayHours = shift ? Number(shift.fullDayHours) : Number(clockOutPolicy?.fullDayMinHours || 8);
     const halfDayHours = shift ? Number(shift.halfDayHours) : Number(clockOutPolicy?.halfDayMinHours || 4);

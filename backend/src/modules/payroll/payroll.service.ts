@@ -217,19 +217,24 @@ function calculateStatutory(
  */
 function calculateTDS(annualCTC: number, regime: string, remainingMonths: number = 12): number {
   const months = Math.max(1, Math.round(remainingMonths)); // at least 1 month
-  const taxable = annualCTC - 50000; // Standard deduction
+  // FY 2025-26: standard deduction raised to ₹75,000 for new regime
+  const stdDeduction = regime === 'NEW_REGIME' ? 75000 : 50000;
+  const taxable = Math.max(0, annualCTC - stdDeduction);
 
   if (regime === 'NEW_REGIME') {
+    // FY 2025-26 new regime slabs (Budget 2025):
+    // 0–4L: nil, 4–8L: 5%, 8–12L: 10%, 12–16L: 15%, 16–20L: 20%, 20–24L: 25%, >24L: 30%
     let tax = 0;
     const slabs = [
-      { limit: 300000, rate: 0 },
-      { limit: 700000, rate: 0.05 },
-      { limit: 1000000, rate: 0.10 },
-      { limit: 1200000, rate: 0.15 },
-      { limit: 1500000, rate: 0.20 },
+      { limit: 400000,  rate: 0 },
+      { limit: 800000,  rate: 0.05 },
+      { limit: 1200000, rate: 0.10 },
+      { limit: 1600000, rate: 0.15 },
+      { limit: 2000000, rate: 0.20 },
+      { limit: 2400000, rate: 0.25 },
       { limit: Infinity, rate: 0.30 },
     ];
-    let remaining = Math.max(taxable, 0);
+    let remaining = taxable;
     let prevLimit = 0;
     for (const slab of slabs) {
       const slabAmount = Math.min(remaining, slab.limit - prevLimit);
@@ -239,19 +244,20 @@ function calculateTDS(annualCTC: number, regime: string, remainingMonths: number
       prevLimit = slab.limit;
     }
     tax = tax + Math.round(tax * 0.04); // 4% health & education cess
-    if (taxable <= 700000) tax = 0;     // rebate u/s 87A
+    // FY 2025-26: rebate u/s 87A up to ₹12L taxable income (gross income up to ₹12.75L)
+    if (taxable <= 1200000) tax = 0;
     return Math.round(tax / months);
   }
 
-  // Old regime
+  // Old regime (FY 2025-26 — slabs unchanged from FY 2024-25)
   let tax = 0;
   const slabs = [
-    { limit: 250000, rate: 0 },
-    { limit: 500000, rate: 0.05 },
+    { limit: 250000,  rate: 0 },
+    { limit: 500000,  rate: 0.05 },
     { limit: 1000000, rate: 0.20 },
     { limit: Infinity, rate: 0.30 },
   ];
-  let remaining = Math.max(taxable, 0);
+  let remaining = taxable;
   let prevLimit = 0;
   for (const slab of slabs) {
     const slabAmount = Math.min(remaining, slab.limit - prevLimit);
@@ -261,7 +267,7 @@ function calculateTDS(annualCTC: number, regime: string, remainingMonths: number
     prevLimit = slab.limit;
   }
   tax = tax + Math.round(tax * 0.04); // 4% cess
-  if (taxable <= 500000) tax = 0;     // rebate u/s 87A
+  if (taxable <= 500000) tax = 0;     // rebate u/s 87A (old regime)
   return Math.round(tax / months);
 }
 
@@ -851,11 +857,12 @@ export class PayrollService {
     }
 
     // Pre-fetch approved leave requests for LOP calculation
+    // MANAGER_APPROVED is included: manager has signed off, HR final approval pending.
+    // Excluding it caused incorrect LOP deductions for employees whose manager approved leave.
     const allLeaves = await prisma.leaveRequest.findMany({
       where: {
         employeeId: { in: empIds },
-        // Include all terminal-approved statuses so manager-approved leaves reduce LOP
-        status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
+        status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION', 'MANAGER_APPROVED'] as any[] },
         startDate: { lte: endDate },
         endDate: { gte: startDate },
       },
@@ -1092,7 +1099,7 @@ export class PayrollService {
               const rfHra   = findComponent(refreshedComponents, 'HRA');
               const rfMed   = findComponent(refreshedComponents, 'Medical Allowance');
               const rfSpec  = findComponent(refreshedComponents, 'Special Allowance');
-              prisma.salaryStructure.update({
+              tx.salaryStructure.update({
                 where: { id: sal.id },
                 data: {
                   ctc:             empCtcVal,
@@ -1103,7 +1110,7 @@ export class PayrollService {
                   specialAllowance: rfSpec?.value ?? null,
                   version:         (sal.version ?? 0) + 1,
                 },
-              }).catch(() => {});
+              }).catch((err: any) => logger.warn(`[Payroll] CTC drift sync failed for structure ${sal.id}: ${err.message}`));
               (sal as any).ctc = empCtcVal;
               (sal as any).components = refreshedComponents;
             }
@@ -1136,19 +1143,51 @@ export class PayrollService {
               components = syncedComponents;
             }
           }
-          const earningsTotal      = sumComponentsByType(components, 'earning');
+          const earningsTotal = sumComponentsByType(components, 'earning');
 
-          // ── EPF: only from salary structure component (no other hardcoded statutory) ──
-          // For default employees: EPF_EE component from master (12% of Basic).
-          // For custom employees: EPF component from their stored structure (or 0 if none).
+          // ── EPF: from salary structure component (employee must have opted in) ──
           const epfComp = components.find(c =>
             c.type === 'deduction' &&
             (c.name.toLowerCase().includes('epf') || c.name.toLowerCase().includes('provident'))
           );
-          // EPF is only deducted when employee has opted in (epfEnabled=true) AND is not exempt.
-          // Default is epfEnabled=false — employees who skip EPF during onboarding pay no EPF.
           const epfOptedIn = (emp as any).epfEnabled === true && !(emp as any).epfExempt;
           const recEpfEmployee = epfOptedIn ? (epfComp ? epfComp.value : 0) : 0;
+
+          // ── Statutory deductions (ESI, PT, TDS) via calculateStatutory() ──
+          const basicComp = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
+          const basicValue = basicComp?.value ?? Number(sal.basic || 0);
+          const annualCTC = Number(sal.ctc || 0);
+          const regime = (sal as any).incomeTaxRegime ?? orgDefaultTaxRegime;
+          const remainingMonths = remainingFinancialYearMonths(new Date(run.year, run.month - 1, 1));
+          const statutory = calculateStatutory(
+            basicValue,
+            earningsTotal,
+            annualCTC,
+            regime,
+            (sal as any).statutoryConfig as StatutoryConfig | null,
+            {
+              epfExempt: (emp as any).epfExempt ?? false,
+              esiExempt: (emp as any).esiExempt ?? false,
+              ptExempt:  (emp as any).ptExempt  ?? false,
+            },
+            remainingMonths,
+            orgDefaultPTState,
+          );
+
+          // ── OT pay: sum approved overtime hours × hourly rate × shift multiplier ──
+          const empOtRecords = otRecordsByEmp.get(emp.id) ?? [];
+          let otPay = 0;
+          if (empOtRecords.length > 0) {
+            const otShift = shiftAssignmentByEmp.get(emp.id)?.shift;
+            if (otShift?.otEnabled) {
+              const hourlyRate = annualCTC > 0 ? annualCTC / 12 / (empTotalWorkingDays * 8) : 0;
+              const otMultiplier = Number(otShift.otRateMultiplier ?? 1.5);
+              for (const ot of empOtRecords) {
+                const otHours = Math.max(0, Number(ot.actualHours ?? ot.plannedHours ?? 0));
+                otPay += Math.round(hourlyRate * otMultiplier * otHours);
+              }
+            }
+          }
 
           // ── Adjustments (one-off payroll adjustments approved for this run) ──
           let adjustmentAdditions = 0, adjustmentDeductions = 0;
@@ -1160,18 +1199,21 @@ export class PayrollService {
             adjustmentSnapshot.push({ type: adj.type, componentName: adj.componentName, amount, isDeduction: adj.isDeduction, reason: adj.reason });
           }
 
-          // ── Gross = earnings components + approved adjustments ─────────────
-          const grossSalary = earningsTotal + adjustmentAdditions;
+          // ── Gross = earnings components + OT pay + approved additions ─────
+          const grossSalary = earningsTotal + otPay + adjustmentAdditions;
 
           // ── LOP deduction = (daily rate) × lopDays ────────────────────────
-          const dailyRate   = empWorkingDays > 0 ? grossSalary / empWorkingDays : 0;
+          const dailyRate = empWorkingDays > 0 ? grossSalary / empWorkingDays : 0;
           const lopDeduction = Math.min(
             Math.round(dailyRate * lopDays),
-            Math.max(0, grossSalary - recEpfEmployee - adjustmentDeductions)
+            Math.max(0, grossSalary)
           );
 
-          // ── Net salary ────────────────────────────────────────────────────
-          const netSalary = Math.max(grossSalary - recEpfEmployee - adjustmentDeductions - lopDeduction, 0);
+          // ── Total statutory deductions (EPF + ESI + PT + TDS) ─────────────
+          const totalStatutory = recEpfEmployee + statutory.esiEmployee + statutory.professionalTax + statutory.tds;
+
+          // ── Net salary = Gross − LOP − Statutory deductions − Other deductions
+          const netSalary = Math.max(grossSalary - lopDeduction - totalStatutory - adjustmentDeductions, 0);
 
           // ── Bank details check ────────────────────────────────────────────────
           if (netSalary > 0 && !((emp as any).bankAccountNumber && (emp as any).ifscCode)) {
@@ -1185,6 +1227,7 @@ export class PayrollService {
             if (comp.type === 'earning') earningsBreakdown[comp.name] = comp.value;
             else deductionsBreakdown[comp.name] = comp.value;
           }
+          if (otPay > 0) earningsBreakdown['Overtime'] = otPay;
           for (const adj of empAdjustments) {
             if (!adj.isDeduction) earningsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
             else deductionsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
@@ -1195,9 +1238,11 @@ export class PayrollService {
           if (latePenaltyLop > 0) {
             deductionsBreakdown['Late LOP'] = Math.round(dailyRate * latePenaltyLop);
           }
+          if (statutory.esiEmployee > 0) deductionsBreakdown['ESI'] = statutory.esiEmployee;
+          if (statutory.professionalTax > 0) deductionsBreakdown['Professional Tax'] = statutory.professionalTax;
+          if (statutory.tds > 0) deductionsBreakdown['TDS'] = statutory.tds;
 
-          const basicComp = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
-          const hraComp   = findComponent(components, 'HRA')   || findComponent(components, 'House Rent Allowance');
+          const hraComp = findComponent(components, 'HRA') || findComponent(components, 'House Rent Allowance');
 
           // Guard: delete any existing record before creating
           await tx.payrollRecord.deleteMany({ where: { payrollRunId: runId, employeeId: emp.id } });
@@ -1211,6 +1256,9 @@ export class PayrollService {
               basic:           basicComp?.value ?? Number(sal.basic || 0),
               hra:             hraComp?.value   ?? Number(sal.hra   || 0),
               epfEmployee:     recEpfEmployee,
+              esiEmployee:     statutory.esiEmployee,
+              professionalTax: statutory.professionalTax,
+              tds:             statutory.tds,
               lopDays,
               lopDeduction,
               workingDays:     empWorkingDays,
@@ -1228,7 +1276,7 @@ export class PayrollService {
 
           totalGross      += grossSalary;
           totalNet        += netSalary;
-          totalDeductions += recEpfEmployee + adjustmentDeductions + lopDeduction;
+          totalDeductions += totalStatutory + adjustmentDeductions + lopDeduction;
         }
 
         const processed = employees.filter((e) => e.salaryStructure).length;

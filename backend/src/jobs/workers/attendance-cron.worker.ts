@@ -76,18 +76,22 @@ async function autoCloseStaleRecords() {
       const shift = shiftAssignment?.shift;
       let autoCheckOut: Date;
 
+      // record.date is stored as UTC midnight (e.g. 2026-05-15T00:00:00Z).
+      // Shift times ("18:00") are IST wall-clock. To build the correct UTC epoch:
+      //   UTC epoch = IST-date midnight (UTC) + IST hours*60+min in minutes - IST offset (330 min)
+      const recordDateUTCMidnight = new Date(record.date).getTime();
       if (shift) {
         const [endH, endM] = shift.endTime.split(':').map(Number);
-        autoCheckOut = new Date(record.date);
-        autoCheckOut.setHours(endH, endM, 0, 0);
-        // Handle overnight shifts
-        if (endH < parseInt(shift.startTime.split(':')[0])) {
-          autoCheckOut.setDate(autoCheckOut.getDate() + 1);
-        }
+        const [startH] = shift.startTime.split(':').map(Number);
+        // Convert IST time to UTC: subtract 5h30m (330 min)
+        let endMinutesFromMidnightIST = endH * 60 + endM;
+        // Overnight shift: endTime is on the next calendar day in IST
+        let dayOffset = 0;
+        if (endH < startH) dayOffset = 1;
+        autoCheckOut = new Date(recordDateUTCMidnight + (dayOffset * 24 * 60 + endMinutesFromMidnightIST - 330) * 60000);
       } else {
-        // Default: 18:00 IST
-        autoCheckOut = new Date(record.date);
-        autoCheckOut.setHours(18, 0, 0, 0);
+        // Default: 18:00 IST = 12:30 UTC
+        autoCheckOut = new Date(recordDateUTCMidnight + (18 * 60 - 330) * 60000);
       }
 
       const checkIn = new Date(record.checkIn!);
@@ -449,6 +453,21 @@ async function gpsHeartbeatMonitor() {
 
       if (heartbeatAlive) continue; // heartbeat still valid — all good
       if (data.alertSent) continue; // already alerted for this session
+
+      // 25-minute grace period: only alert if heartbeat has been missing for at least 25 minutes.
+      // The heartbeat key has a 16-min TTL, so it may have just expired — allow one more cron
+      // cycle before treating it as a confirmed force-stop. This prevents false alerts when the
+      // device temporarily loses connectivity or the OS briefly delays the background service.
+      // Fall back to checkInAt when lastHeartbeatAt is absent (employee just clocked in, no
+      // heartbeat sent yet) — without this, a fresh check-in triggers an immediate false alert.
+      const referenceTime = data.lastHeartbeatAt ?? data.checkInAt;
+      if (referenceTime) {
+        const msSinceRef = Date.now() - new Date(referenceTime).getTime();
+        if (msSinceRef < 25 * 60 * 1000) {
+          logger.info(`[GPS Monitor] Heartbeat expired for ${data.employeeCode} but only ${Math.round(msSinceRef / 60000)} min since ${data.lastHeartbeatAt ? 'last heartbeat' : 'check-in'} — within grace period, skipping alert`);
+          continue;
+        }
+      }
 
       // Heartbeat expired → check if employee already checked out (Phase 5 — avoid false alerts)
       const today = new Date(new Date().toISOString().slice(0, 10));

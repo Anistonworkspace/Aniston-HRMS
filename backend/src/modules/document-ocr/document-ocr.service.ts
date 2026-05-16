@@ -2168,7 +2168,8 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
 
     // Emit real-time event — socket rooms are user:${userId}, not employeeId
     const { emitToUser } = await import('../../sockets/index.js');
-    if (emp.userId) emitToUser(emp.userId, 'kyc:status-changed', { kycStatus: 'VERIFIED', autoApproved: true });
+    // AppShell reads data.status (not data.kycStatus) — emit the correct field name
+    if (emp.userId) emitToUser(emp.userId, 'kyc:status-changed', { status: 'VERIFIED', kycStatus: 'VERIFIED', autoApproved: true });
 
     // Congratulations email
     try {
@@ -2418,6 +2419,14 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       include: { employee: { select: { id: true, userId: true, organizationId: true } } },
     });
     if (!doc) throw new NotFoundError('Document');
+
+    // State guard: cannot reject an already-rejected or VERIFIED document without going through revoke flow
+    if (doc.status === 'VERIFIED') {
+      throw new BadRequestError('Cannot reject a VERIFIED document. Use the revoke/re-upload flow to request re-upload from the employee.');
+    }
+    if (doc.status === 'REJECTED') {
+      throw new BadRequestError('Document is already rejected.');
+    }
 
     await prisma.$transaction([
       prisma.document.update({

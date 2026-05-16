@@ -1253,18 +1253,28 @@ export class EmployeeService {
   }
 
   private async generateEmployeeCode(organizationId: string): Promise<string> {
+    // Use a DB-level advisory lock keyed by org to prevent duplicate codes under concurrent creates.
+    // pg_try_advisory_xact_lock acquires a session-level lock until the transaction ends.
+    // We derive a stable bigint key from the org UUID (first 8 hex chars → int).
+    const lockKey = parseInt(organizationId.replace(/-/g, '').substring(0, 8), 16);
+    await prisma.$executeRawUnsafe(`SELECT pg_advisory_lock(${lockKey})`);
+
     const lastEmployee = await prisma.employee.findFirst({
       where: { organizationId },
       orderBy: { employeeCode: 'desc' },
       select: { employeeCode: true },
     });
 
-    if (!lastEmployee) {
-      return 'EMP-001';
+    let nextCode: string;
+    if (!lastEmployee || !/^EMP-\d+$/.test(lastEmployee.employeeCode)) {
+      nextCode = 'EMP-001';
+    } else {
+      const lastNum = parseInt(lastEmployee.employeeCode.replace('EMP-', ''), 10);
+      nextCode = `EMP-${String(lastNum + 1).padStart(3, '0')}`;
     }
 
-    const lastNum = parseInt(lastEmployee.employeeCode.replace('EMP-', ''), 10);
-    return `EMP-${String(lastNum + 1).padStart(3, '0')}`;
+    await prisma.$executeRawUnsafe(`SELECT pg_advisory_unlock(${lockKey})`);
+    return nextCode;
   }
 
   private generateTempPassword(): string {
@@ -1555,11 +1565,17 @@ export class EmployeeService {
       throw new ConflictError('Cannot complete exit: IT offboarding checklist is not fully completed');
     }
 
-    // Complete exit
+    // Complete exit — terminate employee and close open shift assignments
     const updated = await prisma.employee.update({
       where: { id: employeeId },
       data: { exitStatus: 'COMPLETED', status: 'TERMINATED', deletedAt: new Date() },
     });
+
+    // Close any open shift assignments so the employee doesn't appear in future scheduling
+    await prisma.shiftAssignment.updateMany({
+      where: { employeeId, endDate: null },
+      data: { endDate: employee.lastWorkingDate ?? new Date() },
+    }).catch((err: any) => logger.warn(`[Exit] Failed to close shift assignments for ${employeeId}: ${err.message}`));
 
     // Check if exit access config exists — if so, keep user active for limited access
     const exitAccessConfig = await prisma.exitAccessConfig.findUnique({ where: { employeeId } });
