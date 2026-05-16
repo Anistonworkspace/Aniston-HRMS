@@ -266,13 +266,14 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
-        onClick={(e) => e.target === e.currentTarget && handleClose()}
+        onMouseDown={(e) => e.target === e.currentTarget && handleClose()}
       >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl max-h-[92vh] flex flex-col"
+          onMouseDown={(e) => e.stopPropagation()}
         >
           {success ? (
             /* Success State */
@@ -675,7 +676,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/20 flex items-center justify-center"
-              onClick={(e) => e.target === e.currentTarget && setQuickCreate(null)}
+              onMouseDown={(e) => e.target === e.currentTarget && setQuickCreate(null)}
             >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}

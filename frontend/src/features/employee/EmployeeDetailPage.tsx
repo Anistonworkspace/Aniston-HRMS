@@ -1013,7 +1013,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl overflow-y-auto" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
@@ -1370,7 +1370,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/20 flex items-center justify-center rounded-2xl"
-              onClick={(e) => e.target === e.currentTarget && setQuickCreate(null)}
+              onMouseDown={(e) => e.target === e.currentTarget && setQuickCreate(null)}
             >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}

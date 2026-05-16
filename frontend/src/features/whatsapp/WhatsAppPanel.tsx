@@ -50,7 +50,7 @@ export default function WhatsAppPanel({ isOpen, onClose }: Props) {
     <AnimatePresence>
       {isOpen && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex" onClick={(e) => e.target === e.currentTarget && onClose()}>
+          className="fixed inset-0 z-50 flex" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
           <motion.div initial={{ x: -400 }} animate={{ x: 0 }} exit={{ x: -400 }}
             transition={{ type: 'spring', damping: 25 }}
             className="w-[400px] h-full bg-white shadow-2xl border-r border-gray-200 flex flex-col overflow-hidden">

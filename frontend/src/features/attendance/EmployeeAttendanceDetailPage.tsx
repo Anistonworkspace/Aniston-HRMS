@@ -910,7 +910,7 @@ export default function EmployeeAttendanceDetailPage() {
             {showCalendarModal && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-                onClick={(e) => e.target === e.currentTarget && setShowCalendarModal(false)}>
+                onMouseDown={(e) => e.target === e.currentTarget && setShowCalendarModal(false)}>
                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
                   className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
                   <div className="flex items-center justify-between mb-4">
@@ -1227,7 +1227,7 @@ export default function EmployeeAttendanceDetailPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 z-[500] flex items-center justify-center p-4"
-            onClick={e => e.target === e.currentTarget && setMapPickerRow(null)}
+            onMouseDown={e => e.target === e.currentTarget && setMapPickerRow(null)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.92, y: 12 }}
@@ -1285,7 +1285,7 @@ export default function EmployeeAttendanceDetailPage() {
         {showRegularizeModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-            onClick={e => e.target === e.currentTarget && setShowRegularizeModal(false)}>
+            onMouseDown={e => e.target === e.currentTarget && setShowRegularizeModal(false)}>
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
 

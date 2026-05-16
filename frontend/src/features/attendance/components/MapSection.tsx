@@ -496,7 +496,7 @@ export function CheckInModal({ checkInLoc, geofenceCoords, geofence, geofenceVio
   }
 
   return (
-    <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 p-4" onMouseDown={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-lg">
         {/* Modal header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">

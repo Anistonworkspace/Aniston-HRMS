@@ -211,7 +211,7 @@ export function CompOffTab() {
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
-            onClick={e => e.target === e.currentTarget && setShowGrant(false)}
+            onMouseDown={e => e.target === e.currentTarget && setShowGrant(false)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 16 }}

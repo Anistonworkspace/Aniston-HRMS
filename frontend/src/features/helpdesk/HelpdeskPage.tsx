@@ -325,7 +325,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 pt-12 overflow-y-auto"
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onMouseDown={e => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
         role="dialog" aria-modal="true" aria-label="Ticket details"
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl">
@@ -572,7 +572,7 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onMouseDown={e => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }} role="dialog" aria-modal="true" aria-label="Create ticket"
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-4 md:p-6">
