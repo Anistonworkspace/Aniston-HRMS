@@ -41,9 +41,7 @@ const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string
   CUSTOM: { modelName: '', placeholder: 'API key' },
 };
 
-// 10 minutes — matches the backend 15-min threshold with headroom for poll lag.
-// Agent sends a ping every 2min so this only triggers if the agent truly goes offline.
-const AGENT_HEARTBEAT_TIMEOUT_MS = 10 * 60 * 1000;
+const AGENT_HEARTBEAT_TIMEOUT_MS = 2 * 60 * 1000;
 
 type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates' | 'crash-reports' | 'account-activity' | 'shift-change-requests' | 'hr-actions-control';
 
@@ -2125,9 +2123,9 @@ function AgentSetupTab() {
 
   const downloadAvailable = downloadRes?.data?.available ?? false;
   // Use nginx-served path — direct file serve, bypasses Express entirely
-  const downloadUrl = '/downloads/aniston-support-setup.exe';
+  const downloadUrl = '/downloads/aniston-agent-setup.exe';
 
-  // Real-time socket updates — both heartbeat and ping events keep the dot green
+  // Real-time socket updates
   useEffect(() => {
     const handler = (data: any) => {
       if (data?.employeeId) {
@@ -2138,21 +2136,17 @@ function AgentSetupTab() {
       }
     };
     onSocketEvent('agent:heartbeat', handler);
-    onSocketEvent('agent:ping', handler);
-    return () => {
-      offSocketEvent('agent:heartbeat', handler);
-      offSocketEvent('agent:ping', handler);
-    };
+    return () => { offSocketEvent('agent:heartbeat', handler); };
   }, []);
 
-  // Auto-fade: mark as disconnected if no event received within AGENT_HEARTBEAT_TIMEOUT_MS (10 min)
+  // Auto-fade: mark as disconnected if no heartbeat in 2 min
   useEffect(() => {
     const interval = setInterval(() => {
-      const cutoffMs = Date.now() - AGENT_HEARTBEAT_TIMEOUT_MS;
+      const twoMinAgo = Date.now() - AGENT_HEARTBEAT_TIMEOUT_MS;
       setLiveStatuses(prev => {
         const next = { ...prev };
         for (const [id, status] of Object.entries(next)) {
-          if (status.isActive && new Date(status.lastHeartbeat).getTime() < cutoffMs) {
+          if (status.isActive && new Date(status.lastHeartbeat).getTime() < twoMinAgo) {
             next[id] = { ...status, isActive: false };
           }
         }
@@ -2242,7 +2236,7 @@ function AgentSetupTab() {
               <Loader2 size={14} className="animate-spin" /> Checking...
             </button>
           ) : downloadAvailable ? (
-            <a href={downloadUrl} download="aniston-support-setup.exe" className="btn-primary text-sm flex items-center gap-1.5">
+            <a href={downloadUrl} download="aniston-agent-setup.exe" className="btn-primary text-sm flex items-center gap-1.5">
               <Download size={14} /> Download Agent (.exe)
             </a>
           ) : (

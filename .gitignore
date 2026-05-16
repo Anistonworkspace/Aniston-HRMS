@@ -108,6 +108,26 @@ store-releases/ios/*.ipa
 test-login.js
 test-*.js
 
+# Attendance recovery / DB investigation scripts (root-level temp files)
+att_inserts.sql
+att_recovery_output.txt
+check_notes_bytes.py
+debug_fieldsales.py
+dump_tuple.py
+extract_att_v2.py
+generate_inserts.py
+get_schema.sql
+investigate_0xab.py
+precise_offsets.py
+scan_multiple.py
+scan_structure.py
+
+# Root-level screenshots and debug images
+*.png
+login-attempt.png
+monday-dashboard.png
+monday-ui-check.png
+
 
 
 

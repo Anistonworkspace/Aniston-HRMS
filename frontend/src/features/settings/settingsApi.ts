@@ -259,9 +259,6 @@ export const settingsApi = api.injectEndpoints({
     getAiServiceHealth: builder.query<{ success: boolean; data: { status: 'online' | 'offline' | 'degraded'; latencyMs?: number; service?: string; version?: string; url?: string; error?: string; httpStatus?: number } }, void>({
       query: () => '/settings/system-logs/ai-health',
     }),
-    deleteSystemLogs: builder.mutation<{ success: boolean; data: { deletedCount: number; filesModified: number }; message: string }, { dateFrom: string; dateTo: string }>({
-      query: (body) => ({ url: '/settings/system-logs', method: 'DELETE', body }),
-    }),
     getAccountActivity: builder.query<any, { role: 'HR' | 'EMPLOYEE'; page?: number; limit?: number }>({
       query: (params) => ({ url: '/settings/account-activity', params }),
       providesTags: ['Settings'],
@@ -269,36 +266,6 @@ export const settingsApi = api.injectEndpoints({
     deleteActivityLogs: builder.mutation<any, { ids?: string[]; fromDate?: string; toDate?: string }>({
       query: (body) => ({ url: '/settings/account-activity', method: 'DELETE', body }),
       invalidatesTags: ['Settings'],
-    }),
-    getEmployeeReport: builder.query<{
-      success: boolean;
-      data: {
-        employee: { id: string; name: string; code: string };
-        from: string;
-        to: string;
-        summary: {
-          totalActiveMins: number;
-          totalIdleMins: number;
-          totalProductiveMins: number;
-          totalUnproductiveMins: number;
-          averageDailyScore: number;
-          grade: string;
-          daysWithData: number;
-        };
-        days: Array<{
-          date: string;
-          activeMins: number;
-          idleMins: number;
-          productiveMins: number;
-          unproductiveMins: number;
-          score: number;
-          grade: string;
-        }>;
-        topApps: Array<{ app: string; minutes: number; pct: number }>;
-      };
-    }, { employeeId: string; from: string; to: string }>({
-      query: ({ employeeId, from, to }) => `/agent/report/${employeeId}?from=${from}&to=${to}`,
-      providesTags: ['Attendance'],
     }),
   }),
 });
@@ -342,11 +309,9 @@ export const {
   useGetSystemLogsQuery,
   useGetAiServiceLogsQuery,
   useGetAiServiceHealthQuery,
-  useDeleteSystemLogsMutation,
   useGetDocumentTemplatesQuery,
   useUpsertDocumentTemplateMutation,
   useDeleteDocumentTemplateMutation,
   useGetAccountActivityQuery,
   useDeleteActivityLogsMutation,
-  useGetEmployeeReportQuery,
 } = settingsApi;

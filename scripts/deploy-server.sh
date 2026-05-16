@@ -248,8 +248,7 @@ async function main() {
   const superPwd   = process.env.DEPLOY_SUPERADMIN_PASSWORD;
   const developerPwd = process.env.DEPLOY_DEVELOPER_PASSWORD;
   if (!superPwd || !developerPwd) {
-    console.error("FATAL: DEPLOY_SUPERADMIN_PASSWORD or DEPLOY_DEVELOPER_PASSWORD secret is not set. System accounts cannot be ensured without passwords.");
-    process.exit(1);
+    console.warn("WARN: DEPLOY_SUPERADMIN_PASSWORD or DEPLOY_DEVELOPER_PASSWORD not set — will only update role/status for existing accounts, skipping password update.");
   }
   const accounts = [
     { email: "superadmin@anistonav.com", password: superPwd,      role: "SUPER_ADMIN", code: "SYS-001", first: "Super",     last: "Admin"   },
@@ -257,10 +256,15 @@ async function main() {
   ];
   for (const acct of accounts) {
     const existing = await prisma.user.findUnique({ where: { email: acct.email } });
+    if (!existing && !acct.password) {
+      console.warn("  SKIP: " + acct.email + " does not exist and no password provided — set DEPLOY_SUPERADMIN_PASSWORD / DEPLOY_DEVELOPER_PASSWORD secrets to create it.");
+      continue;
+    }
     const hash = existing ? existing.passwordHash : await bcrypt.hash(acct.password, 12);
+    const updatePwdHash = (existing && acct.password) ? await bcrypt.hash(acct.password, 12) : undefined;
     const user = await prisma.user.upsert({
       where:  { email: acct.email },
-      update: { role: acct.role, status: "ACTIVE" },
+      update: { role: acct.role, status: "ACTIVE", ...(updatePwdHash ? { passwordHash: updatePwdHash } : {}) },
       create: { email: acct.email, passwordHash: hash, role: acct.role, status: "ACTIVE", organizationId: org.id },
     });
     // employeeCode is now unique per-org (composite), so look up by (organizationId + employeeCode)
