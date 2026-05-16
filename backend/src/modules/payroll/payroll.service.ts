@@ -1706,8 +1706,8 @@ export class PayrollService {
       where: { id: runId, organizationId },
     });
     if (!run) throw new NotFoundError('Payroll run');
-    if (run.status !== 'COMPLETED') {
-      throw new BadRequestError('Only COMPLETED payroll runs can be locked');
+    if (run.status !== 'COMPLETED' && run.status !== 'APPROVED') {
+      throw new BadRequestError('Only COMPLETED or APPROVED payroll runs can be locked');
     }
 
     const updated = await prisma.payrollRun.update({
@@ -1775,6 +1775,62 @@ export class PayrollService {
     } catch {
       return { rawResponse: result.data };
     }
+  }
+
+  /**
+   * Submit a COMPLETED payroll run for HR/ADMIN review before locking
+   */
+  async submitForReview(runId: string, organizationId: string, submittedBy: string) {
+    const run = await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } });
+    if (!run) throw new NotFoundError('Payroll run');
+    if (run.status !== 'COMPLETED') {
+      throw new BadRequestError('Only COMPLETED payroll runs can be submitted for review');
+    }
+
+    const updated = await prisma.payrollRun.update({
+      where: { id: runId },
+      data: { status: 'REVIEW' },
+    });
+
+    await createAuditLog({
+      userId: submittedBy,
+      organizationId,
+      entity: 'PayrollRun',
+      entityId: runId,
+      action: 'UPDATE',
+      oldValue: { status: 'COMPLETED' },
+      newValue: { status: 'REVIEW', submittedBy, submittedAt: new Date() },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Approve a REVIEW payroll run (HR/ADMIN) — transitions to APPROVED before final lock
+   */
+  async approveRun(runId: string, organizationId: string, approvedBy: string) {
+    const run = await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } });
+    if (!run) throw new NotFoundError('Payroll run');
+    if (run.status !== 'REVIEW') {
+      throw new BadRequestError('Only REVIEW payroll runs can be approved');
+    }
+
+    const updated = await prisma.payrollRun.update({
+      where: { id: runId },
+      data: { status: 'APPROVED', approvedBy, approvedAt: new Date() },
+    });
+
+    await createAuditLog({
+      userId: approvedBy,
+      organizationId,
+      entity: 'PayrollRun',
+      entityId: runId,
+      action: 'UPDATE',
+      oldValue: { status: 'REVIEW' },
+      newValue: { status: 'APPROVED', approvedBy, approvedAt: new Date() },
+    });
+
+    return updated;
   }
 }
 

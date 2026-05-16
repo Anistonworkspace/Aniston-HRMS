@@ -503,11 +503,10 @@ export class EmployeeService {
     }
 
     // EMPLOYEE/INTERN cannot directly update personal/bank/EPF fields — must use profile-edit-request flow
-    // bankBranchName is intentionally excluded: employees may update it directly (one-time fill campaign)
     const APPROVAL_REQUIRED_FIELDS = [
       'firstName', 'lastName', 'dateOfBirth', 'gender', 'bloodGroup', 'maritalStatus',
       'phone', 'personalEmail', 'address', 'permanentAddress', 'emergencyContact',
-      'bankAccountNumber', 'bankName', 'ifscCode', 'accountHolderName', 'accountType',
+      'bankAccountNumber', 'bankName', 'bankBranchName', 'ifscCode', 'accountHolderName', 'accountType',
       'epfMemberId', 'epfUan', 'epfEnabled',
     ];
     if (callerRole && ['EMPLOYEE', 'INTERN'].includes(callerRole)) {

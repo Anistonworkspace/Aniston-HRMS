@@ -83,7 +83,29 @@ router.get('/runs/:id/records',
   (req, res, next) => payrollController.getPayrollRecords(req, res, next)
 );
 
-// Lock a completed payroll run
+// Submit a completed payroll run for review
+router.post('/runs/:id/submit-for-review',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const result = await payrollService.submitForReview(req.params.id, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: 'Payroll run submitted for review' });
+    } catch (err) { next(err); }
+  }
+);
+
+// Approve a payroll run in REVIEW status (HR/ADMIN)
+router.post('/runs/:id/approve',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const result = await payrollService.approveRun(req.params.id, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: 'Payroll run approved' });
+    } catch (err) { next(err); }
+  }
+);
+
+// Lock a completed or approved payroll run
 router.post('/runs/:id/lock',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {

@@ -276,7 +276,7 @@ jobs:
             PRE_TAG=$(git tag --list 'pre-deploy-*' --sort=-version:refname | head -1)
             if [ -z "$PRE_TAG" ]; then
               echo "ERROR: No pre-deploy tag found — cannot rollback automatically"
-              echo "Manual rollback: git reset --hard HEAD~1 && pm2 restart aniston-hrms"
+              echo "Manual rollback: git reset --hard HEAD~1 && pm2 reload aniston-hrms --update-env"
               exit 1
             fi
 
@@ -288,8 +288,37 @@ jobs:
             npm run build --workspace=shared 2>/dev/null || true
             npm run build --workspace=backend 2>/dev/null || true
 
-            echo "Restarting PM2 with rolled-back code..."
-            pm2 restart aniston-hrms --update-env || pm2 reload aniston-hrms
+            # ── Database migration rollback ───────────────────────────────────
+            # Check if any migrations were applied during the failed deploy.
+            # prisma migrate status exits non-zero when migrations are pending — that
+            # means the rolled-back code may be behind the current DB schema.
+            # We use `migrate resolve --rolled-back` to mark the offending migration
+            # as rolled-back so Prisma stops requiring it, then the old code runs
+            # against the pre-migration schema (which the old code is compatible with).
+            echo "Checking Prisma migration status after code rollback..."
+            MIGRATION_STATUS=$(npx prisma migrate status --schema=prisma/schema.prisma 2>&1 || true)
+            echo "$MIGRATION_STATUS"
+            if echo "$MIGRATION_STATUS" | grep -q "following migration.*not yet applied\|Database schema is not up to date"; then
+              # Migrations in the rolled-back code are now ahead of DB — nothing to do,
+              # the old code expects the old schema which is what the DB has.
+              echo "DB schema matches rolled-back code — no migration action needed"
+            elif echo "$MIGRATION_STATUS" | grep -q "have not been applied\|following migrations.*new\|applied to the database but not found"; then
+              # A migration was applied during the failed deploy but the code was rolled back.
+              # Mark it as rolled-back so Prisma acknowledges the mismatch.
+              FAILED_MIG=$(echo "$MIGRATION_STATUS" | grep -oP '\d{14}_\w+' | tail -1 || true)
+              if [ -n "$FAILED_MIG" ]; then
+                echo "Marking migration $FAILED_MIG as rolled-back..."
+                npx prisma migrate resolve --rolled-back "$FAILED_MIG" --schema=prisma/schema.prisma || true
+                echo "⚠️  MANUAL ACTION REQUIRED: restore DB from pre-deploy backup if schema change was destructive"
+                echo "    Backup location: check most recent pre-migration backup in /home/ubuntu/backups/"
+              fi
+            else
+              echo "Migration status clean — no rollback action needed"
+            fi
+            # ─────────────────────────────────────────────────────────────────
+
+            echo "Reloading PM2 with rolled-back code (zero-downtime)..."
+            pm2 reload aniston-hrms --update-env
             pm2 save --force
 
             sleep 5

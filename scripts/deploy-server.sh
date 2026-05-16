@@ -339,11 +339,11 @@ echo "=== [15.5/17] Setting server timezone to UTC ==="
 sudo timedatectl set-timezone UTC || true
 echo "Server time: $(date)"
 
-echo "=== [16/17] Restarting backend via PM2 ==="
+echo "=== [16/17] Reloading backend via PM2 (zero-downtime) ==="
 mkdir -p /home/ubuntu/Aniston-HRMS/logs
 if pm2 show aniston-hrms > /dev/null 2>&1; then
-  pm2 restart aniston-hrms --update-env
-  echo "Backend restarted"
+  pm2 reload aniston-hrms --update-env
+  echo "Backend reloaded (zero-downtime rolling reload)"
 else
   pm2 start ecosystem.config.cjs --env production 2>/dev/null || pm2 start backend/dist/server.js --name aniston-hrms
 fi

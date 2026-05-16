@@ -1,7 +1,8 @@
 /**
  * PM2 Ecosystem Config
  * Used by CI/CD (deploy.yml step 16) for zero-downtime backend restarts.
- * Run locally: pm2 start ecosystem.config.cjs
+ * Run locally: pm2 start ecosystem.config.cjs --env production
+ * Deploy reload:  pm2 reload aniston-hrms --update-env   (NOT pm2 restart — restart drops connections)
  */
 module.exports = {
   apps: [
@@ -10,8 +11,9 @@ module.exports = {
       script: 'backend/dist/server.js',
       cwd: '/home/ubuntu/Aniston-HRMS',
       interpreter: 'node',
-      instances: 1,
-      exec_mode: 'fork',
+      // cluster mode enables zero-downtime rolling reload — new workers start before old ones die
+      instances: 'max',
+      exec_mode: 'cluster',
       env_production: {
         NODE_ENV: 'production',
         PORT: 4000,
