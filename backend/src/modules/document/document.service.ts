@@ -29,6 +29,7 @@ export class DocumentService {
         orderBy: { createdAt: 'desc' },
         include: {
           employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+          ocrVerification: true,
         },
       }).catch((err: any) => {
         logger.warn('[Document] Failed to fetch document list:', err.message);
@@ -49,6 +50,7 @@ export class DocumentService {
       where: { id, employee: { organizationId } },
       include: {
         employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, organizationId: true } },
+        ocrVerification: true,
       },
     });
     if (!doc) throw new NotFoundError('Document');

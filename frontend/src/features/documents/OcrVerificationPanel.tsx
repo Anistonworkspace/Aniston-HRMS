@@ -1070,6 +1070,17 @@ export default function OcrVerificationPanel({
     if (ocr) setPollInterval(0);
   }, [ocr]);
 
+  // Auto-trigger OCR when panel opens for a document that has never been processed
+  useEffect(() => {
+    if (!isLoading && !ocr && !triggering) {
+      triggerOcr(documentId).then(() => {
+        setPollInterval(4000);
+      }).catch(() => {});
+    }
+  // Run once on mount only
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-run classifier when panel opens for a combined KYC PDF with no analysis yet
   useEffect(() => {
     if (!employeeId) return;

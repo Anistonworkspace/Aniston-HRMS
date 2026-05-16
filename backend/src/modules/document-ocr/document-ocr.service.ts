@@ -149,7 +149,7 @@ export class DocumentOcrService {
           tamperDetected: suspicionScore >= 70,
           tamperDetails: suspicionScore >= 70 ? `Combined PDF suspicion score: ${suspicionScore}/100, risk: ${riskLevel}` : null,
         },
-      }).catch(() => {});
+      }).catch((err: any) => { logger.warn(`[OCR] Failed to update document status for ${documentId}:`, err.message); });
       return ocr;
     }
 
@@ -369,7 +369,7 @@ export class DocumentOcrService {
         await prisma.document.update({
           where: { id: documentId },
           data: { status: 'PENDING', rejectionReason: null },
-        }).catch(() => {});
+        }).catch((err: any) => { logger.warn(`[OCR] Failed to reset document status for ${documentId}:`, err.message); });
         return ocr;
       }
 
@@ -1367,7 +1367,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
         await prisma.document.update({
           where: { id: documentId },
           data: { status: newDocStatus as any },
-        }).catch(() => {}); // non-blocking
+        }).catch((err: any) => { logger.warn(`[OCR] Failed to sync document status for ${documentId}:`, err.message); });
       }
     }
 
@@ -1975,7 +1975,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
           tamperDetails: tamperingSignals.join('; ') || 'Tampering signals detected by deep recheck (gpt-4.1)',
           status: 'FLAGGED',
         },
-      }).catch(() => {});
+      }).catch((err: any) => { logger.warn(`[OCR] Failed to flag document ${documentId} after deep recheck:`, err.message); });
     }
 
     const updated = await prisma.documentOcrVerification.update({
