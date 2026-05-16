@@ -20,7 +20,6 @@ const LeavePage = lazy(() => import('../features/leaves/LeavePage'));
 const PayrollPage = lazy(() => import('../features/payroll/PayrollPage'));
 const SalaryTemplatesPage = lazy(() => import('../features/payroll/SalaryTemplatesPage'));
 const RecruitmentPage = lazy(() => import('../features/recruitment/RecruitmentPage'));
-const OnboardingPortal = lazy(() => import('../features/onboarding/OnboardingPortal'));
 const PerformancePage = lazy(() => import('../features/performance/PerformancePage'));
 const PoliciesPage = lazy(() => import('../features/policies/PoliciesPage'));
 const AnnouncementsPage = lazy(() => import('../features/announcements/AnnouncementsPage'));
@@ -157,7 +156,6 @@ export default function AppRouter() {
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/onboarding/:token" element={<OnboardingPortal />} />
           <Route path="/onboarding/invite/:token" element={<InviteAcceptPage />} />
           <Route path="/jobs" element={<PublicJobsPage />} />
           <Route path="/apply/:token" element={<PublicApplyPage />} />

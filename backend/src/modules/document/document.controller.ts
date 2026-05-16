@@ -108,7 +108,7 @@ export class DocumentController {
           const gate = await documentGateService.getGate(doc.employeeId);
 
           if (gate && gate.kycStatus !== 'VERIFIED') {
-            // Check if all required KYC documents (Aadhaar + PAN) are now verified
+            const { computeRequiredDocs, IDENTITY_PROOF_TYPES } = await import('../onboarding/document-gate.service.js');
             const allDocs = await prisma.document.findMany({
               where: { employeeId: doc.employeeId, deletedAt: null },
             });
@@ -116,17 +116,24 @@ export class DocumentController {
               .filter((d: any) => d.status === 'VERIFIED')
               .map((d: any) => d.type);
 
-            const hasPan = verifiedTypes.includes('PAN');
-            const hasIdentity = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'].some(t => verifiedTypes.includes(t));
-            const hasTenth = verifiedTypes.includes('TENTH_CERTIFICATE');
-            const hasTwelfth = verifiedTypes.includes('TWELFTH_CERTIFICATE');
-            const hasDegree = verifiedTypes.includes('DEGREE_CERTIFICATE');
-            const hasResidence = verifiedTypes.includes('RESIDENCE_PROOF');
-            const hasCancelledCheque = verifiedTypes.includes('CANCELLED_CHEQUE');
+            const fresher = gate.fresherOrExperienced || 'FRESHER';
+            const qualification = gate.highestQualification || 'NONE';
+            const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
 
-            if (hasPan && hasIdentity && hasTenth && hasTwelfth && hasDegree && hasResidence && hasCancelledCheque) {
-              await documentGateService.verifyKyc(doc.employeeId, req.user!.userId);
-              logger.info(`KYC auto-verified for employee ${doc.employeeId} — all required docs verified by HR`);
+            const EMPLOYMENT_PROOF_TYPES = ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC'];
+            const allRequiredVerified =
+              requiredDocs.filter(d => d !== 'PHOTO').every(d => verifiedTypes.includes(d)) &&
+              (!needsIdentityProof || IDENTITY_PROOF_TYPES.some(t => verifiedTypes.includes(t))) &&
+              (!needsEmploymentProof || EMPLOYMENT_PROOF_TYPES.some(t => verifiedTypes.includes(t)));
+
+            if (allRequiredVerified) {
+              try {
+                await documentGateService.verifyKyc(doc.employeeId, req.user!.userId);
+                logger.info(`KYC auto-verified for employee ${doc.employeeId} — all required docs verified by HR`);
+              } catch (verifyErr: any) {
+                // State guard or self-approval guard may block auto-verify — log and skip
+                logger.warn(`[KYC] Auto-verify skipped for ${doc.employeeId}: ${verifyErr.message}`);
+              }
             }
           }
         } catch (err) {

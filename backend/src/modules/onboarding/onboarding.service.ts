@@ -40,6 +40,7 @@ export class OnboardingService {
   async createInvite(employeeId: string, organizationId: string) {
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId },
+      include: { organization: { select: { name: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -55,21 +56,23 @@ export class OnboardingService {
       stepData: {},
     });
 
+    const orgName = (employee as any).organization?.name || 'Aniston Technologies';
     // Send onboarding invite email
     await enqueueEmail({
       to: employee.email,
-      subject: 'Welcome to Aniston Technologies — Complete Your Onboarding',
+      subject: `Welcome to ${orgName} — Complete Your Onboarding`,
       template: 'onboarding-invite',
       context: {
         name: employee.firstName,
-        link: `https://hr.anistonav.com/onboarding/${token}`,
+        token,
+        orgName,
       },
     });
 
     return {
       token,
       expiresAt,
-      inviteUrl: `/onboarding/${token}`,
+      inviteUrl: `/onboarding/invite/${token}`,
       email: employee.email,
     };
   }
@@ -297,12 +300,14 @@ export class OnboardingService {
     const requiredEduDocs = (() => {
       if (employee.workMode === 'PROJECT_SITE') return [];
       switch (qualification) {
-        case 'TWELFTH': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
-        case 'DIPLOMA': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
-        case 'GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'NONE':            return [];
+        case 'TENTH':           return ['TENTH_CERTIFICATE'];
+        case 'TWELFTH':         return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
+        case 'DIPLOMA':         return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'GRADUATION':      return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
         case 'POST_GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
-        case 'PHD': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
-        default: return ['TENTH_CERTIFICATE']; // TENTH or unknown
+        case 'PHD':             return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        default:                return ['TENTH_CERTIFICATE'];
       }
     })();
 
@@ -364,17 +369,16 @@ export class OnboardingService {
         (isSiteEmployee || !!qualification)
       ),
       emergencyContact: !!(ec?.name && ec?.relationship && ec?.phone),
-      bankDetails: !!(employee.bankAccountNumber && employee.bankName && employee.ifscCode && employee.accountHolderName),
+      bankDetails: !!(employee.bankAccountNumber && employee.bankName && employee.bankBranchName && employee.ifscCode && employee.accountHolderName),
       documents: missingRequiredDocs.length === 0,
     };
 
-    // Step numbering: 1=MFA (optional), 2=Personal, 3=Emergency, 4=Bank, 5=Documents, 6=Review
-    // MFA is optional — always advance past step 1 so it never blocks other steps
-    let resumeStep = 2;
-    if (sections.personalDetails) resumeStep = 3;
-    if (sections.emergencyContact) resumeStep = 4;
-    if (sections.bankDetails) resumeStep = 5;
-    if (sections.documents) resumeStep = 6;
+    // Step numbering (5-step authenticated flow): 1=Personal, 2=Emergency, 3=Bank, 4=Documents, 5=Review
+    let resumeStep = 1;
+    if (sections.personalDetails) resumeStep = 2;
+    if (sections.emergencyContact) resumeStep = 3;
+    if (sections.bankDetails) resumeStep = 4;
+    if (sections.documents) resumeStep = 5;
 
     const gate = employee.documentGate as any;
 
@@ -407,6 +411,7 @@ export class OnboardingService {
         }
       })(),
       bankName: employee.bankName || '',
+      bankBranchName: employee.bankBranchName || '',
       ifscCode: employee.ifscCode || '',
       accountHolderName: employee.accountHolderName || '',
       accountType: employee.accountType || 'SAVINGS',
@@ -471,10 +476,15 @@ export class OnboardingService {
           throw new BadRequestError('Personal email address is not valid. Please enter a correct email format.');
         }
       }
-      // Issue 11: validate qualification against allowed enum values
-      const VALID_QUALIFICATIONS = ['TENTH', 'TWELFTH', 'DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD', 'OTHER'];
-      if (stepData.qualification && !VALID_QUALIFICATIONS.includes(stepData.qualification)) {
-        throw new BadRequestError(`Invalid qualification. Allowed values: ${VALID_QUALIFICATIONS.join(', ')}`);
+      // qualification is required for all non-site employees (site employees skip education docs)
+      const VALID_QUALIFICATIONS = ['NONE', 'TENTH', 'TWELFTH', 'DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD'];
+      if (employee.workMode !== 'PROJECT_SITE') {
+        if (!stepData.qualification) {
+          throw new BadRequestError('Highest qualification is required');
+        }
+        if (!VALID_QUALIFICATIONS.includes(stepData.qualification)) {
+          throw new BadRequestError(`Invalid qualification. Allowed values: ${VALID_QUALIFICATIONS.join(', ')}`);
+        }
       }
       await prisma.employee.update({
         where: { id: employeeId },
@@ -494,12 +504,30 @@ export class OnboardingService {
           // joiningDate is HR-set via invitation — employees cannot change it during onboarding
         },
       });
+
+      // Update the KYC gate required docs now that the employee's actual qualification is known.
+      // The gate is seeded with 'NONE' at invitation time — this corrects it after step 2.
+      if (stepData.qualification) {
+        try {
+          const { documentGateService } = await import('./document-gate.service.js');
+          const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+          if (gate) {
+            const fresherOrExperienced = gate.fresherOrExperienced || 'FRESHER';
+            await documentGateService.saveKycConfig(employeeId, 'SEPARATE', fresherOrExperienced, stepData.qualification);
+          }
+        } catch (e) {
+          logger.warn('[Onboarding] Failed to update KYC gate qualification after step 2:', e);
+        }
+      }
     }
 
     // Step 3: Emergency Contact
     if (step === 3) {
       if (!stepData.name || !stepData.relationship || !stepData.phone) {
         throw new BadRequestError('Contact name, relationship, and phone are required');
+      }
+      if (stepData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(stepData.email))) {
+        throw new BadRequestError('Emergency contact email address is not valid');
       }
       await prisma.employee.update({
         where: { id: employeeId },
@@ -576,8 +604,8 @@ export class OnboardingService {
     if (!emp.phone || emp.phone === '0000000000') {
       throw new BadRequestError('Please enter your mobile phone number in Step 2 before completing onboarding');
     }
-    if (emp.workMode !== 'PROJECT_SITE' && !qualification) {
-      throw new BadRequestError('Highest qualification is required for office employees before completing onboarding');
+    if (emp.workMode !== 'PROJECT_SITE' && qualification === null) {
+      throw new BadRequestError('Highest qualification is required before completing onboarding');
     }
     if (!addr?.line1 || !addr?.city || !addr?.state || !addr?.pincode) {
       throw new BadRequestError('Current address is required before completing onboarding');
@@ -592,13 +620,15 @@ export class OnboardingService {
     if (!ec?.name || !ec?.relationship || !ec?.phone) {
       throw new BadRequestError('Emergency contact is required before completing onboarding');
     }
-    if (!emp.bankAccountNumber || !emp.bankName || !emp.ifscCode || !emp.accountHolderName) {
-      throw new BadRequestError('Bank details are required before completing onboarding');
+    if (!emp.bankAccountNumber || !emp.bankName || !emp.bankBranchName || !emp.ifscCode || !emp.accountHolderName) {
+      throw new BadRequestError('Bank details (including branch name) are required before completing onboarding');
     }
     const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
     const requiredEduDocs = (() => {
       if (emp.workMode === 'PROJECT_SITE') return [];
       switch (qualification) {
+        case 'NONE': return [];
+        case 'TENTH': return ['TENTH_CERTIFICATE'];
         case 'TWELFTH': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
         case 'DIPLOMA': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
         case 'GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
@@ -642,9 +672,16 @@ export class OnboardingService {
       throw new BadRequestError(`Please upload all required documents before completing onboarding. Missing: ${missingList.join(', ')}`);
     }
 
-    const employee = await prisma.employee.update({
-      where: { id: employeeId },
+    // Optimistic lock — only marks complete if still incomplete; prevents double-completion on concurrent calls
+    const updated = await prisma.employee.updateMany({
+      where: { id: employeeId, onboardingComplete: false },
       data: { onboardingComplete: true },
+    });
+    if (updated.count === 0) {
+      return { alreadyComplete: true, employeeId };
+    }
+    const employee = await prisma.employee.findUniqueOrThrow({
+      where: { id: employeeId },
       select: { id: true, status: true, organizationId: true },
     });
 

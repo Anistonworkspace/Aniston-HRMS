@@ -83,7 +83,7 @@ export class AssetController {
 
   async getExitChecklist(req: Request, res: Response, next: NextFunction) {
     try {
-      const checklist = await assetService.getExitChecklist(req.params.employeeId);
+      const checklist = await assetService.getExitChecklist(req.params.employeeId, req.user!.organizationId);
       res.json({ success: true, data: checklist });
     } catch (err) { next(err); }
   }
@@ -94,7 +94,8 @@ export class AssetController {
       const checklist = await assetService.markChecklistItemReturned(
         req.params.employeeId,
         data,
-        req.user!.userId
+        req.user!.userId,
+        req.user!.organizationId
       );
       res.json({ success: true, data: checklist, message: 'Checklist updated' });
     } catch (err) { next(err); }

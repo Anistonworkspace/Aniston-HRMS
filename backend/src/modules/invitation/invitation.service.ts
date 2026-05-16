@@ -65,9 +65,10 @@ export class InvitationService {
 
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
 
-    // Role is fully derived from employmentType — INTERN employment → INTERN portal role, all others → EMPLOYEE
-    // HR can promote to MANAGER/HR/etc. after the employee accepts the invite via Change Role
-    const derivedRole = employmentType === 'INTERN' ? 'INTERN' : 'EMPLOYEE';
+    // Role precedence:
+    //  1. INTERN employmentType always forces INTERN role (leave/policy routing requires it)
+    //  2. Otherwise honor the role HR explicitly selected in the invite form
+    const derivedRole = employmentType === 'INTERN' ? 'INTERN' : (input.role || 'EMPLOYEE');
 
     // Validate and sanitize experienceDocFields before storing
     let sanitizedExpDocFields: Array<{ key: string; label: string; required: boolean }> | undefined;
@@ -126,8 +127,8 @@ export class InvitationService {
     let emailStatus: string = email ? 'NOT_SENT' : 'NOT_SENT';
     let whatsappStatus: string = invitation.mobileNumber ? 'NOT_SENT' : 'NOT_SENT';
 
-    // Send email invitation
-    if (email) {
+    // Send email invitation — only if HR has not opted out
+    if (email && sendWelcomeEmail !== false) {
       try {
         await enqueueEmail({
           to: email,
@@ -478,11 +479,13 @@ export class InvitationService {
       // Map invitation experienceLevel → gate's FRESHER/EXPERIENCED (INTERN → FRESHER, no employment proof)
       const rawLevel = (invitation.experienceLevel as string) || '';
       const fresherOrExperienced = rawLevel === 'EXPERIENCED' ? 'EXPERIENCED' : 'FRESHER';
+      // 'NONE' is the placeholder — the gate's highestQualification is updated in onboarding step 2
+      // once the employee enters their actual qualification level.
       await documentGateService.saveKycConfig(
         result.employee.id,
         'SEPARATE',
         fresherOrExperienced,
-        'GRADUATION',
+        'NONE',
       );
     } catch (e) {
       logger.warn('Failed to auto-create document gate for employee:', e);
@@ -662,7 +665,7 @@ export class InvitationService {
     });
     const inviterMap = Object.fromEntries(inviters.map(u => [u.id, u.email]));
 
-    const data = invitations.map(inv => ({
+    const data = invitations.map(({ inviteToken: _token, ...inv }) => ({
       ...inv,
       invitedByEmail: inviterMap[inv.invitedBy] || 'Unknown',
       isExpired: inv.status === 'PENDING' && new Date() > inv.expiresAt,

@@ -95,24 +95,8 @@ export class DocumentService {
         .catch((err) => logger.warn(`[Document] Failed to update avatar for employee ${data.employeeId}: ${err.message}`));
     }
 
-    // Trigger OCR processing for identity/financial documents — best-effort, non-blocking
-    const OCR_ELIGIBLE_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE',
-      'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE',
-      'CANCELLED_CHEQUE', 'BANK_STATEMENT', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC',
-      'EXPERIENCE_LETTER', 'RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF', 'RELIEVING_LETTER'];
-    if (data.employeeId && OCR_ELIGIBLE_TYPES.includes(data.type as string)) {
-      import('../../jobs/queues.js').then(({ enqueueDocumentOcr }) => {
-        const orgId = doc.employeeId ? '' : ''; // fetched below
-        prisma.employee.findUnique({ where: { id: data.employeeId! }, select: { organizationId: true } })
-          .then(emp => {
-            if (emp) {
-              enqueueDocumentOcr(doc.id, emp.organizationId).catch((e) =>
-                logger.warn(`[Document] OCR enqueue failed for doc ${doc.id}: ${e.message}`)
-              );
-            }
-          }).catch(() => {});
-      }).catch(() => {});
-    }
+    // OCR enqueue is handled exclusively in document.controller.ts upload()
+    // to ensure error handling, FLAGGED fallback, and socket notification are in one place.
 
     // Notify HR when a document is submitted — batched per employee with 5-min debounce.
     // Multiple uploads within 5 min produce ONE email listing all documents together.

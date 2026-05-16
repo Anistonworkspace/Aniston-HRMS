@@ -93,12 +93,12 @@ function standardFooter(orgName: string, fallbackUrl?: string, fallbackLabel?: s
 // Email templates
 const templates: Record<string, (ctx: Record<string, any>) => string> = {
   'onboarding-invite': (ctx) => emailLayout(
-    '#4F46E5', 'A', 'Welcome to Aniston!', 'Complete your onboarding profile',
+    '#4F46E5', 'A', `Welcome to ${esc(ctx.orgName || 'Aniston HRMS')}!`, 'Complete your onboarding profile',
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.name)}</strong>,</p>
-    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">You've been invited to join Aniston Technologies. Please complete your onboarding by clicking the button below:</p>
-    ${ctaButton(ctx.link, 'Start Onboarding')}
-    <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">This link expires in 7 days.</p>`,
-    standardFooter('Aniston Technologies', ctx.link)
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">You've been invited to join <strong>${esc(ctx.orgName || 'Aniston HRMS')}</strong>. Please complete your onboarding by clicking the button below:</p>
+    ${ctaButton(`https://hr.anistonav.com/onboarding/invite/${esc(ctx.token)}`, 'Start Onboarding')}
+    <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">This link expires in 48 hours.</p>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', `https://hr.anistonav.com/onboarding/invite/${esc(ctx.token)}`)
   ),
 
   'employee-invite': (ctx) => emailLayout(
@@ -1948,7 +1948,7 @@ export function startEmailWorker() {
       const html = templateFn(context);
       await sendEmail(to, subject, html, attachments);
     },
-    { connection: bullmqConnection, concurrency: 5 }
+    { connection: bullmqConnection, concurrency: 1 } // Limit to 1 — Outlook SMTP throttles at >1 concurrent connection (432 error)
   );
 
   worker.on('completed', (job) => {

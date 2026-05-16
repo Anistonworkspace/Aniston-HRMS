@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Check, ChevronRight, ChevronLeft, Loader2, PartyPopper,
-  Upload, FileText, CheckCircle2, AlertTriangle,
-  RefreshCw, Building2, Lock, Camera,
+  Check, ChevronLeft, Loader2, PartyPopper,
+  FileText, CheckCircle2, AlertTriangle,
+  RefreshCw, Building2, Lock, Camera, Shield,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -175,10 +175,12 @@ export default function NewOnboardingFlow() {
   const status = statusRes?.data;
   const [currentStep, setCurrentStep] = useState(1);
   const [completed, setCompleted] = useState(false);
+  const hasRestoredStep = useRef(false);
 
-  // Resume from last incomplete step
+  // Resume from last incomplete step — only on first load, not on every refetch after step save
   useEffect(() => {
-    if (status?.resumeStep) {
+    if (status?.resumeStep && !hasRestoredStep.current) {
+      hasRestoredStep.current = true;
       setCurrentStep(Math.min(Math.max(1, status.resumeStep), 5));
     }
   }, [status]);
@@ -236,7 +238,7 @@ export default function NewOnboardingFlow() {
 
   if (completed) {
     const nextRoute = currentUser?.kycCompleted === false ? '/kyc-pending' : '/dashboard';
-    return <CompletionScreen orgName={status?.organization?.name} onContinue={() => navigate(nextRoute, { replace: true })} />;
+    return <CompletionScreen orgName={status?.organization?.name} nextRoute={nextRoute} onContinue={() => navigate(nextRoute, { replace: true })} />;
   }
 
   const workMode = status?.workMode as WorkMode | null;
@@ -398,93 +400,6 @@ export default function NewOnboardingFlow() {
 }
 
 // ==================
-// STEP 1: MFA SETUP
-// ==================
-function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
-  onSkip: () => void;
-  onEnabled: () => void;
-  isMfaEnabled?: boolean;
-  workMode?: WorkMode | null;
-}) {
-  const { t } = useTranslation();
-  const [showSetup, setShowSetup] = useState(false);
-  const { data: mfaStatus, refetch } = useGetMfaStatusQuery();
-  const isEnabled = isMfaEnabled || mfaStatus?.data?.isEnabled;
-  const isOffice = workMode === 'OFFICE';
-
-  if (isEnabled) {
-    return (
-      <div className="space-y-4">
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-center gap-3">
-          <Shield size={20} className="text-emerald-500 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-emerald-700">{t('onboarding.mfaEnabled')}</p>
-            <p className="text-xs text-emerald-600 mt-0.5">{t('onboarding.mfaProtected')}</p>
-          </div>
-        </div>
-        <button onClick={onSkip} className="btn-primary w-full">{t('onboarding.continueNext')}</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      {isOffice ? (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <Shield size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-amber-800">
-                {t('onboarding.mfaRecommendedOffice')}{' '}
-                <span className="font-normal text-amber-600">({t('onboarding.mfaRecommendedLabel')})</span>
-              </p>
-              <p className="text-xs text-amber-700 mt-1">{t('onboarding.mfaOfficeDesc')}</p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <Shield size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-blue-800">
-                {t('onboarding.mfaRecommendedOffice')}{' '}
-                <span className="font-normal text-blue-600">({t('onboarding.mfaOptional')})</span>
-              </p>
-              <p className="text-xs text-blue-600 mt-1">{t('onboarding.mfaOptionalDesc')}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm text-gray-600">
-        <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">{t('onboarding.mfaSetupHow')}</p>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>1</span> {t('onboarding.mfaSetupStep1')}</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>2</span> {t('onboarding.mfaSetupStep2')}</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>3</span> {t('onboarding.mfaSetupStep3')}</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>4</span> {t('onboarding.mfaSetupStep4')}</div>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <button onClick={() => setShowSetup(true)} className="btn-primary w-full flex items-center justify-center gap-2">
-          <Shield size={16} /> {t('onboarding.enableMfa')}
-        </button>
-        <button onClick={onSkip} className="text-sm text-gray-500 hover:text-gray-700 text-center py-1">
-          {t('onboarding.skipForNow')}
-        </button>
-      </div>
-
-      {showSetup && (
-        <MFASetupModal
-          onClose={() => setShowSetup(false)}
-          onEnabled={() => { setShowSetup(false); refetch(); onEnabled(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-// ==================
 // STEP 2: PERSONAL DETAILS
 // ==================
 const ADDR_INIT = { line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' };
@@ -516,7 +431,7 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
         firstName: initialData.firstName || '',
         lastName: initialData.lastName || '',
         dateOfBirth: initialData.dateOfBirth || '',
-        gender: initialData.gender && initialData.gender !== 'PREFER_NOT_TO_SAY' ? initialData.gender : '',
+        gender: initialData.gender || '',
         bloodGroup: initialData.bloodGroup || '',
         maritalStatus: initialData.maritalStatus || '',
         phone: initialData.phone || '',
@@ -970,6 +885,12 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
         />
         <p className="text-[11px] text-gray-400 mt-1">{t('onboarding.epfUanHint')}</p>
       </div>
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+        <AlertTriangle size={13} className="text-amber-600 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-amber-700">
+          You will also need to upload a <span className="font-semibold">Cancelled Cheque</span> in the next step (Documents).
+        </p>
+      </div>
       <p className="text-xs text-gray-400">{t('onboarding.bankEncryptionNote')}</p>
       <button
         onClick={() => { setShowErrors(true); if (isValid) onSave(form); else toast.error('Please fill all required bank fields'); }}
@@ -1102,8 +1023,10 @@ function Step5Documents({
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
           <div
             className={cn('h-full rounded-full transition-all duration-500', allRequiredDone ? 'bg-emerald-500' : '')}
-            style={!allRequiredDone ? { background: 'var(--primary-color)' } : {}}
-            style={{ width: `${(requiredDoneCount / totalRequired) * 100}%` }}
+            style={{
+              ...(!allRequiredDone ? { background: 'var(--primary-color)' } : {}),
+              width: `${(requiredDoneCount / totalRequired) * 100}%`,
+            }}
           />
         </div>
       </div>
@@ -1409,6 +1332,7 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
           {status?.bankAccountNumber ? (
             <>
               <ReviewRow label="Bank" value={status.bankName} />
+              {status.bankBranchName && <ReviewRow label="Branch" value={status.bankBranchName} />}
               <ReviewRow label="Account No." value={`****${status.bankAccountNumber?.slice(-4)}`} />
               <ReviewRow label="IFSC" value={status.ifscCode} />
               {status.epfMemberId && <ReviewRow label="EPF / UAN" value={status.epfMemberId} />}
@@ -1471,8 +1395,9 @@ function ReviewRow({ label, value, valueClass }: { label: string; value?: string
   );
 }
 
-function CompletionScreen({ orgName, onContinue }: { orgName?: string; onContinue: () => void }) {
+function CompletionScreen({ orgName, nextRoute, onContinue }: { orgName?: string; nextRoute?: string; onContinue: () => void }) {
   const { t } = useTranslation();
+  const goToKyc = !nextRoute || nextRoute === '/kyc-pending';
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 to-indigo-50 p-4">
       <motion.div
@@ -1488,7 +1413,9 @@ function CompletionScreen({ orgName, onContinue }: { orgName?: string; onContinu
         <p className="text-gray-500 text-sm">
           {t('onboarding.onboardingCompleteDesc', { org: orgName || 'Aniston Technologies LLP' })}
         </p>
-        <button onClick={onContinue} className="btn-primary inline-block mt-6 px-8">{t('onboarding.goToKyc')}</button>
+        <button onClick={onContinue} className="btn-primary inline-block mt-6 px-8">
+          {goToKyc ? t('onboarding.goToKyc') : t('onboarding.goToDashboard', { defaultValue: 'Go to Dashboard' })}
+        </button>
       </motion.div>
     </div>
   );

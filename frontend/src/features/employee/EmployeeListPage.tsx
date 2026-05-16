@@ -1101,6 +1101,7 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
   const [workMode, setWorkMode] = useState('');
   const [employmentType, setEmploymentType] = useState('');
   const [proposedJoiningDate, setProposedJoiningDate] = useState('');
+  const [experienceLevel, setExperienceLevel] = useState('FRESHER');
   const [notes, setNotes] = useState('');
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
   const [createInvitation, { isLoading }] = useCreateInvitationMutation();
@@ -1131,7 +1132,7 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
   const resetForm = () => {
     setEmail(''); setMobile(''); setRole('EMPLOYEE'); setDepartmentId(''); setDesignationId('');
     setManagerId(''); setOfficeLocationId(''); setWorkMode(''); setEmploymentType('');
-    setProposedJoiningDate(''); setNotes(''); setSendWelcomeEmail(true); setResult(null); setEmailError('');
+    setProposedJoiningDate(''); setExperienceLevel('FRESHER'); setNotes(''); setSendWelcomeEmail(true); setResult(null); setEmailError('');
   };
 
   const handleClose = () => {
@@ -1164,6 +1165,7 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
       if (workMode) body.workMode = workMode;
       if (employmentType) body.employmentType = employmentType;
       if (proposedJoiningDate) body.proposedJoiningDate = proposedJoiningDate;
+      body.experienceLevel = experienceLevel;
       if (notes) body.notes = notes;
       body.sendWelcomeEmail = sendWelcomeEmail;
 
@@ -1276,7 +1278,9 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Employment Type <span className="text-gray-400 font-normal text-xs">(optional — can set later)</span>
+                </label>
                 <select value={employmentType} onChange={e => setEmploymentType(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
                   <option value="">— Select —</option>
@@ -1288,10 +1292,15 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
               </div>
             </div>
 
+            {/* Optional fields info banner */}
+            <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700">
+              Fields marked <span className="font-medium">Recommended</span> are optional — you can assign them now or later via the employee profile editor.
+            </div>
+
             {/* Row 3: Department + Designation (searchable with + Add new) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SearchableSelect
-                label="Department"
+                label="Department (Recommended)"
                 placeholder="Select department..."
                 options={deptOptions}
                 value={departmentId}
@@ -1301,7 +1310,7 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
                 onCreateClick={() => setShowAddDept(true)}
               />
               <SearchableSelect
-                label="Designation"
+                label="Designation (Recommended)"
                 placeholder="Select designation..."
                 options={desigOptions}
                 value={designationId}
@@ -1315,14 +1324,14 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
             {/* Row 4: Manager + Location */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SearchableSelect
-                label="Reporting Manager"
+                label="Reporting Manager (Recommended)"
                 placeholder="Select manager..."
                 options={mgrOptions}
                 value={managerId}
                 onChange={setManagerId}
               />
               <SearchableSelect
-                label="Office / Location"
+                label="Office / Location (Recommended)"
                 placeholder="Select location..."
                 options={locOptions}
                 value={officeLocationId}
@@ -1333,16 +1342,23 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
             {/* Row 5: Work Mode + Joining Date */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Work Mode</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Work Mode <span className="text-gray-400 font-normal text-xs">(optional — defaults to Office)</span>
+                </label>
                 <select value={workMode} onChange={e => setWorkMode(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
                   <option value="">— Select —</option>
                   <option value="OFFICE">Office</option>
+                  <option value="HYBRID">Hybrid</option>
                   <option value="FIELD_SALES">Field Sales</option>
+                  <option value="PROJECT_SITE">Project Site</option>
+                  <option value="REMOTE">Remote</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Proposed Joining Date</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Proposed Joining Date <span className="text-gray-400 font-normal text-xs">(optional)</span>
+                </label>
                 <input
                   type="date"
                   value={proposedJoiningDate}
@@ -1350,6 +1366,18 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                 />
               </div>
+            </div>
+
+            {/* Row 6: Experience Level */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Experience Level *</label>
+              <select value={experienceLevel} onChange={e => setExperienceLevel(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="FRESHER">Fresher — no prior work experience</option>
+                <option value="EXPERIENCED">Experienced — has previous employment history</option>
+                <option value="INTERN">Intern — college student or training program</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Controls which KYC documents the employee must upload during onboarding</p>
             </div>
 
             {/* Notes */}

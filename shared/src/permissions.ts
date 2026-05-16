@@ -155,6 +155,7 @@ export const PERMISSIONS: PermissionsMap = {
     holiday: ['read'],
     org_chart: ['read'],
     letter: ['read'],
+    asset: ['read:own'],
   },
 
   [Role.INTERN]: {
@@ -169,6 +170,7 @@ export const PERMISSIONS: PermissionsMap = {
     holiday: ['read'],
     org_chart: ['read'],
     letter: ['read'],
+    asset: ['read:own'],
   },
 
   [Role.GUEST_INTERVIEWER]: {

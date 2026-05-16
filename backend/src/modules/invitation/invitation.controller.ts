@@ -45,10 +45,10 @@ export class InvitationController {
         lastName: z.string().min(1),
         email: z.string().email(),
         phone: z.string().min(10).optional().default(''),
-        password: z.string().min(8).regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain uppercase, lowercase, and a number'),
+        password: z.string().min(8).regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9])/, 'Password must contain uppercase, lowercase, a number, and a special character'),
       }).parse(req.body);
       const result = await invitationService.completeInvitation(req.params.token, data);
-      // Set refresh token as httpOnly cookie (same as login)
+      // Set refresh token as httpOnly cookie — never expose in response body
       if (result.refreshToken) {
         res.cookie('refreshToken', result.refreshToken, {
           httpOnly: true,
@@ -58,7 +58,8 @@ export class InvitationController {
           path: '/',
         });
       }
-      res.json({ success: true, data: result, message: 'Account created successfully' });
+      const { refreshToken: _rt, ...safeResult } = result;
+      res.json({ success: true, data: safeResult, message: 'Account created successfully' });
     } catch (err) {
       next(err);
     }

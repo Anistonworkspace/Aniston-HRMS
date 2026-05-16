@@ -292,6 +292,7 @@ model Employee {
   letterAssignments         LetterAssignment[]
   deletionRequests          EmployeeDeletionRequest[] @relation("EmployeeDeletionRequests")
   profileEditRequests       ProfileEditRequest[]
+  invitations               EmployeeInvitation[]
 
   @@index([organizationId, status])
   @@index([organizationId, deletedAt])
@@ -2912,12 +2913,14 @@ model EmployeeInvitation {
   expiresAt         DateTime
   acceptedAt        DateTime?
   employeeId        String?          // Set when onboarding is completed
+  employee          Employee?        @relation(fields: [employeeId], references: [id])
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
   @@index([organizationId])
   @@index([inviteToken])
   @@index([email, organizationId])
+  @@index([employeeId])
 }
 
 // =====================

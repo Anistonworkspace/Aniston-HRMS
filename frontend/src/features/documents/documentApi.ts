@@ -24,7 +24,7 @@ export const documentApi = api.injectEndpoints({
         method: 'PATCH',
         body,
       }),
-      invalidatesTags: ['Document', 'Employee'],
+      invalidatesTags: ['Document', 'Employee', 'Kyc' as any],
     }),
 
     deleteDocument: builder.mutation<any, { id: string; reason?: string }>({

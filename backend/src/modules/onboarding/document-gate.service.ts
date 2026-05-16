@@ -182,11 +182,12 @@ export class DocumentGateService {
     const newReasons = { ...prevReasons };
     delete newReasons[documentType];
 
-    // If all flagged docs are now re-uploaded, advance status back to SUBMITTED
-    // so HR gets notified to review again. Otherwise keep REUPLOAD_REQUIRED.
+    // If all flagged docs are cleared AND the full required set is satisfied, advance to SUBMITTED.
+    // Guard against edge cases where flagged types were cleared but a required doc is still absent.
     let newStatus = gate.kycStatus;
     if (gate.kycStatus === 'REUPLOAD_REQUIRED') {
-      newStatus = newReuploadTypes.length === 0 ? 'SUBMITTED' : 'REUPLOAD_REQUIRED';
+      const allRequiredPresent = gate.requiredDocs.every((doc: any) => submitted.includes(doc));
+      newStatus = (newReuploadTypes.length === 0 && allRequiredPresent) ? 'SUBMITTED' : 'REUPLOAD_REQUIRED';
     }
 
     await prisma.onboardingDocumentGate.update({
@@ -500,8 +501,21 @@ export class DocumentGateService {
       where: organizationId
         ? { employeeId, employee: { organizationId } }
         : { employeeId },
+      include: { employee: { select: { userId: true } } },
     });
     if (!gate) throw new NotFoundError('Document gate');
+
+    // Self-approval guard — HR cannot approve their own KYC
+    const employeeUserId = (gate as any).employee?.userId;
+    if (employeeUserId && employeeUserId === verifiedBy) {
+      throw new Error('Forbidden: Cannot approve your own KYC submission');
+    }
+
+    // State guard — only allow verify from valid states (not PENDING or PROCESSING)
+    const VERIFIABLE_STATES = ['SUBMITTED', 'PENDING_HR_REVIEW', 'REUPLOAD_REQUIRED'];
+    if (!VERIFIABLE_STATES.includes(gate.kycStatus)) {
+      throw new Error(`Cannot verify KYC in status '${gate.kycStatus}'. Employee must submit documents first.`);
+    }
 
     // === DOCUMENT COMPLETENESS GUARD ===
     const submitted = gate.submittedDocs as string[];
@@ -691,10 +705,32 @@ export class DocumentGateService {
       data: {
         kycStatus: 'REJECTED',
         rejectionReason: reason,
-        verifiedBy: rejectedBy,
+        // Do NOT overwrite verifiedBy — preserve the original approver's record
+        // rejectedBy is tracked via audit log below
       },
     });
     await this.emitKycUpdate(employeeId, 'REJECTED');
+
+    // Audit log — KYC rejections must be traceable
+    try {
+      const { createAuditLog } = await import('../../utils/auditLogger.js');
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { organizationId: true },
+      });
+      if (emp) {
+        await createAuditLog({
+          userId: rejectedBy,
+          organizationId: emp.organizationId,
+          entity: 'KYC',
+          entityId: employeeId,
+          action: 'REJECT',
+          newValue: { kycStatus: 'REJECTED', rejectionReason: reason },
+        });
+      }
+    } catch (auditErr: any) {
+      logger.warn(`[KYC] Failed to write audit log for rejection of ${employeeId}: ${auditErr.message}`);
+    }
 
     // Send rejection email to employee (non-blocking)
     try {
@@ -843,11 +879,13 @@ export class DocumentGateService {
     try {
       const emp = await prisma.employee.findUnique({
         where: { id: employeeId },
-        select: { userId: true, organizationId: true, email: true, firstName: true, lastName: true },
+        select: { userId: true, organizationId: true, email: true, firstName: true, lastName: true, user: { select: { email: true } }, organization: { select: { name: true } } },
       });
       if (emp?.userId) {
         const { enqueueNotification, enqueueEmail } = await import('../../jobs/queues.js');
         const displayDocName = docName || docType.replace(/_/g, ' ');
+        // Prefer login email (user.email) over work email field for reliable delivery
+        const notifyEmail = emp.user?.email || emp.email;
 
         // In-app notification
         await enqueueNotification({
@@ -860,9 +898,9 @@ export class DocumentGateService {
         });
 
         // Email notification with full details and reason
-        if (emp.email) {
+        if (notifyEmail) {
           await enqueueEmail({
-            to: emp.email,
+            to: notifyEmail,
             subject: `Action Required: Document Removed — Please Re-upload Your ${displayDocName}`,
             template: 'document-deleted',
             context: {
@@ -872,7 +910,7 @@ export class DocumentGateService {
               isCombinedPdf: isCombinedPdf || false,
               reason: deletionReason,
               reuploadUrl: 'https://hr.anistonav.com/kyc-pending',
-              orgName: 'Aniston Technologies',
+              orgName: emp.organization?.name || 'Aniston Technologies',
             },
           });
         }
@@ -1163,11 +1201,12 @@ export class DocumentGateService {
    * Safe to call on every startup — only affects VERIFIED gates missing CANCELLED_CHEQUE.
    */
   async enforceCancelledChequeRequirement(organizationId?: string) {
-    // Enforce on all active gates — PENDING employees can be uploading docs and skipping CC.
-    // VERIFIED (already had access), SUBMITTED, PENDING_HR_REVIEW (stuck waiting for HR), and PENDING.
+    // Only enforce on employees who have already submitted or been verified — not first-time PENDING employees
+    // who are still actively uploading docs for the first time. Touching PENDING gates prematurely
+    // sets REUPLOAD_REQUIRED before the employee has had a chance to upload any docs.
     const verifiedGates = await prisma.onboardingDocumentGate.findMany({
       where: {
-        kycStatus: { in: ['VERIFIED', 'SUBMITTED', 'PENDING_HR_REVIEW', 'PENDING'] },
+        kycStatus: { in: ['VERIFIED', 'SUBMITTED', 'PENDING_HR_REVIEW'] },
         ...(organizationId ? { employee: { organizationId } } : {}),
       },
       select: { employeeId: true },

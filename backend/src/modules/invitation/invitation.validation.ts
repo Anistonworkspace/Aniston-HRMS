@@ -5,39 +5,38 @@ export const createInvitationSchema = z.object({
   email: z.string().email('Invalid email address').optional(),
   mobileNumber: z.string().min(10, 'Enter a valid mobile number').optional(),
 
-  // employmentType: REQUIRED — drives EPF/ESI/PT eligibility, leave balance seeding,
-  // and salary template selection. INTERN → stipend only; CONTRACT → typically exempt.
-  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'], {
-    required_error: 'Employment type is required',
-    invalid_type_error: 'Invalid employment type',
-  }),
+  // employmentType: optional — HR can assign later via employee profile editor.
+  // When provided, drives EPF/ESI/PT eligibility, leave balance seeding, salary template.
+  // INTERN → stipend only; CONTRACT → typically exempt from statutory deductions.
+  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN']).optional(),
 
-  // departmentId: REQUIRED — assigns team, affects leave policy and org chart placement
-  departmentId: z.string().uuid('Select a valid department'),
+  // departmentId: optional — HR can assign later via employee profile editor.
+  // Assigns team, affects leave policy and org chart placement.
+  departmentId: z.string().uuid('Select a valid department').optional(),
 
-  // designationId: REQUIRED — job title used on offer letters, payslips, and org chart
-  designationId: z.string().uuid('Select a valid designation'),
+  // designationId: optional — HR can assign later via employee profile editor.
+  // Job title used on offer letters, payslips, and org chart.
+  designationId: z.string().uuid('Select a valid designation').optional(),
 
-  // managerId: REQUIRED — sets direct reporting line; routes leave/regularization approvals
-  managerId: z.string().uuid('Select a valid reporting manager'),
+  // managerId: optional — HR can assign later via employee profile editor.
+  // Sets direct reporting line; routes leave/regularization approvals.
+  managerId: z.string().uuid('Select a valid reporting manager').optional(),
 
-  // officeLocationId: REQUIRED — determines geofence boundary for OFFICE attendance check-in
-  officeLocationId: z.string().uuid('Select a valid office location'),
+  // officeLocationId: optional — HR can assign later via employee profile editor.
+  // Determines geofence boundary for OFFICE attendance check-in.
+  officeLocationId: z.string().uuid('Select a valid office location').optional(),
 
-  // shiftId: optional — creates a ShiftAssignment on acceptance when provided
+  // shiftId: optional — creates a ShiftAssignment on acceptance when provided.
   shiftId: z.string().uuid('Select a valid shift').optional(),
 
-  // workMode: REQUIRED — determines attendance mode:
+  // workMode: optional — defaults to OFFICE if not provided.
   //   OFFICE → geofence auto check-in, FIELD_SALES → GPS trail every 60s,
-  //   PROJECT_SITE → photo check-in, REMOTE/HYBRID → manual
-  workMode: z.enum(['OFFICE', 'HYBRID', 'FIELD_SALES', 'PROJECT_SITE', 'REMOTE'], {
-    required_error: 'Work mode is required',
-    invalid_type_error: 'Invalid work mode',
-  }),
+  //   PROJECT_SITE → photo check-in, REMOTE/HYBRID → manual.
+  workMode: z.enum(['OFFICE', 'HYBRID', 'FIELD_SALES', 'PROJECT_SITE', 'REMOTE']).optional(),
 
-  // proposedJoiningDate: REQUIRED — transferred to Employee.joiningDate on acceptance;
-  // payroll uses this for first-month pro-ration; leave accrual starts from this date
-  proposedJoiningDate: z.string().min(1, 'Proposed joining date is required'),
+  // proposedJoiningDate: optional — transferred to Employee.joiningDate on acceptance.
+  // Payroll uses this for first-month pro-ration; leave accrual starts from this date.
+  proposedJoiningDate: z.string().optional(),
 
   // experienceLevel: determines required KYC documents during onboarding
   //   EXPERIENCED → requires previous employment docs (experience letter, last payslip, etc.)
@@ -52,6 +51,10 @@ export const createInvitationSchema = z.object({
     label: z.string().min(1),
     required: z.boolean().default(true),
   })).optional(),
+
+  // role: HR can invite EMPLOYEE, INTERN, MANAGER, HR, ADMIN
+  // SUPER_ADMIN enforcement is done in the service layer; defaults to EMPLOYEE if not provided
+  role: z.enum(['EMPLOYEE', 'INTERN', 'MANAGER', 'HR', 'ADMIN']).optional().default('EMPLOYEE'),
 
   notes: z.string().max(1000).optional(),
   sendWelcomeEmail: z.boolean().default(true),

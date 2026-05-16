@@ -13,7 +13,7 @@ import {
 } from './assetApi';
 import { useGetExitRequestsQuery } from '../exit/exitApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
-import { useAppSelector } from '../../app/hooks';
+import { useAppSelector } from '../../app/store';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -272,6 +272,8 @@ export default function AssetManagementPage() {
 
 // =================== Exit Checklists Tab ===================
 function ExitChecklistsTab() {
+  const user = useAppSelector((state) => state.auth.user);
+  const canManageAssets = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const { data: exitRes, isLoading } = useGetExitRequestsQuery({ page: 1, status: '' });
   const exitRequests = (exitRes?.data || []).filter((e: any) =>
     ['APPROVED', 'NO_DUES_PENDING'].includes(e.exitStatus)
@@ -290,13 +292,13 @@ function ExitChecklistsTab() {
   return (
     <div className="space-y-4">
       {exitRequests.map((emp: any) => (
-        <ExitChecklistCard key={emp.id} employee={emp} />
+        <ExitChecklistCard key={emp.id} employee={emp} canManage={canManageAssets} />
       ))}
     </div>
   );
 }
 
-function ExitChecklistCard({ employee }: { employee: any }) {
+function ExitChecklistCard({ employee, canManage }: { employee: any; canManage: boolean }) {
   const { data: checklistRes, isLoading } = useGetExitChecklistQuery(employee.id);
   const [markItem, { isLoading: marking }] = useMarkChecklistItemMutation();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
@@ -374,16 +376,24 @@ function ExitChecklistCard({ employee }: { employee: any }) {
                   {item.isReturned && item.returnedAt && (
                     <span className="text-[10px] text-gray-400">{new Date(item.returnedAt).toLocaleDateString('en-IN')}</span>
                   )}
-                  <button
-                    disabled={marking}
-                    onClick={() => handleToggle(item.id, !item.isReturned)}
-                    className={cn('px-3 py-1 text-xs font-medium rounded-lg transition-all',
-                      item.isReturned
-                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                        : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                  {canManage ? (
+                    <button
+                      disabled={marking}
+                      onClick={() => handleToggle(item.id, !item.isReturned)}
+                      className={cn('px-3 py-1 text-xs font-medium rounded-lg transition-all',
+                        item.isReturned
+                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                      )}>
+                      {marking ? <Loader2 size={12} className="animate-spin" /> : item.isReturned ? 'Returned' : 'Mark Returned'}
+                    </button>
+                  ) : (
+                    <span className={cn('px-3 py-1 text-xs font-medium rounded-lg',
+                      item.isReturned ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
                     )}>
-                    {marking ? <Loader2 size={12} className="animate-spin" /> : item.isReturned ? 'Returned' : 'Mark Returned'}
-                  </button>
+                      {item.isReturned ? 'Returned' : 'Pending'}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

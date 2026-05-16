@@ -437,11 +437,11 @@ Return ONLY valid compact JSON (no markdown, no explanation):
   ): Promise<{ match: boolean; confidence: number; reason: string }> {
     const orgId = organizationId || 'default';
     const config = await aiConfigService.getActiveConfigRaw(orgId);
-    if (!config || !config.apiKey || config.provider !== 'openai') {
+    if (!config || !config.apiKey || config.provider !== 'OPENAI') {
       return { match: false, confidence: 0, reason: 'AI provider not configured for face comparison' };
     }
     const apiKey = config.apiKey;
-    const model = config.model || 'gpt-4.1';
+    const model = config.modelName || 'gpt-4.1';
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
     const isOpenRouter = apiKey.startsWith('sk-or-v1-') || baseUrl.includes('openrouter');
     const resolvedModel = isOpenRouter ? 'openai/gpt-4o' : model;

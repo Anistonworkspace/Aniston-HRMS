@@ -8,7 +8,7 @@ import type { AiProvider } from '@prisma/client';
 import type { UpsertAiConfigInput } from './ai-config.validation.js';
 
 const CACHE_KEY_PREFIX = 'ai-config:';
-const CACHE_TTL = 3600; // 1 hour (increased from 60s to reduce decrypt overhead)
+const CACHE_TTL = 60; // 60 seconds — AES-256-GCM decrypt is sub-millisecond; long TTL exposes plaintext key in Redis
 
 /**
  * AiConfigService — manages per-org AI provider configuration.
@@ -346,12 +346,10 @@ export class AiConfigService {
       where: { organizationId, isActive: true },
     });
 
-    // No DB config — synthesize OPENAI config from env key if available
+    // No DB config — return env key directly without caching (process.env read is free; caching puts plaintext key in Redis)
     if (!config) {
       if (envKey) {
-        const synthetic = { provider: 'OPENAI', apiKey: envKey, baseUrl: null, modelName: 'gpt-4.1-mini' };
-        await redis.setex(`${CACHE_KEY_PREFIX}${organizationId}`, CACHE_TTL, JSON.stringify(synthetic));
-        return synthetic;
+        return { provider: 'OPENAI', apiKey: envKey, baseUrl: null, modelName: 'gpt-4.1-mini' };
       }
       return null;
     }

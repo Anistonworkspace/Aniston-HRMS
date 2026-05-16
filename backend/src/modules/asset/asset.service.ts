@@ -10,7 +10,7 @@ export class AssetService {
     const { page, limit, category, status, search } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: any = { organizationId, deletedAt: null };
 
     if (search) {
       where.OR = [
@@ -61,7 +61,7 @@ export class AssetService {
 
   async getById(id: string, organizationId: string) {
     const asset = await prisma.asset.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, deletedAt: null },
       include: {
         assignments: {
           include: {
@@ -121,24 +121,34 @@ export class AssetService {
     if (data.purchaseDate) updateData.purchaseDate = new Date(data.purchaseDate);
     if (data.warrantyExpiry) updateData.warrantyExpiry = new Date(data.warrantyExpiry);
 
-    const updated = await prisma.asset.update({ where: { id }, data: updateData });
+    const updated = await prisma.asset.update({ where: { id, organizationId }, data: updateData });
     await createAuditLog({ userId: userId || organizationId, organizationId, entity: 'Asset', entityId: id, action: 'UPDATE', newValue: updateData });
     return updated;
   }
 
-  async assign(data: AssignAssetInput, assignedBy: string, organizationId?: string) {
+  async assign(data: AssignAssetInput, assignedBy: string, organizationId: string) {
     const asset = await prisma.asset.findFirst({
-      where: organizationId ? { id: data.assetId, organizationId } : { id: data.assetId },
+      where: { id: data.assetId, organizationId },
     });
     if (!asset) throw new NotFoundError('Asset');
     if (asset.status === 'ASSIGNED') throw new BadRequestError('Asset is already assigned. Return it first before reassigning.');
     if (asset.status === 'RETIRED') throw new BadRequestError('Cannot assign a retired asset.');
+    if (asset.status === 'MAINTENANCE') throw new BadRequestError('Cannot assign an asset that is under maintenance.');
 
     const employee = await prisma.employee.findFirst({
-      where: { id: data.employeeId, organizationId: asset.organizationId, deletedAt: null },
-      include: { user: { select: { email: true } }, organization: { select: { name: true } } },
+      where: { id: data.employeeId, organizationId, deletedAt: null },
+      include: { user: { select: { id: true, email: true } }, organization: { select: { name: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
+
+    // Prevent self-assignment
+    const assigner = await prisma.employee.findFirst({
+      where: { organizationId, user: { id: assignedBy }, deletedAt: null },
+      select: { id: true },
+    });
+    if (assigner && assigner.id === data.employeeId) {
+      throw new BadRequestError('Cannot assign an asset to yourself.');
+    }
 
     try {
       const assignment = await prisma.$transaction(async (tx) => {
@@ -199,10 +209,10 @@ export class AssetService {
   }
 
   async returnAsset(assignmentId: string, returnData?: ReturnAssetInput, organizationId?: string) {
+    const where: any = { id: assignmentId };
+    if (organizationId) where.asset = { organizationId };
     const assignment = await prisma.assetAssignment.findFirst({
-      where: organizationId
-        ? { id: assignmentId, asset: { organizationId } }
-        : { id: assignmentId },
+      where,
       include: { asset: true },
     });
 
@@ -322,14 +332,14 @@ export class AssetService {
 
   async getStats(organizationId: string) {
     const [total, assigned, available, maintenance, retired, byCategory] = await Promise.all([
-      prisma.asset.count({ where: { organizationId } }),
-      prisma.asset.count({ where: { organizationId, status: 'ASSIGNED' } }),
-      prisma.asset.count({ where: { organizationId, status: 'AVAILABLE' } }),
-      prisma.asset.count({ where: { organizationId, status: 'MAINTENANCE' } }),
-      prisma.asset.count({ where: { organizationId, status: 'RETIRED' } }),
+      prisma.asset.count({ where: { organizationId, deletedAt: null } }),
+      prisma.asset.count({ where: { organizationId, status: 'ASSIGNED', deletedAt: null } }),
+      prisma.asset.count({ where: { organizationId, status: 'AVAILABLE', deletedAt: null } }),
+      prisma.asset.count({ where: { organizationId, status: 'MAINTENANCE', deletedAt: null } }),
+      prisma.asset.count({ where: { organizationId, status: 'RETIRED', deletedAt: null } }),
       prisma.asset.groupBy({
         by: ['category'],
-        where: { organizationId },
+        where: { organizationId, deletedAt: null },
         _count: true,
       }),
     ]);
@@ -377,7 +387,11 @@ export class AssetService {
     return checklist;
   }
 
-  async getExitChecklist(employeeId: string) {
+  async getExitChecklist(employeeId: string, organizationId?: string) {
+    if (organizationId) {
+      const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId, deletedAt: null } });
+      if (!employee) throw new NotFoundError('Employee');
+    }
     const checklist = await prisma.exitChecklist.findUnique({
       where: { employeeId },
       include: {
@@ -404,8 +418,13 @@ export class AssetService {
   async markChecklistItemReturned(
     employeeId: string,
     data: ExitChecklistItemInput,
-    approvedBy: string
+    approvedBy: string,
+    organizationId?: string
   ) {
+    if (organizationId) {
+      const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId, deletedAt: null } });
+      if (!employee) throw new NotFoundError('Employee');
+    }
     const checklist = await prisma.exitChecklist.findUnique({
       where: { employeeId },
       include: { items: true },
