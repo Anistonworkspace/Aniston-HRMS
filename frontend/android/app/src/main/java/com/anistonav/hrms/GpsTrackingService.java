@@ -63,7 +63,7 @@ public class GpsTrackingService extends Service {
         ISO_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
     }
 
-    public static final String CHANNEL_ID  = "aniston_gps_tracking";
+    public static final String CHANNEL_ID  = "aniston_gps_tracking_v2";
     private static final int NOTIFICATION_ID = 1001;
     public static final String PREFS_NAME    = "GpsTrackingPrefs";
 
@@ -80,15 +80,18 @@ public class GpsTrackingService extends Service {
     public static final String EXTRA_ATTENDANCE_ID              = "attendance_id";
     public static final String EXTRA_TRACKING_INTERVAL_MINUTES  = "tracking_interval_minutes";
     public static final String EXTRA_SHIFT_END_EPOCH_MS         = "shift_end_epoch_ms";
+    public static final String EXTRA_SHIFT_TYPE                 = "shift_type";
     public  static final String PREFS_KEY_GPS_INTERVAL_MS       = "gps_interval_ms";
     public static final String PREFS_KEY_TRACKING_ENABLED       = "tracking_enabled";
     public static final String PREFS_KEY_SHIFT_END_EPOCH_MS     = "shift_end_epoch_ms";
+    public static final String PREFS_KEY_SHIFT_TYPE             = "shift_type";
 
     // ── GPS timing ────────────────────────────────────────────────────────────
     private static final long GPS_INTERVAL_MS_DEFAULT = 60_000L;
     private static final long GPS_FASTEST_MS          = 30_000L;
     private static final long HEARTBEAT_INTERVAL_MS   = 5 * 60_000L; // 5 min
-    private static final float MAX_ACCURACY_METERS    = 50.0f;
+    private static final float MAX_ACCURACY_METERS    = 150.0f;
+    private static final float LOW_ACCURACY_THRESHOLD_M = 50.0f;
 
     // ── Executor: single-thread for network; scheduled for heartbeat ──────────
     private ScheduledExecutorService networkExecutor;
@@ -109,6 +112,8 @@ public class GpsTrackingService extends Service {
     private boolean stoppedByEmployee = false;
     private int consecutive403Count = 0; // reset on 2xx; stop GPS after 3 unexplained 403s
     private long shiftEndEpochMs = 0L;   // 0 = no shift end time set (track indefinitely)
+    // "FIELD" = full GPS trail; "HYBRID" = lightweight geofence monitoring (different notification)
+    private String shiftType = "FIELD";
 
     // Batching
     private static final int BATCH_THRESHOLD_HIGH_SPEED = 1;
@@ -158,6 +163,7 @@ public class GpsTrackingService extends Service {
         // We call it here unconditionally before any credential checks or async work.
         // The notification text will be updated once we know the actual state.
         startForegroundNow("Aniston HRMS — GPS Active", "Starting…");
+        sIsRunning = true; // Set early so isNativeGpsRunning() is accurate during init
 
         if (intent == null) {
             // Restarted by START_STICKY after OS kill — restore credentials from prefs
@@ -215,6 +221,9 @@ public class GpsTrackingService extends Service {
                 GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_LAST_INTERVAL_UPDATED_AT, GpsDiagnostics.nowIso());
                 // Shift end time for auto-stop (0 = no limit)
                 shiftEndEpochMs = intent.getLongExtra(EXTRA_SHIFT_END_EPOCH_MS, 0L);
+                // Shift type: controls notification text and tracking behaviour
+                String intentShiftType = intent.getStringExtra(EXTRA_SHIFT_TYPE);
+                shiftType = (intentShiftType != null && !intentShiftType.isEmpty()) ? intentShiftType : "FIELD";
                 saveToPrefs();
             } else {
                 // No credentials in intent — restore from GpsSessionStore
@@ -274,7 +283,7 @@ public class GpsTrackingService extends Service {
 
     private void saveToPrefs() {
         GpsSessionStore.saveSession(this, backendUrl, authToken,
-                                    employeeId, orgId, attendanceId, gpsIntervalMs);
+                                    employeeId, orgId, attendanceId, gpsIntervalMs, shiftType);
         GpsDiagnostics.recordEvent(this, GpsDiagnostics.KEY_NATIVE_SESSION_STORED_AT, GpsDiagnostics.nowIso());
     }
 
@@ -286,6 +295,7 @@ public class GpsTrackingService extends Service {
         orgId        = s.orgId;
         attendanceId = s.attendanceId;
         gpsIntervalMs = s.gpsIntervalMs > 0 ? s.gpsIntervalMs : GPS_INTERVAL_MS_DEFAULT;
+        shiftType    = (s.shiftType != null && !s.shiftType.isEmpty()) ? s.shiftType : "FIELD";
     }
 
     // ── Wake lock ─────────────────────────────────────────────────────────────
@@ -334,10 +344,15 @@ public class GpsTrackingService extends Service {
                     GpsDiagnostics.KEY_NEXT_LOCATION_DUE_AT,
                     nextDueSdf.format(new java.util.Date(System.currentTimeMillis() + gpsIntervalMs)));
 
-                String kmh    = String.format(Locale.US, "%.1f km/h", speed * 3.6f);
-                String acc    = String.format(Locale.US, "±%.0f m", accuracy);
-                String coords = String.format(Locale.US, "%.5f, %.5f", lastLat, lastLng);
-                updateNotification("GPS Active — " + kmh, coords + "  " + acc);
+                if ("HYBRID".equals(shiftType)) {
+                    // Lightweight monitoring for hybrid employees — no speed/coords in notification
+                    updateNotification("Aniston HRMS — Location Monitor", "Hybrid monitoring: geofence check active");
+                } else {
+                    String kmh    = String.format(Locale.US, "%.1f km/h", speed * 3.6f);
+                    String acc    = String.format(Locale.US, "±%.0f m", accuracy);
+                    String coords = String.format(Locale.US, "%.5f, %.5f", lastLat, lastLng);
+                    updateNotification("GPS Active — " + kmh, coords + "  " + acc);
+                }
 
                 // Detect mock/spoofed GPS — record for diagnostics; still post the point
                 // so HR can see it on the trail with isMocked=true flagged for review.
@@ -354,7 +369,9 @@ public class GpsTrackingService extends Service {
                     GpsDiagnostics.recordEvent(GpsTrackingService.this, GpsDiagnostics.KEY_LAST_POINT_SKIP_AT,     nowIso);
                     return;
                 }
-                postGpsPoint(lastLat, lastLng, accuracy, speed);
+                // Flag points between 50–150m as low accuracy (still posted, HR can see quality)
+                boolean lowAccuracy = accuracy > LOW_ACCURACY_THRESHOLD_M;
+                postGpsPoint(lastLat, lastLng, accuracy, speed, lowAccuracy);
             }
         };
 
@@ -398,14 +415,15 @@ public class GpsTrackingService extends Service {
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────
 
-    private void postGpsPoint(double lat, double lng, float accuracy, float speed) {
+    private void postGpsPoint(double lat, double lng, float accuracy, float speed, boolean lowAccuracy) {
         if (backendUrl == null || authToken == null) return;
 
         try {
             JSONObject pt = new JSONObject();
-            pt.put("lat",       lat);
-            pt.put("lng",       lng);
-            pt.put("accuracy",  accuracy);
+            pt.put("lat",         lat);
+            pt.put("lng",         lng);
+            pt.put("accuracy",    accuracy);
+            pt.put("lowAccuracy", lowAccuracy);
             if (speed >= 0) pt.put("speed", speed);
             pt.put("timestamp", ISO_FORMAT.format(new Date()));
             pendingBatch.add(pt);
@@ -416,10 +434,13 @@ public class GpsTrackingService extends Service {
 
         boolean highSpeed = NetworkQualityPlugin.getQuality(this).optBoolean("isHighSpeed", true);
         int threshold = highSpeed ? BATCH_THRESHOLD_HIGH_SPEED : BATCH_THRESHOLD_LOW_SPEED;
-        if (pendingBatch.size() < threshold) return;
 
-        final List<JSONObject> batchToSend = new ArrayList<>(pendingBatch);
-        pendingBatch.clear();
+        final List<JSONObject> batchToSend;
+        synchronized (pendingBatch) {
+            if (pendingBatch.size() < threshold) return;
+            batchToSend = new ArrayList<>(pendingBatch);
+            pendingBatch.clear();
+        }
 
         networkExecutor.execute(() -> {
             try {
@@ -672,7 +693,7 @@ public class GpsTrackingService extends Service {
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, "GPS Tracking", NotificationManager.IMPORTANCE_DEFAULT);
+                CHANNEL_ID, "GPS Tracking", NotificationManager.IMPORTANCE_LOW);
             ch.setDescription("Live GPS tracking status for field attendance");
             ch.setShowBadge(false);
             ch.setSound(null, null);

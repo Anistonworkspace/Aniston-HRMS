@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import VisitLocationsTab from './VisitLocationsTab';
 import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2, Send, Repeat, Navigation, Map as MapIcon } from 'lucide-react';
 import HomeLocationRequestsTab from './HomeLocationRequestsTab';
 import ShiftChangeRequestsTab from './ShiftChangeRequestsTab';
@@ -37,7 +38,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
-type Tab = 'shifts' | 'locations' | 'assignments' | 'home-locations' | 'shift-requests';
+type Tab = 'shifts' | 'locations' | 'assignments' | 'home-locations' | 'shift-requests' | 'visit-locations';
 type ShiftFilter = string | null;
 
 export default function RosterPage() {
@@ -72,6 +73,9 @@ export default function RosterPage() {
           ...(isHrOrAdmin ? [
             { key: 'shift-requests' as Tab, label: 'Shift Requests', icon: Repeat },
           ] : []),
+          ...(isHrOrAdmin ? [
+            { key: 'visit-locations' as Tab, label: 'Visit Locations', icon: Navigation },
+          ] : []),
         ].map(t => (
           <button key={t.key} onClick={() => { setTab(t.key); if (t.key !== 'assignments') setShiftFilter(null); }}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -88,6 +92,7 @@ export default function RosterPage() {
       {tab === 'assignments' && <AssignmentsPanel shiftFilter={shiftFilter} onClearFilter={() => setShiftFilter(null)} />}
       {tab === 'home-locations' && isHrOrAdmin && <HomeLocationRequestsTab />}
       {tab === 'shift-requests' && isHrOrAdmin && <ShiftChangeRequestsTab />}
+      {tab === 'visit-locations' && isHrOrAdmin && <VisitLocationsTab />}
     </div>
   );
 }
@@ -138,6 +143,12 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
     gpsSpoofingTimeMinutes: 5,
     gpsMaxAgeSeconds: 120,
     outsideGeofenceAlertEnabled: false,
+    // FIELD: block check-in when inside home geofence
+    blockMarkInInsideHomeGeofence: false,
+    homeGeofenceRadiusMeters: 200,
+    autoAbsentAfterHours: undefined as number | undefined,
+    lateMarkCutoffMinutes: undefined as number | undefined,
+    breakDeductionMinutes: 0,
   };
   const [form, setForm] = useState(emptyForm);
   const [shiftFormTab, setShiftFormTab] = useState<'basic' | 'checkin-rules'>('basic');
@@ -175,6 +186,8 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
       singleCheckInPerDay, maxReClockInsPerDay, earlyCheckInBlockMinutes,
       remoteCheckoutAllowedAfterHour, gpsAccuracyGateMeters, gpsSpoofingDistanceKm,
       gpsSpoofingTimeMinutes, gpsMaxAgeSeconds, outsideGeofenceAlertEnabled,
+      blockMarkInInsideHomeGeofence, homeGeofenceRadiusMeters,
+      autoAbsentAfterHours, lateMarkCutoffMinutes, breakDeductionMinutes,
     } = form;
     // graceMinutes is an alias for lateGraceMinutes — send both so the backend can accept either
     const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes: lateGraceMinutes, halfDayHours, fullDayHours, isDefault,
@@ -186,7 +199,11 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
       singleCheckInPerDay, maxReClockInsPerDay, earlyCheckInBlockMinutes,
       remoteCheckoutAllowedAfterHour, gpsAccuracyGateMeters, gpsSpoofingDistanceKm,
       gpsSpoofingTimeMinutes, gpsMaxAgeSeconds, outsideGeofenceAlertEnabled,
+      blockMarkInInsideHomeGeofence, homeGeofenceRadiusMeters,
+      breakDeductionMinutes,
     };
+    payload.autoAbsentAfterHours = autoAbsentAfterHours ?? null;
+    payload.lateMarkCutoffMinutes = lateMarkCutoffMinutes ?? null;
     if (shiftType === 'FIELD' && trackingIntervalMinutes) payload.trackingIntervalMinutes = trackingIntervalMinutes;
     return payload;
   };
@@ -237,6 +254,11 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
       gpsSpoofingTimeMinutes: s.gpsSpoofingTimeMinutes ?? 5,
       gpsMaxAgeSeconds: s.gpsMaxAgeSeconds ?? 120,
       outsideGeofenceAlertEnabled: s.outsideGeofenceAlertEnabled ?? false,
+      blockMarkInInsideHomeGeofence: s.blockMarkInInsideHomeGeofence ?? false,
+      homeGeofenceRadiusMeters: s.homeGeofenceRadiusMeters ?? 200,
+      autoAbsentAfterHours: s.autoAbsentAfterHours ?? undefined,
+      lateMarkCutoffMinutes: s.lateMarkCutoffMinutes ?? undefined,
+      breakDeductionMinutes: s.breakDeductionMinutes ?? 0,
     });
   };
 
@@ -581,6 +603,33 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                         )}
                       </div>
 
+                      {/* FIELD: Home Geofence Block */}
+                      {form.shiftType === 'FIELD' && (
+                        <div className="space-y-2 pt-2 border-t border-gray-100">
+                          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Home Geofence Block (FIELD)</p>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-600">Block check-in inside employee's home radius</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input type="checkbox" checked={form.blockMarkInInsideHomeGeofence} onChange={e => setForm({ ...form, blockMarkInInsideHomeGeofence: e.target.checked })} className="sr-only peer" />
+                              <div className="w-9 h-5 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all"
+                                style={{ background: form.blockMarkInInsideHomeGeofence ? 'var(--primary-color)' : 'var(--ui-border-color, #d1d5db)' }} />
+                            </label>
+                          </div>
+                          {form.blockMarkInInsideHomeGeofence && (
+                            <div>
+                              <label className="block text-xs text-gray-500 mb-1">Home radius to block (meters)</label>
+                              <input
+                                type="number" min={50} max={5000}
+                                value={form.homeGeofenceRadiusMeters}
+                                onChange={e => setForm({ ...form, homeGeofenceRadiusMeters: Number(e.target.value) })}
+                                className="input-glass w-full text-sm"
+                              />
+                              <p className="text-xs text-gray-400 mt-0.5">Employees within this distance from their approved home cannot clock in. Typical: 200–500m.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Check-in / checkout timing */}
                       <div className="space-y-2">
                         <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Timing Rules</p>
@@ -600,6 +649,44 @@ function ShiftsPanel({ onViewAssigned }: { onViewAssigned: (shiftId: string) => 
                           <input type="number" min={0} max={240} value={form.earlyCheckInBlockMinutes} onChange={e => setForm({ ...form, earlyCheckInBlockMinutes: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
                         <div><label className="block text-xs text-gray-500 mb-1">Remote checkout allowed after hour (24h, e.g. 20 = 8 PM)</label>
                           <input type="number" min={0} max={23} value={form.remoteCheckoutAllowedAfterHour} onChange={e => setForm({ ...form, remoteCheckoutAllowedAfterHour: Number(e.target.value) })} className="input-glass w-full text-sm" /></div>
+
+                        {/* Auto-absent threshold */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Auto-Absent After (hrs)</label>
+                          <input
+                            type="number" min={1} max={24}
+                            className="input-glass w-full text-sm"
+                            placeholder="e.g. 4 (uses org default if blank)"
+                            value={form.autoAbsentAfterHours ?? ''}
+                            onChange={e => setForm(f => ({ ...f, autoAbsentAfterHours: e.target.value ? +e.target.value : undefined }))}
+                          />
+                          <p className="text-xs text-gray-400 mt-0.5">Hours without clock-in before marking absent. Leave blank to use org policy default.</p>
+                        </div>
+
+                        {/* Late → Absent cutoff */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Late &rarr; Absent Cutoff (min)</label>
+                          <input
+                            type="number" min={30} max={720}
+                            className="input-glass w-full text-sm"
+                            placeholder="e.g. 240 (no cutoff if blank)"
+                            value={form.lateMarkCutoffMinutes ?? ''}
+                            onChange={e => setForm(f => ({ ...f, lateMarkCutoffMinutes: e.target.value ? +e.target.value : undefined }))}
+                          />
+                          <p className="text-xs text-gray-400 mt-0.5">Minutes late after which attendance becomes Absent instead of Late.</p>
+                        </div>
+
+                        {/* Break deduction */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Break Deduction (min)</label>
+                          <input
+                            type="number" min={0} max={120}
+                            className="input-glass w-full text-sm"
+                            value={form.breakDeductionMinutes}
+                            onChange={e => setForm(f => ({ ...f, breakDeductionMinutes: +e.target.value }))}
+                          />
+                          <p className="text-xs text-gray-400 mt-0.5">Fixed break minutes deducted from total hours for payroll (e.g. 30 min lunch).</p>
+                        </div>
                       </div>
 
                       {/* GPS quality thresholds */}

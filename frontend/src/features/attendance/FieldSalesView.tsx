@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle, Tag, X, Flag } from 'lucide-react';
-import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery, useGpsAlertMutation, useGpsHeartbeatMutation, useGpsTrackingStopMutation, useTagStopMutation } from './attendanceApi';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle, Tag, X, Flag, Home, Loader2 } from 'lucide-react';
+import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery, useGpsAlertMutation, useGpsHeartbeatMutation, useGpsTrackingStopMutation, useTagStopMutation, useSubmitHomeLocationRequestMutation, useGetMyHomeLocationRequestQuery } from './attendanceApi';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import {
   isNative,
@@ -15,9 +16,11 @@ import {
   startTrackingForShift,
   stopTrackingForShift,
   updateNativeGpsToken,
+  updateNativeGpsInterval,
   isNativeGpsRunning,
   requestBatteryOptimizationExemption,
   isBatteryOptimizationExempted,
+  getNativeGpsDiagnostics,
 } from '../../lib/capacitorGPS';
 import type { RootState } from '../../app/store';
 import toast from 'react-hot-toast';
@@ -114,6 +117,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [showConsentDialog, setShowConsentDialog] = useState(false);
   const [showLocationDenied, setShowLocationDenied] = useState(false);
   const [showBatteryPrompt, setShowBatteryPrompt] = useState(false);
+  const [showMiuiModal, setShowMiuiModal] = useState(false);
   const [syncFailed, setSyncFailed] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(bufferRef.current.length);
   const syncRetryRef = useRef(0);
@@ -131,6 +135,9 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [showStopLabel, setShowStopLabel] = useState(false);
   const [pendingStopLabel, setPendingStopLabel] = useState<string>('');
 
+  // Home location submission
+  const [showHomeLocationModal, setShowHomeLocationModal] = useState(false);
+
   const [clockIn, { isLoading: isClockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: isClockingOut }] = useClockOutMutation();
   const [storeTrail] = useStoreGPSTrailMutation();
@@ -141,6 +148,8 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [sendGpsAlert] = useGpsAlertMutation();
   const [sendGpsHeartbeat] = useGpsHeartbeatMutation();
   const [sendGpsTrackingStop] = useGpsTrackingStopMutation();
+  const [submitHomeLocation, { isLoading: isSubmittingHome }] = useSubmitHomeLocationRequestMutation();
+  const { data: myHomeRequest } = useGetMyHomeLocationRequestQuery();
   const hasConsented = consentData?.consented && consentData?.consentVersion === GPS_CONSENT_VERSION;
 
   const isCheckedIn = todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut;
@@ -339,6 +348,19 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     }
   }, [isOnline, syncPoints]);
 
+  // ── GPS interval live-update: HR can change interval from Roster without requiring re-check-in ──
+  useEffect(() => {
+    if (!isTracking) return;
+    const handler = ({ intervalMinutes }: { intervalMinutes: number }) => {
+      toast(`GPS tracking interval updated to ${intervalMinutes < 60 ? `${intervalMinutes} min` : `${intervalMinutes / 60} hr`} by HR.`, { duration: 4000 });
+      if (isNativeAndroid) {
+        updateNativeGpsInterval(intervalMinutes).catch(() => {});
+      }
+    };
+    onSocketEvent('gps:interval-changed', handler);
+    return () => { offSocketEvent('gps:interval-changed', handler); };
+  }, [isTracking]);
+
   // ── Core: capture one GPS point and push to buffer ──────────────────────────
   const capturePoint = useCallback(async () => {
     try {
@@ -444,7 +466,12 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           gpsTimestamp: new Date(pos.timestamp).toISOString(),
           source: 'MANUAL_APP',
         }).unwrap();
-        toast.success('Field day started!');
+        const checkinShiftType = todayStatus?.shift?.shiftType;
+        if (checkinShiftType === 'HYBRID') {
+          toast('Field tracking active — GPS recorded at office/home geofence only.', { icon: '📍', duration: 4000 });
+        } else {
+          toast.success('Field day started!');
+        }
       }
 
       setIsTracking(true);
@@ -459,11 +486,12 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       persistBuffer(bufferRef.current);
       if (isOnline) syncPoints();
 
-      // ── Native Android: start the Java ForegroundService ────────────────────
+      // ── Native Android: start the Java ForegroundService (FIELD shifts only) ──
       // The service survives swipe-from-recents (android:stopWithTask="false").
       // It handles GPS posting, persistent notification, and heartbeats natively.
       // Geolocation.watchPosition below handles UI-only foreground updates.
-      if (isNativeAndroid) {
+      // HYBRID employees use geofence-only monitoring — no continuous trail service.
+      if (isNativeAndroid && todayStatus?.shift?.shiftType === 'FIELD') {
         const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
         const backendBase = rawApiUrl
           ? rawApiUrl.replace(/\/api\/?$/, '').replace(/\/$/, '')
@@ -481,10 +509,37 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           credentials: {
             backendUrl: backendBase,
             authToken: accessToken || '',
+            // refreshToken is intentionally empty: the Aniston backend issues the refresh
+            // token as an httpOnly cookie, which is inaccessible to JavaScript and therefore
+            // cannot be forwarded to the native GPS service. The native service falls back to
+            // "none_no_fresher_token" on 401 when the WebView is backgrounded. To enable
+            // native refresh, the backend would need to also return the refresh token in the
+            // response body, and JS would need to persist it in Capacitor Preferences.
+            refreshToken: '',
             employeeId: user?.employeeId || '',
             orgId: user?.organizationId || '',
           },
         }).catch((e: any) => console.warn('Native GPS service start failed:', e?.message));
+
+        // MIUI/POCO/Redmi/Oppo/Realme: show one-time autostart setup guide
+        const oemShown = localStorage.getItem('aniston_oem_setup_shown');
+        if (!oemShown) {
+          try {
+            const diag = await getNativeGpsDiagnostics();
+            const mfr = (diag?.manufacturer || '').toLowerCase();
+            const brand = (diag?.brand || '').toLowerCase();
+            if (
+              mfr === 'xiaomi' ||
+              brand === 'poco' ||
+              brand === 'redmi' ||
+              mfr === 'oppo' ||
+              brand === 'realme'
+            ) {
+              setShowMiuiModal(true);
+              localStorage.setItem('aniston_oem_setup_shown', '1');
+            }
+          } catch { /* non-blocking */ }
+        }
       }
 
       // ── watchPosition (foreground UI updates) ────────────────────────────────
@@ -574,6 +629,21 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           else localStorage.setItem(BATTERY_PROMPT_KEY, String(Date.now()));
         }).catch(() => setTimeout(() => setShowBatteryPrompt(true), 3000));
       }
+    }
+  };
+
+  const handleSubmitHomeLocation = async () => {
+    try {
+      const pos = await getCurrentPosition();
+      await submitHomeLocation({
+        latitude: pos.lat,
+        longitude: pos.lng,
+        accuracy: pos.accuracy,
+      }).unwrap();
+      setShowHomeLocationModal(false);
+      toast.success('Home location submitted for HR approval. You will be notified once reviewed.');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to submit home location. Please try again.');
     }
   };
 
@@ -1092,6 +1162,104 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         )}
       </div>
 
+      {/* ── Home Location Card ──────────────────────────────────────────────── */}
+      <div className="layer-card p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center flex-shrink-0">
+              <Home className="w-4 h-4 text-indigo-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Home Location</p>
+              {myHomeRequest?.status === 'APPROVED' && (
+                <p className="text-xs text-emerald-600 flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" /> Approved — active geofence
+                </p>
+              )}
+              {myHomeRequest?.status === 'PENDING' && (
+                <p className="text-xs text-amber-600">Pending HR approval</p>
+              )}
+              {myHomeRequest?.status === 'REJECTED' && (
+                <p className="text-xs text-red-500">Rejected — re-submit to update</p>
+              )}
+              {!myHomeRequest && (
+                <p className="text-xs text-gray-400">Not set — submit your current location as home</p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setShowHomeLocationModal(true)}
+            className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors"
+          >
+            {myHomeRequest ? 'Update' : 'Set Home'}
+          </button>
+        </div>
+        {myHomeRequest?.status === 'REJECTED' && myHomeRequest.reviewNotes && (
+          <div className="mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+            HR note: {myHomeRequest.reviewNotes}
+          </div>
+        )}
+      </div>
+
+      {/* ── Home Location Submission Modal ──────────────────────────────────── */}
+      <AnimatePresence>
+        {showHomeLocationModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Home className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="font-display font-bold text-gray-900">Submit Home Location</h3>
+                  <p className="text-xs text-gray-400">Your current GPS position will be saved as home</p>
+                </div>
+              </div>
+              <div className="space-y-3 mb-5 text-sm text-gray-600">
+                <p className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                  Go to your home address before tapping Confirm below.
+                </p>
+                <p className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                  HR will review and approve your home geofence.
+                </p>
+                <p className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  Once approved, you may not be able to clock in from within your home radius (per shift policy).
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowHomeLocationModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmitHomeLocation}
+                  disabled={isSubmittingHome}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {isSubmittingHome ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+                  {isSubmittingHome ? 'Capturing…' : 'Confirm Location'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Live Stats */}
       {isTracking && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-3 gap-3">
@@ -1232,6 +1400,33 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
                 className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* MIUI/POCO/Redmi Autostart Setup Guide — shown once after first GPS start */}
+      {showMiuiModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-4 pb-6">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-2xl">📱</span>
+              <h3 className="font-semibold text-gray-900 text-base">Enable Background GPS (One-time Setup)</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Your device requires manual permission for GPS to work when the app is closed. Complete these steps once:
+            </p>
+            <ol className="text-sm text-gray-700 space-y-2 mb-4">
+              <li className="flex gap-2"><span className="font-bold text-indigo-600">1.</span><span>Open <strong>MIUI Security</strong> app → <strong>Battery</strong> → Find <strong>Aniston HRMS</strong> → Set to <strong>"No restrictions"</strong></span></li>
+              <li className="flex gap-2"><span className="font-bold text-indigo-600">2.</span><span>Go to <strong>Settings → Apps → Aniston HRMS → Battery</strong> → Select <strong>"Unrestricted"</strong></span></li>
+              <li className="flex gap-2"><span className="font-bold text-indigo-600">3.</span><span>Go to <strong>Settings → Apps → Manage apps → Aniston HRMS</strong> → Enable <strong>Autostart</strong></span></li>
+            </ol>
+            <p className="text-xs text-gray-500 mb-4">This allows GPS to continue tracking even when you swipe the app away.</p>
+            <button
+              onClick={() => setShowMiuiModal(false)}
+              className="w-full bg-indigo-600 text-white rounded-xl py-2.5 text-sm font-medium"
+            >
+              Got it — I'll do this now
+            </button>
+          </div>
         </div>
       )}
     </div>

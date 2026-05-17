@@ -47,10 +47,15 @@ function createQueueStore(): Store<{ screenshotQueue: QueuedScreenshot[] }> {
     }
   }
 
+  // A-018: Remove encryptionKey from the screenshot-queue store.
+  // The store only holds temporary local file paths — not credentials or PII.
+  // The encryption key is derived from hostname+username; if the machine is renamed or the
+  // user profile changes (common after Windows domain migrations), the key changes and the
+  // previously encrypted file becomes unreadable, producing a JSON corruption crash.
+  // File paths are not sensitive enough to warrant this fragility risk.
   try {
     return new Store<{ screenshotQueue: QueuedScreenshot[] }>({
       name: storeName,
-      encryptionKey: CONFIG.STORE_ENCRYPTION_KEY,
       defaults: { screenshotQueue: [] },
     });
   } catch (err) {
@@ -60,7 +65,6 @@ function createQueueStore(): Store<{ screenshotQueue: QueuedScreenshot[] }> {
     }
     return new Store<{ screenshotQueue: QueuedScreenshot[] }>({
       name: storeName,
-      encryptionKey: CONFIG.STORE_ENCRYPTION_KEY,
       defaults: { screenshotQueue: [] },
     });
   }
@@ -113,6 +117,14 @@ async function retryQueue() {
     const toRetry = queue.filter(
       item => fs.existsSync(item.filePath) && now - item.queuedAt < MAX_AGE_MS
     );
+
+    // A-015: Delete files that were dropped from the queue (stale or missing)
+    const dropped = queue.filter(
+      item => !toRetry.find(r => r.filePath === item.filePath)
+    );
+    for (const item of dropped) {
+      try { fs.unlinkSync(item.filePath); } catch { /* already deleted or never existed */ }
+    }
 
     if (toRetry.length === 0) {
       saveQueue([]); // Clear empty/stale queue
@@ -211,7 +223,9 @@ export function stopScreenshots() {
  * Update screenshot interval dynamically (called when live mode config changes via socket).
  */
 export function updateInterval(newIntervalMs: number) {
-  const clamped = Math.max(30_000, Math.min(600_000, newIntervalMs));
+  // AGENT-003: Allow up to 3600s (60 min) — admin can set long intervals for low-frequency monitoring.
+  // Previous cap of 600s silently ignored any admin-configured interval > 10 min.
+  const clamped = Math.max(30_000, Math.min(3_600_000, newIntervalMs));
   if (clamped !== currentIntervalMs) {
     console.log(`[Screenshot] Interval changed: ${currentIntervalMs / 1000}s → ${clamped / 1000}s`);
     currentIntervalMs = clamped;

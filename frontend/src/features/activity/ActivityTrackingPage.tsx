@@ -3,20 +3,23 @@ import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
-  WifiOff, X, Maximize2, Radio, Globe, Download, TrendingDown, TrendingUp,
+  WifiOff, X, Maximize2, Globe, Download, TrendingDown, TrendingUp,
   Camera, Footprints, Info, ChevronDown, ChevronUp, BarChart2, List,
-  AlertTriangle, MinusCircle, Zap,
+  AlertTriangle, MinusCircle, Zap, RefreshCcw,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
   useGetActivityBulkSummaryQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
-  useSetAgentLiveModeMutation, useGetAgentLiveModeQuery,
   useLazyDownloadActivityExcelQuery,
   useGetAgentScreenshotIntervalQuery, useSetAgentScreenshotIntervalMutation, useDeleteAgentActivityByDateMutation,
+  useDeleteAgentScreenshotMutation, useLazyGetAgentStatusForRefreshQuery,
+  useGetAgentReportQuery, useGetAgentRetentionConfigQuery,
+  attendanceApi,
 } from '../attendance/attendanceApi';
 import { useGetAgentSetupListQuery } from '../settings/settingsApi';
 import { getInitials, cn } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import { useAppSelector, useAppDispatch } from '../../app/store';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
 
@@ -39,20 +42,19 @@ function fmtMinutes(mins: number) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Page root
 // ─────────────────────────────────────────────────────────────────────────────
-const RETENTION_DAYS = 30; // must match ACTIVITY_RETENTION_DAYS env var
 
 /** Returns true if a YYYY-MM-DD date string is older than the retention window */
-function isExpired(dateStr: string): boolean {
+function isExpired(dateStr: string, retentionDays: number): boolean {
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - RETENTION_DAYS);
+  cutoff.setDate(cutoff.getDate() - retentionDays);
   cutoff.setHours(0, 0, 0, 0);
   return new Date(dateStr + 'T00:00:00.000Z') < cutoff;
 }
 
 /** Oldest selectable date = today minus retention days */
-function minSelectableDate(): string {
+function minSelectableDate(retentionDays: number): string {
   const d = new Date();
-  d.setDate(d.getDate() - RETENTION_DAYS);
+  d.setDate(d.getDate() - retentionDays);
   return d.toISOString().split('T')[0];
 }
 
@@ -63,7 +65,10 @@ export default function ActivityTrackingPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
   const [fullScreenshot, setFullScreenshot] = useState<string | null>(null);
 
-  const dateExpired = isExpired(selectedDate);
+  const { data: retentionRes } = useGetAgentRetentionConfigQuery();
+  const retentionDays = retentionRes?.data?.activityRetentionDays ?? 30;
+
+  const dateExpired = isExpired(selectedDate, retentionDays);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleDateChange = (value: string) => {
@@ -72,13 +77,20 @@ export default function ActivityTrackingPage() {
     debounceRef.current = setTimeout(() => setSelectedDate(value), 300);
   };
 
-  const { data: empRes, isLoading: loadingEmps } = useGetEmployeesQuery({ page: 1, limit: 100 });
+  const [empPage, setEmpPage] = useState(1);
+  const PAGE_SIZE = 50;
+  const { data: empRes, isLoading: loadingEmps, isFetching: fetchingMoreEmps } = useGetEmployeesQuery({ page: 1, limit: empPage * PAGE_SIZE });
   const employees = empRes?.data || [];
+  const empTotal = empRes?.meta?.total ?? 0;
+  const hasMoreEmps = employees.length < empTotal;
 
   const { data: bulkSummaryRes } = useGetActivityBulkSummaryQuery({ date: selectedDate }, { pollingInterval: 120_000 });
   const bulkSummary = bulkSummaryRes?.data;
 
-  const { data: agentSetupRes } = useGetAgentSetupListQuery(undefined, { pollingInterval: 30_000 });
+  const currentUser = useAppSelector(s => s.auth.user);
+  // ACT-006: MANAGER role cannot call /agent/setup/employees (403) — skip the query
+  const canViewAgentSetup = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'HR';
+  const { data: agentSetupRes } = useGetAgentSetupListQuery(undefined, { pollingInterval: 30_000, skip: !canViewAgentSetup });
   const agentStatusMap = useMemo(() => {
     const map: Record<string, { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null }> = {};
     for (const emp of agentSetupRes?.data || []) {
@@ -91,18 +103,37 @@ export default function ActivityTrackingPage() {
     return map;
   }, [agentSetupRes]);
 
-  const [liveConnected, setLiveConnected] = useState<Record<string, boolean>>({});
+  // ACT-003: Track per-employee heartbeat timestamps so we can expire them individually.
+  // Old approach: bulk-clear all employees every 2 minutes — caused false "offline" for ALL
+  // employees simultaneously every 2 minutes regardless of when each last had a heartbeat.
+  const [liveHeartbeats, setLiveHeartbeats] = useState<Record<string, number>>({});
   useEffect(() => {
     const handler = (data: any) => {
-      if (data?.employeeId) setLiveConnected(prev => ({ ...prev, [data.employeeId]: true }));
+      if (data?.employeeId) setLiveHeartbeats(prev => ({ ...prev, [data.employeeId]: Date.now() }));
     };
     onSocketEvent('agent:heartbeat', handler);
     return () => { offSocketEvent('agent:heartbeat', handler); };
   }, []);
+  // Expire per-employee entries that haven't had a heartbeat in >2 minutes (120s)
+  const liveConnected = useMemo(() => {
+    const cutoff = Date.now() - 120_000;
+    const result: Record<string, boolean> = {};
+    for (const [id, ts] of Object.entries(liveHeartbeats)) {
+      if (ts > cutoff) result[id] = true;
+    }
+    return result;
+  }, [liveHeartbeats]);
   useEffect(() => {
+    // Only force re-render when at least one entry has crossed the 2-minute expiry threshold.
+    // Avoids triple re-render cascade (ticker → liveConnected → onlineCount) every 30s when
+    // no entries are expiring (e.g. no agents connected, or all heartbeats are fresh).
     const ticker = setInterval(() => {
-      setLiveConnected(prev => Object.keys(prev).length === 0 ? prev : {});
-    }, 120_000);
+      setLiveHeartbeats(prev => {
+        const cutoff = Date.now() - 120_000;
+        const hasExpired = Object.values(prev).some(ts => ts <= cutoff);
+        return hasExpired ? { ...prev } : prev;
+      });
+    }, 30_000);
     return () => clearInterval(ticker);
   }, []);
 
@@ -146,18 +177,19 @@ export default function ActivityTrackingPage() {
         <div className="flex items-center gap-2">
           <Calendar size={15} className="text-gray-400" />
           <input type="date" value={rawDate} onChange={e => handleDateChange(e.target.value)}
-            min={minSelectableDate()}
+            min={minSelectableDate(retentionDays)}
             max={new Date().toISOString().split('T')[0]}
             className="input-glass text-sm" />
         </div>
       </div>
+
 
       {/* ── Retention Notice ── */}
       {dateExpired && (
         <div className="mb-3 flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
           <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-amber-500" />
           <div>
-            <span className="font-semibold">Data not available.</span> Activity data older than {RETENTION_DAYS} days is automatically deleted per our data retention policy. Please select a date within the last {RETENTION_DAYS} days.
+            <span className="font-semibold">Data not available.</span> Activity data older than {retentionDays} days is automatically deleted per our data retention policy. Please select a date within the last {retentionDays} days.
           </div>
         </div>
       )}
@@ -213,17 +245,29 @@ export default function ActivityTrackingPage() {
             ) : filteredEmployees.length === 0 ? (
               <p className="text-center text-gray-400 text-xs py-8">No employees found</p>
             ) : (
-              (filteredEmployees as any[]).map((emp: any) => (
-                <EmployeeRow
-                  key={emp.id}
-                  employee={emp}
-                  isSelected={selectedEmployee?.id === emp.id}
-                  bulkSummary={bulkSummary}
-                  agentStatus={agentStatusMap[emp.id]}
-                  isLiveConnected={!!liveConnected[emp.id]}
-                  onClick={() => setSelectedEmployee(emp)}
-                />
-              ))
+              <>
+                {(filteredEmployees as any[]).map((emp: any) => (
+                  <EmployeeRow
+                    key={emp.id}
+                    employee={emp}
+                    isSelected={selectedEmployee?.id === emp.id}
+                    bulkSummary={bulkSummary}
+                    agentStatus={agentStatusMap[emp.id]}
+                    isLiveConnected={!!liveConnected[emp.id]}
+                    onClick={() => setSelectedEmployee(emp)}
+                  />
+                ))}
+                {hasMoreEmps && !searchQuery.trim() && (
+                  <button
+                    onClick={() => setEmpPage(p => p + 1)}
+                    disabled={fetchingMoreEmps}
+                    className="w-full py-2 text-xs text-indigo-600 hover:text-indigo-800 disabled:text-gray-400 border-t border-gray-100 flex items-center justify-center gap-1.5">
+                    {fetchingMoreEmps
+                      ? <><div className="w-3 h-3 border border-indigo-400 border-t-transparent rounded-full animate-spin" /> Loading…</>
+                      : `Load more (${empTotal - employees.length} remaining)`}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -344,20 +388,45 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
   employee: any; date: string; onScreenshotClick: (url: string) => void;
   agentStatus?: { isPaired: boolean; isActive: boolean; lastHeartbeat: string | null };
 }) {
-  const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'screenshots' | 'live'>('overview');
+  const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'screenshots' | 'report'>('overview');
   const [exporting, setExporting] = useState(false);
   const [showExportRange, setShowExportRange] = useState(false);
   const [showDeleteRange, setShowDeleteRange] = useState(false);
-  const employeeUserId: string | undefined = employee?.user?.id;
-  const dateExpired = isExpired(date);
+  const [refreshing, setRefreshing] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<{ isActive: boolean; lastHeartbeat: string | null } | null>(null);
+  const [triggerStatusRefresh] = useLazyGetAgentStatusForRefreshQuery();
+  const dispatch = useAppDispatch();
+  const { data: retentionCfg } = useGetAgentRetentionConfigQuery();
+  const dateExpired = isExpired(date, retentionCfg?.data?.activityRetentionDays ?? 30);
+  const currentUser = useAppSelector(s => s.auth.user);
+  const isAdminOrSuperAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
+
+  // MED-003: When a heartbeat arrives for this employee, invalidate the RTK cache so
+  // the overview/timeline tabs refresh automatically without the user manually reloading.
+  useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const handleHeartbeat = (data: any) => {
+      if (data?.employeeId !== employee.id) return;
+      if (date !== todayStr) return; // only invalidate today's data
+      dispatch(attendanceApi.util.invalidateTags([
+        { type: 'Attendance', id: `agent-screenshots-${employee.id}-${date}` },
+        'Attendance',
+      ]));
+    };
+    onSocketEvent('agent:heartbeat', handleHeartbeat);
+    return () => { offSocketEvent('agent:heartbeat', handleHeartbeat); };
+  }, [employee.id, date, dispatch]);
+
+  const { data: intervalRes } = useGetAgentScreenshotIntervalQuery(employee.id);
+  const screenshotIntervalSeconds = intervalRes?.data?.intervalSeconds ?? 600;
 
   const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 15000 : 60000, skip: dateExpired }
+    { pollingInterval: 60000, skip: dateExpired }
   );
-  const { data: screenshotRes, isLoading: loadingScreenshots } = useGetEmployeeScreenshotsQuery(
+  const { data: screenshotRes, isLoading: loadingScreenshots, isFetching: fetchingScreenshots } = useGetEmployeeScreenshotsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 15000 : 120000, skip: dateExpired }
+    { pollingInterval: 120000, skip: dateExpired }
   );
   const [triggerExport] = useLazyDownloadActivityExcelQuery();
 
@@ -388,7 +457,31 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
     }
   };
 
-  const isConnected = agentStatus?.isActive;
+  const handleRefreshStatus = async () => {
+    setRefreshing(true);
+    try {
+      // ACT-005: { preferCacheValue: false } forces a fresh network request each time the
+      // user clicks Refresh — without this the lazy query returns stale cached data.
+      const result = await triggerStatusRefresh(employee.id, false).unwrap();
+      setLiveStatus({ isActive: result.data.isActive, lastHeartbeat: result.data.lastHeartbeat });
+      // ACT-004: Auto-clear liveStatus after 60s so the UI falls back to the polled status
+      // rather than showing stale "clicked refresh" data indefinitely.
+      setTimeout(() => setLiveStatus(null), 60_000);
+      if (result.data.isActive) {
+        toast.success('Agent is online');
+      } else {
+        toast(`Agent is offline${result.data.lastHeartbeat ? ` — last seen ${fmtDateTime(result.data.lastHeartbeat)}` : ''}`, { icon: '⚠️' });
+      }
+    } catch {
+      toast.error('Could not reach server. Check your connection.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Live status from refresh overrides the polled status from the setup list
+  const effectiveStatus = liveStatus ?? agentStatus;
+  const isConnected = effectiveStatus?.isActive;
   const isPaired = agentStatus?.isPaired;
   const agentDotColor = isConnected ? 'bg-emerald-500 animate-pulse' : isPaired ? 'bg-red-400' : 'bg-gray-300';
   const agentLabel = isConnected ? 'Agent Online' : isPaired ? 'Agent Offline' : 'Not Installed';
@@ -417,13 +510,23 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Agent status pill */}
-            <div className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium', agentBg, agentLabelColor)}>
-              <div className={cn('w-1.5 h-1.5 rounded-full', agentDotColor)} />
-              {agentLabel}
-              {agentStatus?.lastHeartbeat && !isConnected && (
-                <span className="text-gray-400 font-normal ml-1">· {fmtTimeShort(agentStatus.lastHeartbeat)}</span>
-              )}
+            {/* Agent status pill + Reconnect button */}
+            <div className="flex items-center gap-1.5">
+              <div className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium', agentBg, agentLabelColor)}>
+                <div className={cn('w-1.5 h-1.5 rounded-full', agentDotColor)} />
+                {agentLabel}
+                {effectiveStatus?.lastHeartbeat && !isConnected && (
+                  <span className="text-gray-400 font-normal ml-1">· {fmtTimeShort(effectiveStatus.lastHeartbeat)}</span>
+                )}
+              </div>
+              <button
+                onClick={handleRefreshStatus}
+                disabled={refreshing}
+                title="Refresh agent status"
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-full hover:bg-gray-100 transition-colors disabled:opacity-50">
+                <RefreshCcw size={11} className={refreshing ? 'animate-spin' : ''} />
+                {!isConnected && isPaired ? 'Reconnect' : 'Refresh'}
+              </button>
             </div>
 
             {/* Date badge */}
@@ -461,17 +564,15 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
         {/* View mode tabs */}
         <div className="flex bg-gray-100 rounded-lg p-0.5 w-fit mt-3">
           {([
-            { key: 'overview', icon: BarChart2, label: 'Overview', live: false },
-            { key: 'timeline', icon: List, label: 'Timeline', live: false },
-            { key: 'screenshots', icon: Camera, label: 'Screenshots', badge: screenshots.length || null, live: false },
-            { key: 'live', icon: Radio, label: 'Live Feed', live: true },
+            { key: 'overview', icon: BarChart2, label: 'Overview' },
+            { key: 'timeline', icon: List, label: 'Timeline' },
+            { key: 'screenshots', icon: Camera, label: 'Screenshots', badge: screenshots.length || null },
+            { key: 'report', icon: TrendingUp, label: 'Monthly Report' },
           ] as const).map(tab => (
             <button key={tab.key} onClick={() => setViewMode(tab.key as any)}
               className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
-                viewMode === tab.key
-                  ? tab.live ? 'bg-white text-red-600 shadow-sm' : 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700')}>
-              <tab.icon size={13} className={viewMode === tab.key && tab.live ? 'animate-pulse' : ''} />
+                viewMode === tab.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+              <tab.icon size={13} />
               {tab.label}
               {'badge' in tab && tab.badge != null && tab.badge > 0 && (
                 <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: 'var(--primary-highlighted-color)', color: 'var(--primary-color)' }}>{tab.badge}</span>
@@ -481,20 +582,20 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
         </div>
       </div>
 
-      {/* Screenshot interval + data management */}
-      <ScreenshotIntervalControl employeeId={employee.id} />
+      {/* Screenshot interval — ADMIN/SUPER_ADMIN only (HR cannot change interval) */}
+      {isAdminOrSuperAdmin && <ScreenshotIntervalControl employeeId={employee.id} />}
 
       {/* ── Retention Expired State ── */}
       {dateExpired && (
         <div className="layer-card p-10 text-center">
           <AlertTriangle size={40} className="mx-auto text-amber-300 mb-3" />
           <p className="text-sm font-semibold text-gray-600 mb-1">Data deleted — retention policy</p>
-          <p className="text-xs text-gray-400">Activity data for <strong>{date}</strong> has been automatically deleted after {RETENTION_DAYS} days.<br />Select a date within the last {RETENTION_DAYS} days to view data.</p>
+          <p className="text-xs text-gray-400">Activity data for <strong>{date}</strong> has been automatically deleted after {retentionCfg?.data?.activityRetentionDays ?? 30} days.<br />Select a date within the last {retentionCfg?.data?.activityRetentionDays ?? 30} days to view data.</p>
         </div>
       )}
 
       {/* ── No Data State ── */}
-      {!dateExpired && viewMode !== 'live' && !loadingActivity && !activityError && !hasData && (
+      {!dateExpired && viewMode !== 'report' && !loadingActivity && !activityError && !hasData && (
         <div className="layer-card p-10 text-center">
           <Monitor size={40} className="mx-auto text-gray-200 mb-3" />
           <p className="text-sm font-semibold text-gray-500 mb-1">No activity recorded for {date}</p>
@@ -514,7 +615,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
       )}
 
       {/* ── Loading ── */}
-      {!dateExpired && viewMode !== 'live' && loadingActivity && (
+      {!dateExpired && viewMode !== 'report' && loadingActivity && (
         <div className="layer-card p-10 text-center">
           <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
           <p className="text-sm text-gray-400 mt-2">Loading activity data…</p>
@@ -522,7 +623,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
       )}
 
       {/* ── Error ── */}
-      {!dateExpired && viewMode !== 'live' && activityError && (
+      {!dateExpired && viewMode !== 'report' && activityError && (
         <div className="layer-card p-10 text-center">
           <WifiOff size={36} className="mx-auto text-red-300 mb-3" />
           <p className="text-sm text-red-500 mb-1">Failed to load activity data</p>
@@ -549,7 +650,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
               icon={Keyboard} iconBg="bg-blue-50" iconColor="text-blue-600"
               label="Keystrokes" value={summary.totalKeystrokes.toLocaleString()}
               sub="keys pressed"
-              infoText="Total keyboard key-press events captured by the desktop agent's global input hook across the entire day. Counts individual key-down events." />
+              infoText="Keyboard activity detected by the desktop agent across the day. Counts keys that were pressed within each 5-second poll window — fast repeated presses of the same key count as 1 per window, so this is an activity indicator rather than an exact keystroke count." />
             <KpiCard
               icon={Mouse} iconBg="bg-purple-50" iconColor="text-purple-600"
               label="Mouse Clicks" value={summary.totalClicks.toLocaleString()}
@@ -564,7 +665,7 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
               score={summary.productivityScore}
               productiveMinutes={summary.productiveMinutes}
               unproductiveMinutes={summary.unproductiveMinutes}
-              neutralMinutes={summary.totalActiveMinutes - summary.productiveMinutes - summary.unproductiveMinutes}
+              neutralMinutes={Math.max(0, summary.totalActiveMinutes - summary.productiveMinutes - summary.unproductiveMinutes)}
             />
           </div>
 
@@ -621,26 +722,25 @@ function ActivityDetail({ employee, date, onScreenshotClick, agentStatus }: {
         <ScreenshotsGallery
           screenshots={screenshots}
           loading={loadingScreenshots}
+          fetching={fetchingScreenshots}
           onScreenshotClick={onScreenshotClick}
           resetKey={`${employee.id}-${date}`}
+          employeeId={employee.id}
+          date={date}
+          intervalSeconds={screenshotIntervalSeconds}
         />
       )}
 
-      {/* ── LIVE FEED TAB ── */}
-      {viewMode === 'live' && (
-        <LiveFeedPanel
-          employeeId={employee.id}
-          employeeUserId={employeeUserId}
-          screenshots={screenshots}
-          onScreenshotClick={onScreenshotClick}
-        />
+      {/* ── MONTHLY REPORT TAB ── HIGH-003 */}
+      {viewMode === 'report' && (
+        <MonthlyReportPanel employeeId={employee.id} employeeName={`${employee.firstName} ${employee.lastName}`} retentionDays={retentionCfg?.data?.activityRetentionDays ?? 30} />
       )}
 
       {showExportRange && (
-        <ExportRangeModal employeeId={employee.id} employeeCode={employee.employeeCode || employee.id} onClose={() => setShowExportRange(false)} />
+        <ExportRangeModal employeeId={employee.id} employeeCode={employee.employeeCode || employee.id} retentionDays={retentionCfg?.data?.activityRetentionDays ?? 30} onClose={() => setShowExportRange(false)} />
       )}
       {showDeleteRange && (
-        <DeleteRangeModal employeeId={employee.id} onClose={() => setShowDeleteRange(false)} />
+        <DeleteRangeModal employeeId={employee.id} retentionDays={retentionCfg?.data?.activityRetentionDays ?? 30} onClose={() => setShowDeleteRange(false)} />
       )}
     </div>
   );
@@ -653,14 +753,41 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub, infoText }:
   icon: any; iconBg: string; iconColor: string; label: string; value: string; sub: string; infoText?: string;
 }) {
   const [showInfo, setShowInfo] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  const handleInfoClick = () => {
+    if (!showInfo && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left - 220, window.innerWidth - 272));
+      setTooltipPos({ top: rect.bottom + 6 + window.scrollY, left });
+    }
+    setShowInfo(s => !s);
+  };
+
+  useEffect(() => {
+    if (!showInfo) return;
+    const handler = (e: MouseEvent) => {
+      if (tooltipRef.current && !tooltipRef.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setShowInfo(false);
+      }
+    };
+    const keyHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowInfo(false); };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', keyHandler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('keydown', keyHandler); };
+  }, [showInfo]);
+
   return (
-    <div className="layer-card p-4 relative">
+    <div className="layer-card p-4">
       <div className="flex items-center justify-between mb-2">
         <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', iconBg)}>
           <Icon size={16} className={iconColor} />
         </div>
         {infoText && (
-          <button onClick={() => setShowInfo(s => !s)} className="text-gray-300 hover:text-gray-500 transition-colors">
+          <button ref={btnRef} onClick={handleInfoClick} className="text-gray-300 hover:text-gray-500 transition-colors" title="How is this calculated?">
             <Info size={13} />
           </button>
         )}
@@ -668,9 +795,13 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub, infoText }:
       <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
       <p className="text-xl font-bold font-mono text-gray-800 leading-tight" data-mono>{value}</p>
       <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+      {/* UI-001: Render tooltip via fixed positioning so it escapes overflow:hidden ancestors */}
       {showInfo && infoText && (
-        <div className="absolute top-full left-0 mt-1 z-20 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-3 text-[11px] text-gray-600 leading-relaxed">
-          <div className="flex items-start justify-between gap-2 mb-1">
+        <div
+          ref={tooltipRef}
+          className="fixed z-[9999] w-64 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 text-[11px] text-gray-600 leading-relaxed"
+          style={{ top: tooltipPos.top, left: tooltipPos.left }}>
+          <div className="flex items-start justify-between gap-2 mb-1.5">
             <span className="font-semibold text-gray-800 text-xs">{label} — How it's calculated</span>
             <button onClick={() => setShowInfo(false)} className="text-gray-300 hover:text-gray-500 flex-shrink-0"><X size={12} /></button>
           </div>
@@ -687,6 +818,34 @@ function KpiCard({ icon: Icon, iconBg, iconColor, label, value, sub, infoText }:
 function ProductivityRing({ score, productiveMinutes, unproductiveMinutes, neutralMinutes }: {
   score: number | null; productiveMinutes: number; unproductiveMinutes: number; neutralMinutes: number;
 }) {
+  const [showInfo, setShowInfo] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  const handleInfoClick = () => {
+    if (!showInfo && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left - 220, window.innerWidth - 272));
+      setTooltipPos({ top: rect.bottom + 6 + window.scrollY, left });
+    }
+    setShowInfo(s => !s);
+  };
+
+  useEffect(() => {
+    if (!showInfo) return;
+    const handler = (e: MouseEvent) => {
+      if (tooltipRef.current && !tooltipRef.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setShowInfo(false);
+      }
+    };
+    const keyHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowInfo(false); };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', keyHandler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('keydown', keyHandler); };
+  }, [showInfo]);
+
   const radius = 22;
   const circumference = 2 * Math.PI * radius;
   const pct = score ?? 0;
@@ -696,11 +855,24 @@ function ProductivityRing({ score, productiveMinutes, unproductiveMinutes, neutr
 
   return (
     <div className="layer-card p-4 col-span-1">
-      <div className="flex items-center gap-2 mb-1">
+      <div className="flex items-center justify-between mb-1">
         <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
           {pct >= 40 ? <TrendingUp size={16} className="text-indigo-600" /> : <TrendingDown size={16} className="text-red-500" />}
         </div>
+        <button ref={btnRef} onClick={handleInfoClick} className="text-gray-300 hover:text-gray-500 transition-colors" title="How is this calculated?">
+          <Info size={13} />
+        </button>
       </div>
+      {showInfo && (
+        <div ref={tooltipRef} className="fixed z-[9999] w-64 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 text-[11px] text-gray-600 leading-relaxed"
+          style={{ top: tooltipPos.top, left: tooltipPos.left }}>
+          <div className="flex items-start justify-between gap-2 mb-1.5">
+            <span className="font-semibold text-gray-800 text-xs">Productivity — How it's calculated</span>
+            <button onClick={() => setShowInfo(false)} className="text-gray-300 hover:text-gray-500 flex-shrink-0"><X size={12} /></button>
+          </div>
+          Score = 60% weight on activity ratio (active ÷ (active + idle)) + 40% weight on productive ratio (productive app time ÷ total active time). Apps are categorised as Productive (e.g. VS Code, Excel, Teams), Unproductive (e.g. Netflix, Discord), or Neutral. Score 70%+ = High, 40–69% = Medium, &lt;40% = Low.
+        </div>
+      )}
       <p className="text-[11px] text-gray-400 mb-1">Productivity</p>
       {score === null ? (
         <p className="text-xl font-bold text-gray-300">—</p>
@@ -978,362 +1150,158 @@ function ActivityTimeline({ logs }: { logs: any[] }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Live Feed Panel
 // ─────────────────────────────────────────────────────────────────────────────
-function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotClick }: {
-  employeeId: string; employeeUserId: string | undefined; screenshots: any[]; onScreenshotClick: (url: string) => void;
-}) {
-  const [liveData, setLiveData] = useState<any>(null);
-  const [feedLog, setFeedLog] = useState<any[]>([]);
-  const [interval, setInterval_] = useState(30);
-  const [setLiveMode] = useSetAgentLiveModeMutation();
-  const { data: liveModeRes } = useGetAgentLiveModeQuery(employeeId, { pollingInterval: 10000 });
-  const isLive = liveModeRes?.data?.enabled || false;
+// Monthly Report Panel — HIGH-003
+// ─────────────────────────────────────────────────────────────────────────────
+function MonthlyReportPanel({ employeeId, employeeName, retentionDays }: { employeeId: string; employeeName: string; retentionDays: number }) {
+  const today = new Date();
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+  const todayStr = today.toISOString().split('T')[0];
+  const [fromDate, setFromDate] = useState(firstOfMonth);
+  const [toDate, setToDate] = useState(todayStr);
 
-  useEffect(() => {
-    if (liveModeRes?.data?.intervalSeconds) setInterval_(liveModeRes.data.intervalSeconds);
-  }, [liveModeRes?.data?.intervalSeconds]);
+  const { data: reportRes, isLoading, isError } = useGetAgentReportQuery(
+    { employeeId, from: fromDate, to: toDate },
+    { skip: !employeeId }
+  );
+  const report = reportRes?.data;
 
-  useEffect(() => {
-    const handleHeartbeat = (data: any) => {
-      if (data.employeeId === employeeId) {
-        setLiveData(data);
-        setFeedLog(prev => [data, ...prev].slice(0, 50));
-      }
-    };
-    onSocketEvent('agent:heartbeat', handleHeartbeat);
-    return () => { offSocketEvent('agent:heartbeat', handleHeartbeat); };
-  }, [employeeId]);
-
-  const latestScreenshot = screenshots.length > 0 ? screenshots[screenshots.length - 1] : null;
+  const gradeColor = (g: string) =>
+    g === 'A+' || g === 'A' ? 'text-emerald-600' : g === 'B+' || g === 'B' ? 'text-blue-600' : g === 'C' ? 'text-amber-600' : 'text-red-500';
 
   return (
     <div className="space-y-3">
-      {/* Live Controls */}
-      <div className="layer-card p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={cn('w-2.5 h-2.5 rounded-full', isLive ? 'bg-red-500 animate-pulse' : 'bg-gray-300')} />
-            <h4 className="text-sm font-semibold text-gray-800">{isLive ? 'Live View Active' : 'Live View Off'}</h4>
-            {isLive && liveData && (
-              <span className="text-[10px] text-gray-400">
-                · Last data at {fmtTime(liveData.timestamp)}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <select value={interval} onChange={e => setInterval_(Number(e.target.value))}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none">
-              <option value={10}>Every 10s</option>
-              <option value={30}>Every 30s</option>
-              <option value={60}>Every 60s</option>
-            </select>
-            {isLive ? (
-              <button onClick={() => setLiveMode({ employeeId, enabled: false })}
-                className="px-4 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
-                Stop Live View
-              </button>
-            ) : (
-              <button onClick={() => setLiveMode({ employeeId, enabled: true, intervalSeconds: interval })}
-                className="px-4 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1">
-                <Radio size={12} /> Start Live View
-              </button>
-            )}
-          </div>
+      {/* Range selector */}
+      <div className="layer-card p-4 flex items-end gap-3 flex-wrap">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">From</label>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+            min={minSelectableDate(retentionDays)} max={todayStr} className="input-glass text-sm" />
         </div>
-        {isLive && (
-          <p className="text-[10px] text-gray-400 mt-2">
-            Agent captures a screenshot every <strong>{interval}s</strong> and sends activity data in real-time.
-          </p>
-        )}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+            min={fromDate} max={todayStr} className="input-glass text-sm" />
+        </div>
+        <div className="flex gap-2">
+          {[{ label: 'This month', fn: () => { setFromDate(firstOfMonth); setToDate(todayStr); } },
+            { label: 'Last 7 days', fn: () => { const d = new Date(); d.setDate(d.getDate() - 6); setFromDate(d.toISOString().split('T')[0]); setToDate(todayStr); } },
+            { label: 'Last 30 days', fn: () => { const d = new Date(); d.setDate(d.getDate() - 29); setFromDate(d.toISOString().split('T')[0]); setToDate(todayStr); } },
+          ].map(p => (
+            <button key={p.label} onClick={p.fn} className="py-1.5 px-3 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Current window info */}
-      {liveData && (
-        <div className="layer-card p-4">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-            <Monitor size={12} /> Current Activity (live)
-          </h4>
+      {isLoading && (
+        <div className="layer-card p-10 text-center">
+          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary-color)', borderTopColor: 'transparent' }} />
+          <p className="text-sm text-gray-400 mt-2">Loading productivity report…</p>
+        </div>
+      )}
+
+      {isError && (
+        <div className="layer-card p-10 text-center">
+          <WifiOff size={36} className="mx-auto text-red-300 mb-3" />
+          <p className="text-sm text-red-500">Failed to load report. Try adjusting the date range.</p>
+        </div>
+      )}
+
+      {report && !isLoading && (
+        <>
+          {/* Summary cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Application</p>
-              <p className="text-sm font-semibold text-gray-800 truncate">{liveData.activeApp || 'Unknown'}</p>
+            <div className="layer-card p-4">
+              <p className="text-[11px] text-gray-400 mb-1">Total Active</p>
+              <p className="text-xl font-bold font-mono text-gray-800" data-mono>{fmtMinutes(report.summary.totalActiveMins)}</p>
+              <p className="text-[10px] text-gray-400">{report.summary.daysWithData} days with data</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3 col-span-1 lg:col-span-1">
-              <p className="text-[10px] text-gray-400 mb-1">Status</p>
-              <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium',
-                liveData.category === 'PRODUCTIVE' ? 'bg-emerald-100 text-emerald-700' :
-                liveData.category === 'UNPRODUCTIVE' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600')}>
-                {liveData.category || 'NEUTRAL'}
-              </span>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Keystrokes (batch)</p>
-              <p className="text-sm font-bold text-blue-600 font-mono" data-mono>{liveData.keystrokes?.toLocaleString() || 0}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[10px] text-gray-400 mb-1">Idle Time</p>
-              <p className={cn('text-sm font-bold font-mono', liveData.idleSeconds > 120 ? 'text-amber-600' : 'text-gray-700')} data-mono>
-                {liveData.idleSeconds > 0 ? `${liveData.idleSeconds}s` : 'Active'}
+            <div className="layer-card p-4">
+              <p className="text-[11px] text-gray-400 mb-1">Avg Daily Score</p>
+              <p className={cn('text-xl font-bold font-mono', gradeColor(report.summary.grade))} data-mono>
+                {report.summary.averageDailyScore}%
               </p>
+              <p className={cn('text-[11px] font-semibold', gradeColor(report.summary.grade))}>Grade {report.summary.grade}</p>
+            </div>
+            <div className="layer-card p-4">
+              <p className="text-[11px] text-gray-400 mb-1">Productive Time</p>
+              <p className="text-xl font-bold font-mono text-emerald-600" data-mono>{fmtMinutes(report.summary.totalProductiveMins)}</p>
+              <p className="text-[10px] text-gray-400">of {fmtMinutes(report.summary.totalActiveMins)} active</p>
+            </div>
+            <div className="layer-card p-4">
+              <p className="text-[11px] text-gray-400 mb-1">Unproductive</p>
+              <p className="text-xl font-bold font-mono text-red-500" data-mono>{fmtMinutes(report.summary.totalUnproductiveMins)}</p>
+              <p className="text-[10px] text-gray-400">distractions tracked</p>
             </div>
           </div>
-          {liveData.activeWindow && (
-            <div className="mt-2 bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-[10px] text-gray-400 mb-0.5">Window Title</p>
-              <p className="text-xs text-gray-700 truncate">{liveData.activeWindow}</p>
+
+          {/* Day-by-day breakdown */}
+          {report.days.length > 0 && (
+            <div className="layer-card p-4">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <BarChart2 size={12} /> Daily Breakdown
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[10px] text-gray-400 border-b border-gray-100">
+                      <th className="pb-2 font-medium">Date</th>
+                      <th className="pb-2 font-medium text-right">Active</th>
+                      <th className="pb-2 font-medium text-right">Productive</th>
+                      <th className="pb-2 font-medium text-right">Score</th>
+                      <th className="pb-2 font-medium text-right">Grade</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {report.days.filter(d => d.activeMinutes > 0).map(d => (
+                      <tr key={d.date} className="hover:bg-gray-50">
+                        <td className="py-1.5 font-mono text-gray-600" data-mono>{d.date}</td>
+                        <td className="py-1.5 text-right text-gray-700">{fmtMinutes(d.activeMinutes)}</td>
+                        <td className="py-1.5 text-right text-emerald-600">{fmtMinutes(d.productiveMinutes)}</td>
+                        <td className="py-1.5 text-right font-mono font-semibold" data-mono
+                          style={{ color: d.productivityScore !== null && d.productivityScore >= 70 ? '#10b981' : d.productivityScore !== null && d.productivityScore >= 40 ? '#f59e0b' : '#ef4444' }}>
+                          {d.productivityScore !== null ? `${d.productivityScore}%` : '—'}
+                        </td>
+                        <td className={cn('py-1.5 text-right font-semibold', gradeColor(d.grade))}>{d.grade}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Latest Screenshot */}
-      <div className="layer-card p-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
-          <Eye size={12} /> Latest Screenshot
-        </h4>
-        {latestScreenshot ? (
-          <div className="relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 transition-colors"
-            onClick={() => onScreenshotClick(`${API_BASE}${latestScreenshot.imageUrl}`)}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
-            <img src={`${API_BASE}${latestScreenshot.imageUrl}`} alt="Latest screenshot"
-              className="w-full h-auto max-h-96 object-contain bg-gray-900" />
-            <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
-              {fmtTime(latestScreenshot.timestamp)} · {latestScreenshot.activeApp || 'Desktop'}
+          {/* Top apps over range */}
+          {report.topApps.length > 0 && (
+            <div className="layer-card p-4">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <Monitor size={12} /> Top Applications ({fromDate} → {toDate})
+              </h4>
+              <div className="space-y-2">
+                {report.topApps.slice(0, 8).map(app => (
+                  <div key={app.app} className="flex items-center gap-2">
+                    <span className="text-xs text-gray-700 w-40 truncate flex-shrink-0">{app.app}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2">
+                      <div className="h-2 rounded-full transition-all" style={{ width: `${app.percentage}%`, background: 'var(--primary-color)' }} />
+                    </div>
+                    <span className="text-[10px] text-gray-500 w-10 text-right flex-shrink-0">{fmtMinutes(app.minutes)}</span>
+                    <span className="text-[10px] text-gray-400 w-8 text-right flex-shrink-0">{app.percentage}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="bg-gray-100 rounded-lg h-40 flex items-center justify-center">
-            <p className="text-xs text-gray-400">No screenshots yet</p>
-          </div>
-        )}
-      </div>
-
-      {/* Real-time Feed Log */}
-      <div className="layer-card p-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
-          <Activity size={12} /> Real-time Feed
-          <span className="text-[10px] text-gray-400 font-normal ml-1">(socket events, newest first)</span>
-        </h4>
-        {feedLog.length > 0 ? (
-          <div className="divide-y divide-gray-50 rounded-lg border border-gray-100 overflow-hidden max-h-64 overflow-y-auto">
-            {feedLog.map((entry, i) => (
-              <motion.div key={i} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
-                <span className="text-gray-400 font-mono w-16 flex-shrink-0 text-[10px]" data-mono>{fmtTime(entry.timestamp)}</span>
-                <div className={cn('w-2 h-2 rounded-full flex-shrink-0',
-                  entry.category === 'PRODUCTIVE' ? 'bg-emerald-500' :
-                  entry.category === 'UNPRODUCTIVE' ? 'bg-red-400' : 'bg-gray-300')} />
-                <span className="text-gray-700 font-medium w-28 truncate flex-shrink-0 text-[11px]">{entry.activeApp}</span>
-                <span className="text-gray-400 truncate flex-1 text-[11px]">{entry.activeWindow}</span>
-                {entry.keystrokes > 0 && (
-                  <span className="text-blue-500 flex items-center gap-0.5 flex-shrink-0 text-[10px]">
-                    <Keyboard size={9} /> {entry.keystrokes}
-                  </span>
-                )}
-                {entry.mouseClicks > 0 && (
-                  <span className="text-purple-500 flex items-center gap-0.5 flex-shrink-0 text-[10px]">
-                    <Mouse size={9} /> {entry.mouseClicks}
-                  </span>
-                )}
-                {entry.mouseDistance > 0 && (
-                  <span className="text-indigo-400 flex items-center gap-0.5 flex-shrink-0 text-[10px]">
-                    <Footprints size={9} /> {entry.mouseDistance}px
-                  </span>
-                )}
-              </motion.div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-400 text-center py-6">
-            Waiting for live data… Start the agent on the employee's PC and enable Live View above.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// LiveVideoStream removed — WebRTC streaming is no longer supported.
-// The Live Feed tab now shows real-time activity feed + latest screenshots only.
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Screenshot Interval Control (placeholder to preserve line structure)
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WebRTC Live Video Stream — REMOVED
-// ─────────────────────────────────────────────────────────────────────────────
-function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; employeeUserId: string | undefined }) {
-  // WebRTC removed — this component is no longer rendered
-  return null;
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const agentSocketIdRef = useRef<string | null>(null);
-  const signalHandlerRef = useRef<((data: any) => void) | null>(null);
-  const streamErrorHandlerRef = useRef<((data: any) => void) | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [streaming, setStreaming] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const { data: agentStatusRes } = useGetEmployeeAgentStatusQuery(employeeId, { pollingInterval: 15000, skip: !employeeId });
-  const agentIsActive = agentStatusRes?.data?.isActive ?? false;
-  const lastHeartbeat = agentStatusRes?.data?.lastHeartbeat;
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      const socket = getSocket();
-      if (socket) {
-        if (signalHandlerRef.current) socket.off('stream:signal', signalHandlerRef.current);
-        if (streamErrorHandlerRef.current) socket.off('stream:error', streamErrorHandlerRef.current);
-      }
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    };
-  }, []);
-
-  const stopLiveStream = useCallback(() => {
-    const socket = getSocket();
-    if (socket && employeeUserId) socket.emit('stream:stop-request', { employeeUserId });
-    if (socket) {
-      if (signalHandlerRef.current) { socket.off('stream:signal', signalHandlerRef.current); signalHandlerRef.current = null; }
-      if (streamErrorHandlerRef.current) { socket.off('stream:error', streamErrorHandlerRef.current); streamErrorHandlerRef.current = null; }
-    }
-    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setStreaming(false); setConnecting(false);
-  }, [employeeUserId]);
-
-  const startLiveStream = useCallback(() => {
-    if (!employeeUserId) { setError('Employee user account not found'); return; }
-    setConnecting(true); setError(null);
-    const socket = getSocket();
-    if (!socket?.connected) { setError('Real-time connection unavailable. Please refresh.'); setConnecting(false); return; }
-
-    if (signalHandlerRef.current) socket.off('stream:signal', signalHandlerRef.current);
-    if (streamErrorHandlerRef.current) socket.off('stream:error', streamErrorHandlerRef.current);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-
-    const handleStreamError = (data: any) => {
-      if (!data.employeeUserId || data.employeeUserId === employeeUserId) {
-        setError(data.message || 'Agent is not connected'); setConnecting(false);
-      }
-    };
-    streamErrorHandlerRef.current = handleStreamError;
-    socket.on('stream:error', handleStreamError);
-
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] });
-    pcRef.current = pc;
-
-    pc.ontrack = (event) => {
-      if (videoRef.current && event.streams[0]) {
-        videoRef.current.srcObject = event.streams[0];
-        setStreaming(true); setConnecting(false);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      }
-    };
-    pc.onicecandidate = (event) => {
-      if (event.candidate) socket.emit('stream:signal', { type: 'ice-candidate', candidate: event.candidate, targetSocketId: agentSocketIdRef.current });
-    };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        setStreaming(false); setError('Stream disconnected — agent may have gone offline');
-      }
-    };
-
-    const handleSignal = (data: any) => {
-      if (data.type === 'offer' && data.sdp) {
-        agentSocketIdRef.current = data.fromSocketId;
-        pc.setRemoteDescription(data.sdp)
-          .then(() => pc.createAnswer())
-          .then(answer => pc.setLocalDescription(answer))
-          .then(() => socket.emit('stream:signal', { type: 'answer', sdp: pc.localDescription, targetSocketId: data.fromSocketId }))
-          .catch(() => { setError('WebRTC negotiation failed'); setConnecting(false); });
-      } else if (data.type === 'ice-candidate' && data.candidate) {
-        pc.addIceCandidate(data.candidate).catch(() => {});
-      }
-    };
-    signalHandlerRef.current = handleSignal;
-    socket.on('stream:signal', handleSignal);
-    socket.emit('stream:request', { employeeUserId });
-
-    timeoutRef.current = setTimeout(() => {
-      setConnecting(prev => { if (prev) { setError('Agent did not respond. Make sure the desktop agent is running.'); return false; } return prev; });
-    }, 15000);
-  }, [employeeUserId]);
-
-  const lastSeenText = lastHeartbeat
-    ? `Last seen ${fmtTimeShort(lastHeartbeat)}`
-    : 'Never connected';
-
-  return (
-    <div className="layer-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-          <Radio size={12} className={streaming ? 'text-red-500 animate-pulse' : 'text-gray-400'} />
-          Live Screen Stream
-          {streaming && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse ml-1">LIVE</span>}
-          {!streaming && (
-            <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-1',
-              agentIsActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')}>
-              {agentIsActive ? 'Agent Online' : 'Agent Offline'}
-            </span>
           )}
-        </h4>
-        {!streaming && !connecting ? (
-          <button onClick={startLiveStream} disabled={!agentIsActive}
-            title={!agentIsActive ? `${lastSeenText}` : 'Start live stream'}
-            className={cn('px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 transition-colors',
-              agentIsActive ? 'text-white bg-red-600 hover:bg-red-700' : 'text-gray-400 bg-gray-100 cursor-not-allowed')}>
-            <Radio size={12} /> Start Stream
-          </button>
-        ) : (
-          <button onClick={stopLiveStream}
-            className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
-            Stop Stream
-          </button>
-        )}
-      </div>
 
-      {!agentIsActive && !streaming && (
-        <div className="mb-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          <WifiOff size={12} className="flex-shrink-0" />
-          <span>Desktop agent is not running. {lastSeenText}. Ask the employee to start the Aniston Agent app.</span>
-        </div>
+          {report.days.filter(d => d.activeMinutes > 0).length === 0 && (
+            <div className="layer-card p-10 text-center">
+              <Activity size={40} className="mx-auto text-gray-200 mb-3" />
+              <p className="text-sm text-gray-500">No activity data for the selected range</p>
+            </div>
+          )}
+        </>
       )}
-
-      <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
-        <video ref={videoRef} autoPlay playsInline muted
-          className={cn('w-full h-full object-contain', !streaming && 'hidden')} />
-        {!streaming && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            {connecting ? (
-              <div className="text-center">
-                <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                <p className="text-white text-sm">Connecting to screen…</p>
-                <p className="text-gray-400 text-xs mt-1">Waiting for agent to respond</p>
-              </div>
-            ) : error ? (
-              <div className="text-center px-6">
-                <WifiOff size={28} className="mx-auto text-red-400 mb-2" />
-                <p className="text-red-400 text-sm mb-2">{error}</p>
-                {agentIsActive && (
-                  <button onClick={startLiveStream} className="text-xs text-white/70 hover:text-white underline">Try again</button>
-                )}
-              </div>
-            ) : (
-              <div className="text-center">
-                <Monitor size={40} className="mx-auto text-gray-600 mb-2" />
-                <p className="text-gray-400 text-sm">Click "Start Stream" to view the employee's screen</p>
-                <p className="text-gray-500 text-xs mt-1">Requires the desktop agent to be running</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -1424,7 +1392,7 @@ function DeleteDateDataButton({ employeeId, date, hasData }: { employeeId: strin
 // ─────────────────────────────────────────────────────────────────────────────
 // Export Range Modal
 // ─────────────────────────────────────────────────────────────────────────────
-function ExportRangeModal({ employeeId, employeeCode, onClose }: { employeeId: string; employeeCode: string; onClose: () => void }) {
+function ExportRangeModal({ employeeId, employeeCode, retentionDays, onClose }: { employeeId: string; employeeCode: string; retentionDays: number; onClose: () => void }) {
   const today = new Date().toISOString().split('T')[0];
   const [fromDate, setFromDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().split('T')[0];
@@ -1432,6 +1400,12 @@ function ExportRangeModal({ employeeId, employeeCode, onClose }: { employeeId: s
   const [toDate, setToDate] = useState(today);
   const [loading, setLoading] = useState(false);
   const [triggerExport] = useLazyDownloadActivityExcelQuery();
+  const abortRef = useRef<AbortController | null>(null); // HIGH-008: cancel in-flight exports on modal close
+
+  // HIGH-008: Cancel any in-flight export requests when the modal unmounts
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   const setPreset = (days: number) => {
     const to = new Date();
@@ -1449,6 +1423,7 @@ function ExportRangeModal({ employeeId, employeeCode, onClose }: { employeeId: s
     const diffDays = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     if (diffDays > maxDays) { toast.error(`Range too large — max ${maxDays} days at once`); return; }
 
+    abortRef.current = new AbortController();
     setLoading(true);
     const dates: string[] = [];
     const cur = new Date(from);
@@ -1459,6 +1434,7 @@ function ExportRangeModal({ employeeId, employeeCode, onClose }: { employeeId: s
 
     let exported = 0;
     for (const date of dates) {
+      if (abortRef.current?.signal.aborted) break;
       try {
         const result = await triggerExport({ employeeId, date });
         if (result.data) {
@@ -1501,12 +1477,12 @@ function ExportRangeModal({ employeeId, employeeCode, onClose }: { employeeId: s
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
             <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-              max={today} className="input-glass text-sm w-full" />
+              min={minSelectableDate(retentionDays)} max={today} className="input-glass text-sm w-full" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
             <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-              max={today} className="input-glass text-sm w-full" />
+              min={minSelectableDate(retentionDays)} max={today} className="input-glass text-sm w-full" />
           </div>
         </div>
 
@@ -1528,7 +1504,7 @@ function ExportRangeModal({ employeeId, employeeCode, onClose }: { employeeId: s
 // ─────────────────────────────────────────────────────────────────────────────
 // Delete Range Modal
 // ─────────────────────────────────────────────────────────────────────────────
-function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose: () => void }) {
+function DeleteRangeModal({ employeeId, retentionDays, onClose }: { employeeId: string; retentionDays: number; onClose: () => void }) {
   const today = new Date().toISOString().split('T')[0];
   const [fromDate, setFromDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().split('T')[0];
@@ -1537,6 +1513,7 @@ function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [deleteData] = useDeleteAgentActivityByDateMutation();
+  const dispatch = useAppDispatch();
 
   const setPreset = (days: number) => {
     const to = new Date();
@@ -1567,6 +1544,10 @@ function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose
         totalScreenshots += result.data?.screenshotsDeleted || 0;
       } catch { /* skip empty dates */ }
     }
+    // HIGH-004: Force invalidation of all activity-related cache after the full delete loop.
+    // The per-mutation invalidatesTags fires after each individual delete but RTK dedups them;
+    // this final explicit invalidation ensures the UI refreshes once when the modal closes.
+    dispatch(attendanceApi.util.invalidateTags(['Attendance']));
     toast.success(`Deleted ${totalLogs} logs and ${totalScreenshots} screenshots (${fromDate} → ${toDate})`);
     setLoading(false);
     onClose();
@@ -1596,12 +1577,12 @@ function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
                 <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-                  max={today} className="input-glass text-sm w-full" />
+                  min={minSelectableDate(retentionDays)} max={today} className="input-glass text-sm w-full" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
                 <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-                  max={today} className="input-glass text-sm w-full" />
+                  min={minSelectableDate(retentionDays)} max={today} className="input-glass text-sm w-full" />
               </div>
             </div>
             <div className="flex gap-2">
@@ -1636,44 +1617,101 @@ function DeleteRangeModal({ employeeId, onClose }: { employeeId: string; onClose
 // ─────────────────────────────────────────────────────────────────────────────
 const SCREENSHOTS_PER_PAGE = 48;
 
-function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey }: {
-  screenshots: any[]; loading: boolean; onScreenshotClick: (url: string) => void; resetKey?: string;
+function ScreenshotCard({ s, employeeId, date, onScreenshotClick, onDeleted }: {
+  s: any; employeeId: string; date: string; onScreenshotClick: (url: string) => void; onDeleted: (id: string) => void;
 }) {
-  const [visible, setVisible] = useState(SCREENSHOTS_PER_PAGE);
-  useEffect(() => { setVisible(SCREENSHOTS_PER_PAGE); }, [resetKey]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteScreenshot, { isLoading: deleting }] = useDeleteAgentScreenshotMutation();
 
-  const shown = screenshots.slice(0, visible);
-  const hasMore = screenshots.length > visible;
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      // ACT-001: pass employeeId + date so RTK Query can invalidate the screenshots cache tag
+      await deleteScreenshot({ screenshotId: s.id, employeeId, date }).unwrap();
+      toast.success('Screenshot deleted');
+      onDeleted(s.id);
+    } catch {
+      toast.error('Failed to delete screenshot');
+    } finally {
+      setConfirmDelete(false);
+    }
+  };
 
   return (
-    <div className="layer-card p-4">
+    <div key={s.id} className="group relative rounded-lg overflow-hidden border border-gray-200 hover:shadow-md transition-all"
+      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')}
+      onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
+      <div className="cursor-pointer" onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}>
+        <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'} className="w-full h-28 object-cover" loading="lazy" />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+          <Maximize2 size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
+        <p className="text-[9px] text-white truncate font-medium">{s.activeApp || 'Desktop'}</p>
+        <p className="text-[8px] text-gray-300">{fmtTimeShort(s.timestamp)}</p>
+      </div>
+      {/* Delete button — top-right, shown on hover */}
+      {!confirmDelete ? (
+        <button
+          onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 hover:bg-red-600 text-white rounded-md p-1"
+          title="Delete screenshot">
+          <X size={11} />
+        </button>
+      ) : (
+        <div className="absolute top-1 right-1 flex items-center gap-1 bg-black/80 rounded-md px-1.5 py-1 z-10" onClick={e => e.stopPropagation()}>
+          <span className="text-[9px] text-white">Delete?</span>
+          <button onClick={handleDelete} disabled={deleting}
+            className="text-[9px] text-red-400 hover:text-red-300 font-semibold disabled:opacity-50">
+            {deleting ? '…' : 'Yes'}
+          </button>
+          <button onClick={e => { e.stopPropagation(); setConfirmDelete(false); }}
+            className="text-[9px] text-gray-300 hover:text-white">No</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScreenshotsGallery({ screenshots, loading, fetching, onScreenshotClick, resetKey, employeeId, date, intervalSeconds }: {
+  screenshots: any[]; loading: boolean; fetching?: boolean; onScreenshotClick: (url: string) => void; resetKey?: string; employeeId: string; date: string; intervalSeconds?: number;
+}) {
+  const [visible, setVisible] = useState(SCREENSHOTS_PER_PAGE);
+  const [deleted, setDeleted] = useState<Set<string>>(new Set());
+  useEffect(() => { setVisible(SCREENSHOTS_PER_PAGE); setDeleted(new Set()); }, [resetKey]);
+
+  const filtered = screenshots.filter(s => !deleted.has(s.id));
+  const shown = filtered.slice(0, visible);
+  const hasMore = filtered.length > visible;
+
+  return (
+    <div className="layer-card p-4 relative">
+      {/* MED-007: overlay while refetching on date change so stale screenshots don't mislead */}
+      {fetching && !loading && (
+        <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] rounded-xl z-10 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            Loading screenshots…
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
           <Camera size={14} style={{ color: 'var(--primary-color)' }} />
           Screenshots
-          <span className="text-xs text-gray-400 font-normal">({loading ? '…' : screenshots.length} captured)</span>
+          <span className="text-xs text-gray-400 font-normal">({loading || fetching ? '…' : filtered.length} captured)</span>
         </h3>
-        {screenshots.length > SCREENSHOTS_PER_PAGE && (
-          <span className="text-[10px] text-gray-400">Showing {Math.min(visible, screenshots.length)} of {screenshots.length}</span>
+        {filtered.length > SCREENSHOTS_PER_PAGE && (
+          <span className="text-[10px] text-gray-400">Showing {Math.min(visible, filtered.length)} of {filtered.length}</span>
         )}
       </div>
       {shown.length > 0 ? (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {shown.map((s: any) => (
-              <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:shadow-md transition-all"
-                onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary-color)')}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
-                <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'} className="w-full h-28 object-cover" loading="lazy" />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                  <Maximize2 size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
-                  <p className="text-[9px] text-white truncate font-medium">{s.activeApp || 'Desktop'}</p>
-                  <p className="text-[8px] text-gray-300">{fmtTimeShort(s.timestamp)}</p>
-                </div>
-              </div>
+              <ScreenshotCard key={s.id} s={s} employeeId={employeeId} date={date} onScreenshotClick={onScreenshotClick}
+                onDeleted={id => setDeleted(prev => new Set([...prev, id]))} />
             ))}
           </div>
           {hasMore && (
@@ -1682,7 +1720,7 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
               style={{ color: 'var(--primary-color)', background: 'var(--primary-highlighted-color)', borderColor: 'var(--ui-border-color)' }}
               onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
               onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
-              Load more ({screenshots.length - visible} remaining)
+              Load more ({filtered.length - visible} remaining)
             </button>
           )}
         </>
@@ -1690,7 +1728,11 @@ function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey 
         <div className="text-center py-10">
           <Camera size={32} className="mx-auto text-gray-200 mb-2" />
           <p className="text-xs text-gray-400">No screenshots captured for this date</p>
-          <p className="text-[10px] text-gray-300 mt-1">Agent captures screenshots every 10 minutes by default</p>
+          <p className="text-[10px] text-gray-300 mt-1">
+            Agent captures screenshots every {intervalSeconds && intervalSeconds < 60
+              ? `${intervalSeconds}s`
+              : `${Math.round((intervalSeconds ?? 600) / 60)} min`}
+          </p>
         </div>
       )}
     </div>

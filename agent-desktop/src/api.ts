@@ -9,6 +9,11 @@ let accessToken: string | null = null;
 let refreshToken: string | null = null;
 let onTokenRefresh: ((access: string, refresh: string | null) => void) | null = null;
 
+// A-004: Serialise concurrent token refresh — only one in-flight refresh at a time.
+// Without this, two simultaneous 401 responses each attempt a refresh, one succeeds
+// and the other gets a "token already used" error, producing a spurious UnauthorizedError.
+let refreshPromise: Promise<boolean> | null = null;
+
 /**
  * Thrown when the access token has expired AND the refresh also fails (or is absent).
  * Caught in main.ts sync loop to trigger re-pair without crashing the agent.
@@ -17,6 +22,19 @@ export class UnauthorizedError extends Error {
   constructor() {
     super('UNAUTHORIZED');
     this.name = 'UnauthorizedError';
+  }
+}
+
+/**
+ * Thrown when the server returns 403 Forbidden.
+ * Distinct from UnauthorizedError — 403 means the token is valid but the action is not
+ * allowed (e.g. employee trying to call an admin endpoint). These should NOT trigger
+ * re-pair and should NOT be retried — they indicate a permanent permission mismatch.
+ */
+export class ForbiddenError extends Error {
+  constructor() {
+    super('FORBIDDEN');
+    this.name = 'ForbiddenError';
   }
 }
 
@@ -39,6 +57,35 @@ function fetchWithTimeout(url: string, options: Parameters<typeof fetch>[1] = {}
     .finally(() => clearTimeout(timer));
 }
 
+async function tryRefreshToken(): Promise<boolean> {
+  if (!refreshToken) return false;
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const refreshRes = await fetchWithTimeout(`${CONFIG.API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!refreshRes.ok) return false;
+      const data = await refreshRes.json() as any;
+      const newAccess: string = data.data?.accessToken || accessToken!;
+      const newRefresh: string | null = data.data?.refreshToken ?? refreshToken;
+      accessToken = newAccess;
+      refreshToken = newRefresh;
+      onTokenRefresh?.(newAccess, newRefresh);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 async function authFetch(url: string, options: Parameters<typeof fetch>[1] = {}) {
   if (!accessToken) throw new UnauthorizedError();
 
@@ -49,25 +96,18 @@ async function authFetch(url: string, options: Parameters<typeof fetch>[1] = {})
 
   const res = await fetchWithTimeout(`${CONFIG.API_URL}${url}`, { ...options, headers });
 
+  // A-003: Distinguish 403 from 401 — forbidden means the token is valid but the
+  // action is not permitted. Do NOT retry, do NOT refresh — throw ForbiddenError.
+  if (res.status === 403) throw new ForbiddenError();
+
   if (res.status === 401) {
-    if (refreshToken) {
-      const refreshRes = await fetchWithTimeout(`${CONFIG.API_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+    // A-004: Use shared refresh promise to serialise concurrent refresh attempts.
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      return fetchWithTimeout(`${CONFIG.API_URL}${url}`, {
+        ...options,
+        headers: { ...(options.headers as Record<string, string> || {}), Authorization: `Bearer ${accessToken}` },
       });
-      if (refreshRes.ok) {
-        const data = await refreshRes.json() as any;
-        const newAccess: string = data.data?.accessToken || accessToken!;
-        const newRefresh: string | null = data.data?.refreshToken ?? refreshToken;
-        accessToken = newAccess;
-        refreshToken = newRefresh;
-        onTokenRefresh?.(newAccess, newRefresh);
-        return fetchWithTimeout(`${CONFIG.API_URL}${url}`, {
-          ...options,
-          headers: { ...(options.headers as Record<string, string> || {}), Authorization: `Bearer ${accessToken}` },
-        });
-      }
     }
     throw new UnauthorizedError();
   }
@@ -118,22 +158,50 @@ export async function sendHeartbeat(activities: unknown[]) {
   return res.json();
 }
 
-export async function uploadScreenshot(
-  filePath: string,
-  metadata: { activeApp: string; activeWindow: string; timestamp: string }
-) {
-  if (!filePath || typeof filePath !== 'string') throw new Error('filePath must be a non-empty string');
+function buildScreenshotForm(filePath: string, metadata: { activeApp: string; activeWindow: string; timestamp: string }) {
+  // A-028: Always build a fresh FormData with a new ReadStream — streams are read-once
+  // and cannot be replayed on a 401-retry. Each call to this function creates a new stream.
   const form = new FormData();
   form.append('screenshot', fs.createReadStream(filePath));
   form.append('activeApp', metadata.activeApp);
   form.append('activeWindow', metadata.activeWindow);
   form.append('timestamp', metadata.timestamp);
+  return form;
+}
 
-  const res = await authFetch('/agent/screenshot', {
+export async function uploadScreenshot(
+  filePath: string,
+  metadata: { activeApp: string; activeWindow: string; timestamp: string }
+) {
+  if (!filePath || typeof filePath !== 'string') throw new Error('filePath must be a non-empty string');
+  if (!accessToken) throw new UnauthorizedError();
+
+  const form = buildScreenshotForm(filePath, metadata);
+  const res = await fetchWithTimeout(`${CONFIG.API_URL}/agent/screenshot`, {
     method: 'POST',
     body: form as any,
-    headers: form.getHeaders(),
+    headers: { ...form.getHeaders(), Authorization: `Bearer ${accessToken}` },
   });
+
+  // A-003: 403 is permanent — do not retry
+  if (res.status === 403) throw new ForbiddenError();
+
+  if (res.status === 401) {
+    // A-028: Refresh token, then re-build FormData with a fresh stream for the retry
+    const refreshed = await tryRefreshToken();
+    if (!refreshed) throw new UnauthorizedError();
+
+    const retryForm = buildScreenshotForm(filePath, metadata);
+    const retryRes = await fetchWithTimeout(`${CONFIG.API_URL}/agent/screenshot`, {
+      method: 'POST',
+      body: retryForm as any,
+      headers: { ...retryForm.getHeaders(), Authorization: `Bearer ${accessToken}` },
+    });
+    if (retryRes.status === 403) throw new ForbiddenError();
+    if (!retryRes.ok) throw new UnauthorizedError();
+    return retryRes.json();
+  }
+
   return res.json();
 }
 

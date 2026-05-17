@@ -41,6 +41,8 @@ public class GpsTrackingPlugin extends Plugin {
         int intervalMinutes = call.getInt("trackingIntervalMinutes", 60);
         long shiftEndEpochMs = call.getLong("shiftEndEpochMs") != null
             ? call.getLong("shiftEndEpochMs") : 0L;
+        String shiftType    = call.getString("shiftType", "FIELD");
+        if (shiftType == null || shiftType.isEmpty()) shiftType = "FIELD";
 
         if (authToken == null || authToken.isEmpty()) {
             call.reject("authToken is required");
@@ -61,7 +63,7 @@ public class GpsTrackingPlugin extends Plugin {
         // All 5 GPS components now read credentials from the same place.
         long gpsIntervalMs = (long) Math.max(1, Math.min(240, intervalMinutes)) * 60_000L;
         GpsSessionStore.saveSession(ctx, backendUrl, authToken, employeeId,
-                                    orgId, attendanceId, gpsIntervalMs);
+                                    orgId, attendanceId, gpsIntervalMs, shiftType);
 
         // Record diagnostic fields immediately
         String heartbeatUrl = backendUrl + "/api/attendance/gps-heartbeat";
@@ -98,6 +100,7 @@ public class GpsTrackingPlugin extends Plugin {
         intent.putExtra(GpsTrackingService.EXTRA_ATTENDANCE_ID,            attendanceId);
         intent.putExtra(GpsTrackingService.EXTRA_TRACKING_INTERVAL_MINUTES, intervalMinutes);
         intent.putExtra(GpsTrackingService.EXTRA_SHIFT_END_EPOCH_MS,       shiftEndEpochMs);
+        intent.putExtra(GpsTrackingService.EXTRA_SHIFT_TYPE,               shiftType);
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

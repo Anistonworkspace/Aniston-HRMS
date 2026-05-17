@@ -76,6 +76,7 @@ model Organization {
   notifications        Notification[]
   leaveAllocationLogs  LeaveAllocationLog[]
   crashReports         CrashReport[]
+  savedLocations       SavedLocation[]
 }
 
 model User {
@@ -101,6 +102,7 @@ model User {
   deviceSessions DeviceSession[]
   mfa            UserMFA?
   notifications  Notification[]
+  savedLocations SavedLocation[] @relation("SavedLocationAddedBy")
 }
 
 enum Role {
@@ -199,7 +201,8 @@ model Employee {
 
   // Agent pairing (permanent code for desktop activity agent)
   agentPairingCode   String?   @unique
-  agentPairedAt      DateTime?
+  agentPairedAt      DateTime? // set ONCE when the agent first pairs — never overwritten
+  agentLastSeenAt    DateTime? // updated on every heartbeat/ping — tracks last active time
 
   // GPS / Location Tracking Consent (DPDP Act 2023 — required for FIELD_SALES employees)
   locationTrackingConsented       Boolean   @default(false)
@@ -2457,6 +2460,16 @@ model Shift {
   gpsSpoofingTimeMinutes        Int      @default(5)
   gpsMaxAgeSeconds              Int      @default(120)
   outsideGeofenceAlertEnabled   Boolean  @default(false)
+  // FIELD shift: block check-in if employee is inside their approved home geofence radius
+  blockMarkInInsideHomeGeofence Boolean  @default(false)
+  // FIELD shift: radius (m) around employee's home geofence used for mark-in blocking
+  homeGeofenceRadiusMeters      Int      @default(200)
+  // Auto-absent threshold (overrides org-level AttendancePolicy.autoAbsentAfterHours)
+  autoAbsentAfterHours          Int?     // null = use org-level policy default
+  // Minutes late after which the day becomes ABSENT (not just late) — e.g. 240 min late = absent
+  lateMarkCutoffMinutes         Int?     // null = no cutoff (always late, never forced-absent by lateness)
+  // Fixed break minutes deducted from total hours for payroll purposes (e.g. 30 min lunch break)
+  breakDeductionMinutes         Int      @default(0)
   isDefault               Boolean   @default(false)
   isActive                Boolean   @default(true)
   organizationId          String
@@ -3413,11 +3426,31 @@ model LocationVisit {
   locationName    String?          // Auto-generated from OSM Nominatim reverse geocoding
   customName      String?          // HR-edited display name
   isSignificant   Boolean          @default(false) // stayed >= 60 min
+  isImportant     Boolean          @default(false)
   createdAt       DateTime         @default(now())
   attendance      AttendanceRecord  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
   organization    Organization?     @relation(fields: [organizationId], references: [id])
 
   @@index([attendanceId])
+  @@index([organizationId])
+}
+
+model SavedLocation {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String
+  address        String?
+  latitude       Float
+  longitude      Float
+  radiusMeters   Int          @default(100)
+  isImportant    Boolean      @default(false)
+  category       String?
+  addedByUserId  String
+  addedBy        User         @relation("SavedLocationAddedBy", fields: [addedByUserId], references: [id], onDelete: Restrict)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
   @@index([organizationId])
 }
 
@@ -3524,6 +3557,10 @@ model AttendancePolicy {
   // Sunday / special-day working
   sundayWorkEnabled     Boolean  @default(false)    // Allow selected employees to work on Sunday
   sundayPayMultiplier   Decimal  @db.Decimal(3, 2) @default(2.0)  // e.g. 2.0 = double pay
+  // Minutes late after which the day becomes ABSENT (not just late)
+  lateMarkCutoffMinutes Int?     // null = no cutoff
+  // Fixed break minutes deducted from total hours for payroll purposes
+  breakDeductionMinutes Int      @default(0)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

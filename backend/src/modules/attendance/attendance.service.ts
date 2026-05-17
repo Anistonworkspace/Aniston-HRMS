@@ -321,6 +321,34 @@ export class AttendanceService {
       );
     }
 
+    // ===== FIELD HOME GEOFENCE BLOCK =====
+    // When shift has blockMarkInInsideHomeGeofence=true, FIELD employees cannot mark
+    // attendance from inside their home radius — they must be on the road/at client site.
+    if (
+      currentShiftType === 'FIELD' &&
+      (shift as any).blockMarkInInsideHomeGeofence === true &&
+      data.latitude != null && data.longitude != null
+    ) {
+      const homeGeo = (employee as any).approvedHomeGeofence;
+      if (homeGeo?.coordinates) {
+        const hCoords = homeGeo.coordinates as any;
+        if (hCoords?.lat != null && hCoords?.lng != null) {
+          // Use shift-level radius override; fall back to geofence stored radius; then default 200m
+          const effectiveRadius = (shift as any).homeGeofenceRadiusMeters
+            ?? homeGeo.radiusMeters
+            ?? 200;
+          const distFromHome = this.haversineDistance(data.latitude, data.longitude, hCoords.lat, hCoords.lng);
+          if (distFromHome <= effectiveRadius) {
+            throw new BadRequestError(
+              `You are ${Math.round(distFromHome)}m from your registered home location. ` +
+              `Field attendance cannot be marked within ${effectiveRadius}m of your home. ` +
+              `Please travel to your first client/field site before checking in.`
+            );
+          }
+        }
+      }
+    }
+
     // ===== PHASE 1.4: GPS spoofing detection — block if detected =====
     if (data.latitude != null && data.longitude != null) {
       const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude, sp.gpsSpoofDistanceM, sp.gpsSpoofTimeMin);

@@ -5,13 +5,17 @@ import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { env } from '../../config/env.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
-import { emitToOrg, emitToUser } from '../../sockets/index.js';
+import { emitToOrg, emitToUser, emitToAgent } from '../../sockets/index.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import type { ActivityEntry, ScreenshotMetadata } from './agent.validation.js';
 
 const PAIR_PREFIX = 'agent-pair:';
 const LIVE_VIEW_PREFIX = 'agent-live:';
 const SCREENSHOT_INTERVAL_PREFIX = 'agent-screenshot-interval:';
+// SEC-003: Include organizationId in the Redis ping key to prevent cross-org key collisions.
+// Two employees with the same UUID in different orgs (theoretically impossible with UUID v4 but
+// guarded anyway) or a future multi-region deployment sharing Redis would otherwise leak status.
+// Key format: agent-ping:<organizationId>:<employeeId>
 const AGENT_PING_PREFIX = 'agent-ping:';
 const PAIR_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -22,13 +26,19 @@ function safeJsonParse<T = any>(data: string | null): T | null {
   catch { return null; }
 }
 
-/** Get today's date at midnight in the organization's timezone (defaults to Asia/Kolkata) */
+/**
+ * Convert any Date to midnight-UTC anchored on the org's local calendar date.
+ * e.g. 23:45 IST (18:15 UTC) on 2026-05-16 → 2026-05-16T00:00:00.000Z
+ * Used for storing and querying ActivityLog.date and AgentScreenshot.date.
+ */
+function getOrgDateForTimestamp(ts: Date, timezone: string = 'Asia/Kolkata'): Date {
+  const dateStr = ts.toLocaleDateString('en-CA', { timeZone: timezone }); // en-CA → YYYY-MM-DD
+  return new Date(dateStr + 'T00:00:00.000Z');
+}
+
+/** Today's date at midnight in org timezone — shorthand for getOrgDateForTimestamp(new Date()) */
 function getOrgToday(timezone: string = 'Asia/Kolkata'): Date {
-  // Format current time in org timezone to get the correct local date
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-CA', { timeZone: timezone }); // en-CA gives YYYY-MM-DD
-  const localDate = new Date(dateStr + 'T00:00:00.000Z');
-  return localDate;
+  return getOrgDateForTimestamp(new Date(), timezone);
 }
 
 export class AgentService {
@@ -36,28 +46,38 @@ export class AgentService {
     const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
     const today = getOrgToday(org?.timezone ?? 'Asia/Kolkata');
 
-    // Auto-restore agentPairedAt if null — agent has a valid JWT so it was previously paired.
-    // This handles the case where agentPairedAt was lost in a DB crash/restore.
+    // Update agentLastSeenAt on every heartbeat — tracks when agent was last active.
+    // agentPairedAt is preserved (only set during verifyPairCode) — not overwritten here.
     await prisma.employee.updateMany({
-      where: { id: employeeId, agentPairedAt: null },
-      data: { agentPairedAt: new Date() },
+      where: { id: employeeId, organizationId },
+      data: { agentLastSeenAt: new Date() },
     });
 
-    const records = activities.map(a => ({
-      employeeId,
-      organizationId,
-      date: today,
-      timestamp: new Date(a.timestamp),
-      activeApp: a.activeApp || null,
-      activeWindow: a.activeWindow || null,
-      activeUrl: a.activeUrl || null,
-      category: a.category || null,
-      durationSeconds: a.durationSeconds,
-      idleSeconds: a.idleSeconds,
-      keystrokes: a.keystrokes,
-      mouseClicks: a.mouseClicks,
-      mouseDistance: a.mouseDistance,
-    }));
+    // CALC-001: Derive each entry's date from its own timestamp using the org timezone.
+    // Previously all records used `today` (server clock at request time). When an agent buffers
+    // entries from before midnight and syncs after midnight, all pre-midnight entries were
+    // assigned today's date — causing multi-day idle/active totals to pile onto one day.
+    const timezone = org?.timezone ?? 'Asia/Kolkata';
+    const records = activities.map(a => {
+      const entryTs = new Date(a.timestamp);
+      return {
+        employeeId,
+        organizationId,
+        date: getOrgDateForTimestamp(entryTs, timezone),
+        timestamp: entryTs,
+        activeApp: a.activeApp || null,
+        activeWindow: a.activeWindow || null,
+        activeUrl: a.activeUrl || null,
+        category: a.category || null,
+        // CALC-002: Per-entry idleSeconds can't exceed durationSeconds (the tracking interval).
+        // An idle second value larger than the tick duration is always a bug from the agent.
+        durationSeconds: a.durationSeconds,
+        idleSeconds: Math.min(a.idleSeconds, a.durationSeconds),
+        keystrokes: a.keystrokes,
+        mouseClicks: a.mouseClicks,
+        mouseDistance: a.mouseDistance,
+      };
+    });
 
     // FIX 2: Wrap createMany + attendanceRecord.updateMany in a single interactive $transaction
     // to prevent race conditions where attendance could be incremented without the activityLog
@@ -106,13 +126,25 @@ export class AgentService {
     const batchKeystrokes = activities.reduce((sum, a) => sum + a.keystrokes, 0);
     const batchClicks = activities.reduce((sum, a) => sum + a.mouseClicks, 0);
 
+    // HIGH-005: Cache admin user IDs in Redis (5-minute TTL) so we don't query the DB on every
+    // heartbeat. At 30s intervals with 10 agents, that's 20 DB queries/min just for admin IDs.
+    const adminCacheKey = `agent-admins:${organizationId}`;
+    let adminIds: string[];
+    const cachedAdmins = await redis.get(adminCacheKey);
+    if (cachedAdmins) {
+      adminIds = safeJsonParse<string[]>(cachedAdmins) ?? [];
+    } else {
+      const admins = await prisma.user.findMany({
+        where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      adminIds = admins.map(a => a.id);
+      await redis.set(adminCacheKey, JSON.stringify(adminIds), 'EX', 300); // 5-minute TTL
+    }
+
     // Scope heartbeat to admins only — employee window titles are sensitive data
     // and must not be broadcast to all org members. We emit per-admin to their
     // personal room; the frontend org-level listeners on admin sessions pick it up.
-    const admins = await prisma.user.findMany({
-      where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
-      select: { id: true },
-    });
     const heartbeatPayload = {
       employeeId,
       activeApp: lastActivity?.activeApp || 'Unknown',
@@ -126,8 +158,8 @@ export class AgentService {
       durationSeconds: lastActivity?.durationSeconds || 0,
       timestamp: new Date().toISOString(),
     };
-    for (const admin of admins) {
-      emitToUser(admin.id, 'agent:heartbeat', heartbeatPayload);
+    for (const adminId of adminIds) {
+      emitToUser(adminId, 'agent:heartbeat', heartbeatPayload);
     }
     // Emit to the employee's own session (userId is already in scope from the JWT context)
     emitToUser(userId, 'agent:connected', { isActive: true });
@@ -145,21 +177,32 @@ export class AgentService {
     const now = new Date().toISOString();
 
     // Write ping timestamp to Redis with 15-minute TTL (no DB row)
-    await redis.set(`${AGENT_PING_PREFIX}${employeeId}`, now, 'EX', 900);
+    // SEC-003: Key includes organizationId to prevent cross-org namespace collision
+    await redis.set(`${AGENT_PING_PREFIX}${organizationId}:${employeeId}`, now, 'EX', 900);
 
-    // Update lastSeenAt on the employee record so the admin table shows it
+    // Update agentLastSeenAt so the admin table shows accurate last-active time.
+    // agentPairedAt is NOT touched here — it is set only once during verifyPairCode.
     await prisma.employee.updateMany({
       where: { id: employeeId, organizationId },
-      data: { agentPairedAt: new Date() },
+      data: { agentLastSeenAt: new Date() },
     });
 
-    // Notify admin sockets
-    const admins = await prisma.user.findMany({
-      where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
-      select: { id: true },
-    });
-    for (const admin of admins) {
-      emitToUser(admin.id, 'agent:ping', { employeeId, timestamp: now });
+    // HIGH-005: Use cached admin IDs — same cache as heartbeat (5-minute TTL)
+    const adminCacheKey = `agent-admins:${organizationId}`;
+    let pingAdminIds: string[];
+    const cachedPingAdmins = await redis.get(adminCacheKey);
+    if (cachedPingAdmins) {
+      pingAdminIds = safeJsonParse<string[]>(cachedPingAdmins) ?? [];
+    } else {
+      const admins = await prisma.user.findMany({
+        where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      pingAdminIds = admins.map(a => a.id);
+      await redis.set(adminCacheKey, JSON.stringify(pingAdminIds), 'EX', 300);
+    }
+    for (const adminId of pingAdminIds) {
+      emitToUser(adminId, 'agent:ping', { employeeId, timestamp: now });
     }
 
     return { ok: true, timestamp: now };
@@ -243,7 +286,9 @@ export class AgentService {
       select: { id: true },
     });
     if (user) {
-      emitToUser(user.id, 'agent:config-update', { liveMode: enabled, intervalSeconds });
+      // Use emitToAgent (room: agent:${userId}) not emitToUser (room: user:${userId}).
+      // The desktop EXE joins the agent: room on registration; browser sessions join user:.
+      emitToAgent(user.id, 'agent:config-update', { liveMode: enabled, intervalSeconds });
     }
 
     await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: enabled ? 'LIVE_MODE_ENABLED' : 'LIVE_MODE_DISABLED', newValue: { enabled, intervalSeconds } });
@@ -278,7 +323,7 @@ export class AgentService {
       select: { id: true },
     });
     if (user) {
-      emitToUser(user.id, 'agent:config-update', { screenshotIntervalSeconds: intervalSeconds });
+      emitToAgent(user.id, 'agent:config-update', { screenshotIntervalSeconds: intervalSeconds });
     }
 
     await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'UPDATE', newValue: { screenshotIntervalSeconds: intervalSeconds } });
@@ -349,19 +394,29 @@ export class AgentService {
       ? Math.round((productiveSeconds / totalActive) * 100)
       : null;
 
+    // CALC-002: Cap daily totals at physical maximums (86400s = 24h).
+    // Without a cap, date-boundary bugs or malicious agents can produce values like "241h idle".
+    const cappedActive = Math.min(totalActive, 86400);
+    const cappedIdle = Math.min(totalIdle, 86400);
+    const cappedProductive = Math.min(productiveSeconds, cappedActive);
+    const cappedUnproductive = Math.min(unproductiveSeconds, cappedActive - cappedProductive);
+    const cappedProductivityScore = cappedActive > 0
+      ? Math.round((cappedProductive / cappedActive) * 100)
+      : null;
+
     return {
       logs,
       summary: {
-        totalActiveMinutes: Math.round(totalActive / 60),
-        totalIdleMinutes: Math.round(totalIdle / 60),
+        totalActiveMinutes: Math.round(cappedActive / 60),
+        totalIdleMinutes: Math.round(cappedIdle / 60),
         totalKeystrokes,
         totalClicks,
         totalMouseDistance,
         topApps,
         logCount: logs.length,
-        productivityScore,
-        productiveMinutes: Math.round(productiveSeconds / 60),
-        unproductiveMinutes: Math.round(unproductiveSeconds / 60),
+        productivityScore: cappedProductivityScore,
+        productiveMinutes: Math.round(cappedProductive / 60),
+        unproductiveMinutes: Math.round(cappedUnproductive / 60),
       },
     };
   }
@@ -380,7 +435,29 @@ export class AgentService {
     return prisma.agentScreenshot.findMany({
       where: { employeeId, date: queryDate, organizationId },
       orderBy: { timestamp: 'asc' },
+      take: 500,
     });
+  }
+
+  async deleteScreenshot(screenshotId: string, organizationId: string, userId: string) {
+    const screenshot = await prisma.agentScreenshot.findFirst({
+      where: { id: screenshotId, organizationId },
+      select: { id: true, imageUrl: true, employeeId: true },
+    });
+    if (!screenshot) throw new NotFoundError('Screenshot');
+
+    await prisma.agentScreenshot.delete({ where: { id: screenshotId } });
+
+    // Delete file (best-effort)
+    if (screenshot.imageUrl) {
+      try {
+        const { storageService } = await import('../../services/storage.service.js');
+        await storageService.deleteFile(screenshot.imageUrl);
+      } catch {}
+    }
+
+    await createAuditLog({ userId, organizationId, entity: 'AgentScreenshot', entityId: screenshotId, action: 'DELETE', newValue: { screenshotId } });
+    return { deleted: true };
   }
 
   async deleteActivityByDate(employeeId: string, date: string, organizationId: string, userId: string) {
@@ -393,17 +470,22 @@ export class AgentService {
     const queryDate = new Date(date + 'T00:00:00.000Z');
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
 
-    // Delete screenshots first (collect URLs for file deletion)
+    // Collect screenshot file paths before deletion (needed for physical file cleanup)
     const screenshots = await prisma.agentScreenshot.findMany({
       where: { employeeId, date: queryDate, organizationId },
       select: { id: true, imageUrl: true },
     });
 
-    const { count: logsDeleted } = await prisma.activityLog.deleteMany({
-      where: { employeeId, date: queryDate, organizationId },
-    });
-    const { count: screenshotsDeleted } = await prisma.agentScreenshot.deleteMany({
-      where: { employeeId, date: queryDate, organizationId },
+    // MED-008: Wrap both deletes in a transaction so a crash between them doesn't leave
+    // orphaned screenshot rows without log rows or vice versa.
+    const { logsDeleted, screenshotsDeleted } = await prisma.$transaction(async (tx) => {
+      const { count: logs } = await tx.activityLog.deleteMany({
+        where: { employeeId, date: queryDate, organizationId },
+      });
+      const { count: shots } = await tx.agentScreenshot.deleteMany({
+        where: { employeeId, date: queryDate, organizationId },
+      });
+      return { logsDeleted: logs, screenshotsDeleted: shots };
     });
 
     // Delete screenshot files (best-effort, non-blocking)
@@ -427,7 +509,8 @@ export class AgentService {
     const thresholdAgo = new Date(now.getTime() - 7 * 60 * 1000);
 
     // FIX 1b: Check Redis ping key first — avoids DB query entirely for active agents
-    const pingKey = await redis.get(`${AGENT_PING_PREFIX}${employeeId}`);
+    // SEC-003: Key includes organizationId prefix
+    const pingKey = await redis.get(`${AGENT_PING_PREFIX}${organizationId}:${employeeId}`);
     if (pingKey) {
       const pingTime = new Date(pingKey);
       if (pingTime > thresholdAgo) {
@@ -435,7 +518,17 @@ export class AgentService {
       }
     }
 
-    // Fall back to DB — only look within the 7-minute window to avoid a full table scan
+    // Check agentLastSeenAt on the employee record — updated on every ping/heartbeat.
+    // This avoids a full activityLog table scan for recently-seen agents.
+    const empRow = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId },
+      select: { agentLastSeenAt: true },
+    });
+    if (empRow?.agentLastSeenAt && empRow.agentLastSeenAt > thresholdAgo) {
+      return { isActive: true, lastHeartbeat: empRow.agentLastSeenAt.toISOString() };
+    }
+
+    // Final fallback: activityLog scan for agents that missed the agentLastSeenAt migration
     const lastLog = await prisma.activityLog.findFirst({
       where: { employeeId, organizationId, timestamp: { gte: thresholdAgo } },
       orderBy: { timestamp: 'desc' },
@@ -446,7 +539,7 @@ export class AgentService {
 
     return {
       isActive,
-      lastHeartbeat: lastLog?.timestamp?.toISOString() || null,
+      lastHeartbeat: lastLog?.timestamp?.toISOString() || empRow?.agentLastSeenAt?.toISOString() || null,
     };
   }
   /**
@@ -459,16 +552,17 @@ export class AgentService {
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
 
     // FIX 1e: Exclude ping rows (durationSeconds=0) from bulk summary aggregations
+    // MED-006: Scope to employees that are not soft-deleted to prevent stale entries in the list
     const [results, productiveResults] = await Promise.all([
       prisma.activityLog.groupBy({
         by: ['employeeId'],
-        where: { organizationId, date: queryDate, durationSeconds: { gt: 0 } },
+        where: { organizationId, date: queryDate, durationSeconds: { gt: 0 }, employee: { deletedAt: null } },
         _count: { id: true },
         _sum: { durationSeconds: true, idleSeconds: true },
       }),
       prisma.activityLog.groupBy({
         by: ['employeeId'],
-        where: { organizationId, date: queryDate, category: 'PRODUCTIVE', durationSeconds: { gt: 0 } },
+        where: { organizationId, date: queryDate, category: 'PRODUCTIVE', durationSeconds: { gt: 0 }, employee: { deletedAt: null } },
         _sum: { durationSeconds: true },
       }),
     ]);
@@ -477,12 +571,14 @@ export class AgentService {
 
     const summaryMap: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore: number | null }> = {};
     for (const r of results) {
-      const totalSeconds = r._sum.durationSeconds || 0;
-      const productiveSeconds = productiveMap.get(r.employeeId) || 0;
+      // CALC-002: Cap at 86400s (24h) to guard against date-boundary accumulation bugs.
+      const totalSeconds = Math.min(r._sum.durationSeconds || 0, 86400);
+      const totalIdleSeconds = Math.min(r._sum.idleSeconds || 0, 86400);
+      const productiveSeconds = Math.min(productiveMap.get(r.employeeId) || 0, totalSeconds);
       summaryMap[r.employeeId] = {
         logCount: r._count.id,
         totalActiveMinutes: Math.round(totalSeconds / 60),
-        totalIdleMinutes: Math.round((r._sum.idleSeconds || 0) / 60),
+        totalIdleMinutes: Math.round(totalIdleSeconds / 60),
         productivityScore: totalSeconds > 0 ? Math.round((productiveSeconds / totalSeconds) * 100) : null,
       };
     }
@@ -546,20 +642,7 @@ export class AgentService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Save old code to history before replacing
-    if (employee.agentPairingCode) {
-      await prisma.agentPairingCodeHistory.create({
-        data: {
-          employeeId,
-          organizationId,
-          code: employee.agentPairingCode,
-          isConnected: !!employee.agentPairedAt,
-          connectedAt: employee.agentPairedAt || null,
-          revokedAt: new Date(),
-        },
-      });
-    }
-
+    // Generate unique code before the transaction (findUnique not available in interactive tx)
     let code: string;
     let attempts = 0;
     while (true) {
@@ -570,9 +653,26 @@ export class AgentService {
       if (attempts > 10) throw new BadRequestError('Failed to generate unique code. Please try again.');
     }
 
-    await prisma.employee.update({
-      where: { id: employeeId },
-      data: { agentPairingCode: code, agentPairedAt: null },
+    // BUG-007: Wrap history save + code update in a single transaction — without this,
+    // a crash between the two writes leaves the history saved but the code not updated,
+    // or the code updated but the history entry missing.
+    await prisma.$transaction(async (tx) => {
+      if (employee.agentPairingCode) {
+        await tx.agentPairingCodeHistory.create({
+          data: {
+            employeeId,
+            organizationId,
+            code: employee.agentPairingCode,
+            isConnected: !!employee.agentPairedAt,
+            connectedAt: employee.agentPairedAt || null,
+            revokedAt: new Date(),
+          },
+        });
+      }
+      await tx.employee.update({
+        where: { id: employeeId },
+        data: { agentPairingCode: code, agentPairedAt: null, agentLastSeenAt: null },
+      });
     });
 
     // FIX 4: Revoke outstanding agent tokens for this employee by writing a Redis flag.
@@ -594,7 +694,7 @@ export class AgentService {
   async getCodeHistory(employeeId: string, organizationId: string) {
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
-      select: { id: true, agentPairingCode: true, agentPairedAt: true },
+      select: { id: true, agentPairingCode: true, agentPairedAt: true, agentLastSeenAt: true },
     });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -606,6 +706,7 @@ export class AgentService {
     return {
       currentCode: employee.agentPairingCode,
       currentCodeConnected: !!employee.agentPairedAt,
+      currentCodeLastSeen: employee.agentLastSeenAt?.toISOString() || null,
       history,
     };
   }
@@ -642,7 +743,7 @@ export class AgentService {
       where: { organizationId, deletedAt: null, isSystemAccount: false },
       select: {
         id: true, firstName: true, lastName: true, employeeCode: true, avatar: true,
-        workMode: true, agentPairingCode: true, agentPairedAt: true,
+        workMode: true, agentPairingCode: true, agentPairedAt: true, agentLastSeenAt: true,
         department: { select: { name: true } },
         user: { select: { email: true } },
       },
@@ -654,8 +755,9 @@ export class AgentService {
     const activeThreshold = new Date(Date.now() - 7 * 60 * 1000);
 
     // Fetch all Redis ping keys in parallel
+    // SEC-003: Key includes organizationId prefix
     const pingValues = await Promise.all(
-      employees.map(emp => redis.get(`${AGENT_PING_PREFIX}${emp.id}`))
+      employees.map(emp => redis.get(`${AGENT_PING_PREFIX}${organizationId}:${emp.id}`))
     );
     const redisPingMap = new Map<string, Date>();
     employees.forEach((emp, i) => {
@@ -737,8 +839,9 @@ export class AgentService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
+    // DATA-001: Exclude ping rows (durationSeconds=0) — same filter as getActivityLogs view
     const logs = await prisma.activityLog.findMany({
-      where: { employeeId, date: queryDate, organizationId },
+      where: { employeeId, date: queryDate, organizationId, durationSeconds: { gt: 0 } },
       orderBy: { timestamp: 'asc' },
     });
 
@@ -863,8 +966,10 @@ export class AgentService {
    */
   async verifyPairCode(code: string) {
     // 1. Check DB for permanent code
-    const employee = await prisma.employee.findUnique({
-      where: { agentPairingCode: code },
+    // SEC-002: Use findFirst with deletedAt: null — findUnique on agentPairingCode would match
+    // soft-deleted employees, allowing a deleted employee's code to issue a valid JWT.
+    const employee = await prisma.employee.findFirst({
+      where: { agentPairingCode: code, deletedAt: null },
       include: { user: { select: { id: true, email: true, role: true } }, organization: { select: { id: true } } },
     });
 
@@ -990,21 +1095,28 @@ export class AgentService {
     }
 
     // Compute per-day metrics
+    // CALC-003: Use camelCase names matching the frontend AgentReportDay TypeScript type.
     const days: Array<{
       date: string;
-      activeMins: number;
-      idleMins: number;
-      productiveMins: number;
-      unproductiveMins: number;
+      activeMinutes: number;
+      idleMinutes: number;
+      productiveMinutes: number;
+      unproductiveMinutes: number;
+      productivityScore: number | null;
       score: number;
       grade: string;
     }> = [];
 
     for (const [date, dayLogs] of byDate.entries()) {
-      const activeSecs = dayLogs.reduce((s, l) => s + l.durationSeconds, 0);
-      const idleSecs = dayLogs.reduce((s, l) => s + l.idleSeconds, 0);
-      const productiveSecs = dayLogs.filter(l => l.category === 'PRODUCTIVE').reduce((s, l) => s + l.durationSeconds, 0);
-      const unproductiveSecs = dayLogs.filter(l => l.category === 'UNPRODUCTIVE').reduce((s, l) => s + l.durationSeconds, 0);
+      // CALC-002: Cap per-day totals at 86400s to guard against date-boundary accumulation bugs.
+      const rawActiveSecs = dayLogs.reduce((s, l) => s + l.durationSeconds, 0);
+      const rawIdleSecs = dayLogs.reduce((s, l) => s + l.idleSeconds, 0);
+      const activeSecs = Math.min(rawActiveSecs, 86400);
+      const idleSecs = Math.min(rawIdleSecs, 86400);
+      const rawProductiveSecs = dayLogs.filter(l => l.category === 'PRODUCTIVE').reduce((s, l) => s + l.durationSeconds, 0);
+      const rawUnproductiveSecs = dayLogs.filter(l => l.category === 'UNPRODUCTIVE').reduce((s, l) => s + l.durationSeconds, 0);
+      const productiveSecs = Math.min(rawProductiveSecs, activeSecs);
+      const unproductiveSecs = Math.min(rawUnproductiveSecs, activeSecs - productiveSecs);
 
       const activeMins = activeSecs / 60;
       const idleMins = idleSecs / 60;
@@ -1015,15 +1127,17 @@ export class AgentService {
       const productiveRatio = activeMins > 0 ? productiveMins / activeMins : 0;
       const rawScore = (activeRatio * 60) + (productiveRatio * 40);
       const score = Math.min(100, Math.max(0, Math.round(rawScore)));
+      const productivityScore = activeSecs > 0 ? Math.round((productiveSecs / activeSecs) * 100) : null;
 
       const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B+' : score >= 60 ? 'B' : score >= 50 ? 'C' : 'D';
 
       days.push({
         date,
-        activeMins: Math.round(activeMins),
-        idleMins: Math.round(idleMins),
-        productiveMins: Math.round(productiveMins),
-        unproductiveMins: Math.round(unproductiveMins),
+        activeMinutes: Math.round(activeMins),
+        idleMinutes: Math.round(idleMins),
+        productiveMinutes: Math.round(productiveMins),
+        unproductiveMinutes: Math.round(unproductiveMins),
+        productivityScore,
         score,
         grade,
       });
@@ -1033,10 +1147,10 @@ export class AgentService {
     days.sort((a, b) => a.date.localeCompare(b.date));
 
     // Overall summary
-    const totalActiveMins = days.reduce((s, d) => s + d.activeMins, 0);
-    const totalIdleMins = days.reduce((s, d) => s + d.idleMins, 0);
-    const totalProductiveMins = days.reduce((s, d) => s + d.productiveMins, 0);
-    const totalUnproductiveMins = days.reduce((s, d) => s + d.unproductiveMins, 0);
+    const totalActiveMins = days.reduce((s, d) => s + d.activeMinutes, 0);
+    const totalIdleMins = days.reduce((s, d) => s + d.idleMinutes, 0);
+    const totalProductiveMins = days.reduce((s, d) => s + d.productiveMinutes, 0);
+    const totalUnproductiveMins = days.reduce((s, d) => s + d.unproductiveMinutes, 0);
     const daysWithData = days.length;
     const averageDailyScore = daysWithData > 0
       ? Math.round(days.reduce((s, d) => s + d.score, 0) / daysWithData)
@@ -1078,6 +1192,13 @@ export class AgentService {
         daysWithData,
       },
       topApps,
+    };
+  }
+
+  /** BUG-003: Return server-configured retention window so frontend uses the real value. */
+  getRetentionConfig() {
+    return {
+      activityRetentionDays: env.ACTIVITY_RETENTION_DAYS,
     };
   }
 }

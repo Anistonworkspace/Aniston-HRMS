@@ -1,6 +1,6 @@
 import { powerMonitor } from 'electron';
 import { CONFIG, categorizeApp } from './config';
-import { getAndResetInputCounts, startInputTracking, stopInputTracking } from './inputTracker';
+import { getAndResetInputCounts, startInputTracking, stopInputTracking, pauseInputTracking, resumeInputTracking } from './inputTracker';
 
 // ── Browser window-title classification ──────────────────────────────────────
 // Chrome/Edge/Firefox classify the app as PRODUCTIVE by default, but the window
@@ -63,6 +63,7 @@ const BUFFER_MAX = 1000;
 let activityBuffer: ActivityEntry[] = [];
 let trackingInterval: NodeJS.Timeout | null = null;
 let isPaused = false;
+let lastTickTime: number = Date.now();
 
 /** Returns a snapshot of the buffer without clearing it. */
 export function getBuffer(): ActivityEntry[] {
@@ -74,8 +75,8 @@ export function drainBuffer(count: number): void {
   activityBuffer.splice(0, count);
 }
 
-export function pauseTracking() { isPaused = true; }
-export function resumeTracking() { isPaused = false; }
+export function pauseTracking() { isPaused = true; pauseInputTracking(); }
+export function resumeTracking() { isPaused = false; resumeInputTracking(); }
 export function isTracking() { return trackingInterval !== null && !isPaused; }
 
 /**
@@ -103,7 +104,15 @@ export function startTracking() {
   console.log('[Tracker] Starting activity tracking...');
   startInputTracking();
 
+  lastTickTime = Date.now();
   trackingInterval = setInterval(async () => {
+    const now = Date.now();
+    // Compute actual elapsed time since last tick — prevents duration inflation at sleep/resume
+    // boundaries where a tick fires immediately after wake regardless of cycle position.
+    const elapsed = Math.round((now - lastTickTime) / 1000);
+    const durationSeconds = Math.min(Math.max(elapsed, 1), CONFIG.TRACKING_INTERVAL_MS / 1000);
+    lastTickTime = now;
+
     if (isPaused) {
       // Drain counts accumulated during pause so they don't inflate the first entry on resume
       getAndResetInputCounts();
@@ -129,8 +138,8 @@ export function startTracking() {
         activeWindow: title,
         activeUrl: '',
         category,
-        durationSeconds: CONFIG.TRACKING_INTERVAL_MS / 1000,
-        idleSeconds: Math.min(idleTime, CONFIG.TRACKING_INTERVAL_MS / 1000),
+        durationSeconds,
+        idleSeconds: Math.min(idleTime, durationSeconds),
         keystrokes: inputCounts.keystrokes,
         mouseClicks: inputCounts.mouseClicks,
         mouseDistance: inputCounts.mouseDistance,

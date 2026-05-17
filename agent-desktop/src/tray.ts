@@ -32,19 +32,35 @@ export function createTray(onPair: () => void, onLogout: () => void) {
   return tray;
 }
 
-export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
+export type TrayState = 'connected' | 'disconnected' | 'reconnect-required';
+
+/**
+ * Update the system tray menu.
+ * A-010: Added 'reconnect-required' state for permanent pairing where token is temporarily invalid.
+ * This prevents the "○ Not Connected" label from being shown to employees who have already
+ * configured their agent — instead shows "⚠ Reconnect Required" with a manual re-pair option.
+ */
+export function updateTrayMenu(onPair: () => void, onLogout: () => void, state?: TrayState) {
   if (!tray) return;
   const loggedIn = isLoggedIn();
   const tracking = isTracking();
+  const effectiveState: TrayState = state ?? (loggedIn ? 'connected' : 'disconnected');
+
+  let statusLabel: string;
+  if (effectiveState === 'connected') statusLabel = '● Connected';
+  else if (effectiveState === 'reconnect-required') statusLabel = '⚠ Reconnect Required';
+  else statusLabel = '○ Not Connected';
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Aniston Support', enabled: false },
     { type: 'separator' },
-    { label: loggedIn ? '● Connected' : '○ Not Connected', enabled: false },
+    { label: statusLabel, enabled: false },
     { label: loggedIn ? (tracking ? '● Tracking Active' : '○ Tracking Paused') : '', enabled: false, visible: loggedIn },
+    // A-010: Show reconnect hint when paired but token invalid
+    { label: 'Token expired — tap below to reconnect', enabled: false, visible: effectiveState === 'reconnect-required' },
     { type: 'separator' },
-    // Not connected: offer pairing
-    { label: 'Enter Pairing Code', visible: !loggedIn, click: onPair },
+    // Not connected or reconnect-required: offer pairing
+    { label: effectiveState === 'reconnect-required' ? 'Reconnect (Re-enter Pairing Code)' : 'Enter Pairing Code', visible: !loggedIn || effectiveState === 'reconnect-required', click: onPair },
     // Connected: pause/resume and disconnect options
     // BUG-018 fix: route through setManualPause() so wasManuallyPaused flag is updated,
     // preventing sleep/resume from overriding a deliberate user pause
@@ -63,7 +79,10 @@ export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip(loggedIn ? `Aniston Support — ${tracking ? 'Tracking' : 'Paused'}` : 'Aniston Support — Not Connected');
+  let tooltip = 'Aniston Support — Not Connected';
+  if (effectiveState === 'connected') tooltip = `Aniston Support — ${tracking ? 'Tracking' : 'Paused'}`;
+  else if (effectiveState === 'reconnect-required') tooltip = 'Aniston Support — Reconnect Required';
+  tray.setToolTip(tooltip);
 }
 
 function writePairHtml(): string {

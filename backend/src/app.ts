@@ -71,6 +71,7 @@ import { profileEditRequestRouter } from './modules/profile-edit-request/profile
 import { systemLogsRouter } from './modules/system-logs/system-logs.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 import { crashReportRouter } from './modules/crash-report/crash-report.routes.js';
+import savedLocationRouter from './modules/saved-location/saved-location.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
@@ -334,6 +335,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/helpdesk', helpdeskRouter);
 app.use('/api/walk-in', walkInRouter);
 app.use('/api/workforce', shiftRouter);
+app.use('/api/saved-locations', savedLocationRouter);
 app.use('/api/agent', agentRouter);
 app.use('/api/documents', documentRouter);
 app.use('/api/documents', documentOcrRouter);

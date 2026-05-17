@@ -199,11 +199,21 @@ export function initSocketServer(httpServer: HttpServer) {
 }
 
 /**
- * Emit event to a specific user
+ * Emit event to a specific user (browser/mobile sessions)
  */
 export function emitToUser(userId: string, event: string, data: any) {
   if (!io) return;
   io.to(`user:${userId}`).emit(event, data);
+}
+
+/**
+ * Emit event directly to a user's desktop agent socket (agent:${userId} room).
+ * The agent joins this room on agent:register. Use this for agent-specific config
+ * events like agent:config-update so they reach the agent EXE, not the browser.
+ */
+export function emitToAgent(userId: string, event: string, data: any) {
+  if (!io) return;
+  io.to(`agent:${userId}`).emit(event, data);
 }
 
 /**

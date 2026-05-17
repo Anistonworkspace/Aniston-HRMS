@@ -16,8 +16,9 @@ router.post('/pair/verify',
 
 router.use(authenticate);
 
-// Authenticated: generate pairing code
-router.post('/pair/generate', (req, res, next) => agentController.generatePairCode(req, res, next));
+// Authenticated: generate pairing code — requires HR/ADMIN/SUPER_ADMIN role
+// Employees must not be able to generate their own codes (privilege escalation)
+router.post('/pair/generate', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => agentController.generatePairCode(req, res, next));
 
 // Per-employee rate limiter for agent data ingestion (keyed by JWT userId, not IP — agents may share NAT)
 const agentDataLimiter = rateLimiter({
@@ -33,6 +34,7 @@ router.post('/heartbeat', agentDataLimiter, (req, res, next) => agentController.
 router.post('/ping', agentDataLimiter, (req, res, next) => agentController.ping(req, res, next));
 router.post('/screenshot', agentDataLimiter, uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
+router.get('/config/retention', (req, res, next) => agentController.getRetentionConfig(req, res, next));
 router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
 
 // Admin: check any employee's agent status
@@ -93,6 +95,13 @@ router.get(
   '/screenshots/:employeeId/:date',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => agentController.getScreenshots(req, res, next)
+);
+
+// Delete a single screenshot by ID (admin only — must come after the /:employeeId/:date route)
+router.delete(
+  '/screenshots/:screenshotId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN),
+  (req, res, next) => agentController.deleteScreenshot(req, res, next)
 );
 
 // Admin: set screenshot interval for an employee

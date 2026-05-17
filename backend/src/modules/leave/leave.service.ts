@@ -16,7 +16,7 @@ export class LeaveService {
    */
   async getLeaveTypes(organizationId: string) {
     const types = await prisma.leaveType.findMany({
-      where: { organizationId, isActive: true },
+      where: { organizationId, isActive: true, deletedAt: null },
       orderBy: { name: 'asc' },
     });
     // Deserialize applicableToEmployeeIds JSON string → array for the client
@@ -67,7 +67,7 @@ export class LeaveService {
    * Update an existing leave type
    */
   async updateLeaveType(id: string, data: UpdateLeaveTypeInput, organizationId: string) {
-    const existing = await prisma.leaveType.findFirst({ where: { id, organizationId } });
+    const existing = await prisma.leaveType.findFirst({ where: { id, organizationId, deletedAt: null } });
     if (!existing) throw new NotFoundError('Leave type');
 
     const { applicableToEmployeeIds, ...rest } = data as any;
@@ -88,7 +88,7 @@ export class LeaveService {
    * Delete (soft-deactivate) a leave type
    */
   async deleteLeaveType(id: string, organizationId: string) {
-    const existing = await prisma.leaveType.findFirst({ where: { id, organizationId } });
+    const existing = await prisma.leaveType.findFirst({ where: { id, organizationId, deletedAt: null } });
     if (!existing) throw new NotFoundError('Leave type');
 
     // Append a timestamp suffix to free the unique (code, organizationId) constraint
@@ -96,7 +96,7 @@ export class LeaveService {
     const tombstoneCode = `${existing.code}_DEL_${Date.now()}`;
     return prisma.leaveType.update({
       where: { id },
-      data: { isActive: false, code: tombstoneCode },
+      data: { isActive: false, code: tombstoneCode, deletedAt: new Date() },
     });
   }
 
@@ -805,11 +805,11 @@ export class LeaveService {
 
     let where: any;
     if (isOrgAdmin) {
-      // HR/Admin/SuperAdmin see PENDING and MANAGER_APPROVED leaves (both need HR action)
+      // HR/Admin/SuperAdmin see PENDING, MANAGER_APPROVED, and APPROVED_WITH_CONDITION leaves
       // Use direct join instead of unbounded employee IN clause for performance at scale
       where = {
         employee: { organizationId, deletedAt: null },
-        status: { in: ['PENDING', 'MANAGER_APPROVED'] },
+        status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] },
       };
     } else {
       // Manager sees only direct reports' PENDING leaves

@@ -125,10 +125,13 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
         (result.error as any)?.data?.message ||
         (result.error as any)?.error ||
         `Error ${status}: Something went wrong. Please try again.`;
-      // Always toast 403 permission denials (employee perm layer blocks), only toast other errors on mutations
-      if (status === 403) {
+      // Toast 403 only on mutations (POST/PATCH/PUT/DELETE) — GET 403s are silent
+      // because background queries like GPS consent/heartbeat fire automatically on page
+      // mount and would confuse employees with a permissions toast they cannot act on.
+      const isGet = !(args as any)?.method || (args as any).method === 'GET';
+      if (status === 403 && !isGet) {
         toast.error(message, { id: `api-err-403`, duration: 5000 });
-      } else if ((args as any)?.method && (args as any).method !== 'GET') {
+      } else if (!isGet) {
         toast.error(message, { id: `api-err-${status}`, duration: 4000 });
       }
     }
@@ -195,6 +198,7 @@ export const api = createApi({
     'Backup',
     'DeletionRequests',
     'MFA',
+    'SavedLocations',
     'ProfileEditRequest',
     'Notification',
     'NotificationUnread',

@@ -274,8 +274,9 @@ public class GpsDiagnostics {
             obj.put(KEY_NEXT_LOCATION_DUE_AT,         p.getString(KEY_NEXT_LOCATION_DUE_AT,         ""));
 
             // Permissions
-            obj.put(KEY_LOCATION_PERM_FINE,           p.getString(KEY_LOCATION_PERM_FINE,           ""));
-            obj.put(KEY_LOCATION_PERM_BACKGROUND,     p.getString(KEY_LOCATION_PERM_BACKGROUND,     ""));
+            // KEY_LOCATION_PERM_FINE and KEY_LOCATION_PERM_BACKGROUND are never written
+            // (GpsPermissionGuard writes to KEY_FINE_LOCATION_GRANTED and KEY_BACKGROUND_LOCATION_GRANTED
+            // instead). Removed from output to avoid emitting stale empty strings.
             obj.put(KEY_BATTERY_OPT_IGNORED,          p.getString(KEY_BATTERY_OPT_IGNORED,          ""));
 
             // HTTP

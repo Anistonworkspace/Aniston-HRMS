@@ -51,10 +51,12 @@ public class GpsSessionStore {
         public final String  attendanceId;
         public final long    gpsIntervalMs;
         public final boolean trackingEnabled;
+        /** "FIELD" for full GPS trail, "HYBRID" for lightweight geofence monitoring. */
+        public final String  shiftType;
 
         Session(String backendUrl, String authToken, String employeeId,
                 String orgId, String attendanceId,
-                long gpsIntervalMs, boolean trackingEnabled) {
+                long gpsIntervalMs, boolean trackingEnabled, String shiftType) {
             this.backendUrl      = backendUrl;
             this.authToken       = authToken;
             this.employeeId      = employeeId;
@@ -62,6 +64,7 @@ public class GpsSessionStore {
             this.attendanceId    = attendanceId != null ? attendanceId : "";
             this.gpsIntervalMs   = gpsIntervalMs;
             this.trackingEnabled = trackingEnabled;
+            this.shiftType       = (shiftType != null && !shiftType.isEmpty()) ? shiftType : "FIELD";
         }
     }
 
@@ -78,7 +81,19 @@ public class GpsSessionStore {
                                    String orgId,
                                    String attendanceId,
                                    long   gpsIntervalMs) {
+        saveSession(ctx, rawBackendUrl, authToken, employeeId, orgId, attendanceId, gpsIntervalMs, "FIELD");
+    }
+
+    public static void saveSession(Context ctx,
+                                   String rawBackendUrl,
+                                   String authToken,
+                                   String employeeId,
+                                   String orgId,
+                                   String attendanceId,
+                                   long   gpsIntervalMs,
+                                   String shiftType) {
         String backendUrl = normaliseBackendUrl(rawBackendUrl);
+        String resolvedShiftType = (shiftType != null && !shiftType.isEmpty()) ? shiftType : "FIELD";
         SharedPreferences p = prefs(ctx);
         SharedPreferences.Editor ed = p.edit();
         ed.putString (GpsTrackingService.EXTRA_BACKEND_URL,          backendUrl);
@@ -88,9 +103,10 @@ public class GpsSessionStore {
         ed.putString (GpsTrackingService.EXTRA_ATTENDANCE_ID,        attendanceId != null ? attendanceId : "");
         ed.putLong   (GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS,  gpsIntervalMs > 0 ? gpsIntervalMs : 60_000L);
         ed.putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, true);
+        ed.putString (GpsTrackingService.PREFS_KEY_SHIFT_TYPE,       resolvedShiftType);
         ed.apply();
         Log.d(TAG, "Session saved (encrypted) — employee=" + employeeId
-            + " url=" + backendUrl + " intervalMs=" + gpsIntervalMs);
+            + " url=" + backendUrl + " intervalMs=" + gpsIntervalMs + " shiftType=" + resolvedShiftType);
     }
 
     /**
@@ -165,8 +181,9 @@ public class GpsSessionStore {
             intervalMs = mins > 0 ? mins * 60_000L : 60_000L;
         }
         boolean trackingEnabled = p.getBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false);
+        String  shiftType       = p.getString(GpsTrackingService.PREFS_KEY_SHIFT_TYPE, "FIELD");
         return new Session(normaliseBackendUrl(rawUrl), token, empId, orgId, attId,
-                           intervalMs, trackingEnabled);
+                           intervalMs, trackingEnabled, shiftType);
     }
 
     /**
@@ -310,6 +327,12 @@ public class GpsSessionStore {
             long intervalMs = plain.getLong(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS, 60_000L);
             encEd.putLong(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS, intervalMs);
             plainEd.remove(GpsTrackingService.PREFS_KEY_GPS_INTERVAL_MS);
+            // Migrate shiftType if present in old plain prefs
+            String legacyShiftType = plain.getString(GpsTrackingService.PREFS_KEY_SHIFT_TYPE, null);
+            if (legacyShiftType != null) {
+                encEd.putString(GpsTrackingService.PREFS_KEY_SHIFT_TYPE, legacyShiftType);
+                plainEd.remove(GpsTrackingService.PREFS_KEY_SHIFT_TYPE);
+            }
 
             boolean trackingEnabled = plain.getBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, false);
             encEd.putBoolean(GpsTrackingService.PREFS_KEY_TRACKING_ENABLED, trackingEnabled);

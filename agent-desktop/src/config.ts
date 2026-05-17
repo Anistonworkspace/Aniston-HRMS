@@ -1,11 +1,3 @@
-import crypto from 'crypto';
-import os from 'os';
-
-function deriveMachineKey(): string {
-  const seed = `aniston-agent-v1-${os.hostname()}-${os.userInfo().username}`;
-  return crypto.createHash('sha256').update(seed).digest('hex');
-}
-
 export const CONFIG = {
   API_URL: process.env.ANISTON_API_URL || 'https://hr.anistonav.com/api',
   TRACKING_INTERVAL_MS: 30_000,         // 30 seconds — check active window
@@ -14,7 +6,6 @@ export const CONFIG = {
   CONFIG_POLL_INTERVAL_MS: 300_000,     // 5 minutes — poll server config (was 30s = 120 req/hr)
   IDLE_THRESHOLD_S: 300,                // 5 minutes idle = inactive
   APP_NAME: 'Aniston Agent',
-  STORE_ENCRYPTION_KEY: deriveMachineKey(),
 };
 
 // App categories for productivity classification

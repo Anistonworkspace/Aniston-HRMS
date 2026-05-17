@@ -41,7 +41,10 @@ const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string
   CUSTOM: { modelName: '', placeholder: 'API key' },
 };
 
-const AGENT_HEARTBEAT_TIMEOUT_MS = 2 * 60 * 1000;
+// AG-010: 7 minutes matches the backend threshold (5min sync interval + 2min grace).
+// The old 2-minute timeout caused agents to show "Offline" between sync cycles (every 5min),
+// creating false offline indicators even for healthy agents.
+const AGENT_HEARTBEAT_TIMEOUT_MS = 7 * 60 * 1000;
 
 type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates' | 'crash-reports' | 'account-activity' | 'shift-change-requests' | 'hr-actions-control';
 
@@ -2118,12 +2121,16 @@ function AgentSetupTab() {
   const [search, setSearch] = useState('');
   const [codeHistoryEmpId, setCodeHistoryEmpId] = useState<string | null>(null);
   const [liveStatuses, setLiveStatuses] = useState<Record<string, { isActive: boolean; lastHeartbeat: string }>>({});
+  // AG-005: Replace window.confirm() with inline state — confirm() is broken on Android PWA and iOS WebApp
+  const [regenConfirmEmpId, setRegenConfirmEmpId] = useState<string | null>(null);
+  const [bulkConfirmPending, setBulkConfirmPending] = useState(false);
 
   const employees: any[] = res?.data || [];
 
   const downloadAvailable = downloadRes?.data?.available ?? false;
-  // Use nginx-served path — direct file serve, bypasses Express entirely
-  const downloadUrl = '/downloads/aniston-agent-setup.exe';
+  // AG-001: Use the URL returned by the API (which reflects the actual filename on disk).
+  // Fallback to the canonical path in case the API response is missing the field.
+  const downloadUrl = downloadRes?.data?.downloadUrl || '/downloads/aniston-support-setup.exe';
 
   // Real-time socket updates
   useEffect(() => {
@@ -2182,8 +2189,14 @@ function AgentSetupTab() {
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
 
+  // AG-005: Two-stage confirm — first click sets pending state, second click executes
   const handleRegenerate = async (employeeId: string) => {
-    if (!confirm('This will invalidate the old code. The agent on this employee\'s machine will need to be reconfigured. Continue?')) return;
+    if (regenConfirmEmpId !== employeeId) {
+      setRegenConfirmEmpId(employeeId);
+      setTimeout(() => setRegenConfirmEmpId(null), 5000); // auto-cancel after 5s
+      return;
+    }
+    setRegenConfirmEmpId(null);
     try {
       const result = await regenerateCode({ employeeId }).unwrap();
       const code = result?.data?.code;
@@ -2196,7 +2209,12 @@ function AgentSetupTab() {
   };
 
   const handleBulkGenerate = async () => {
-    if (!confirm(`Generate codes for all ${employees.length - withCodeCount} employees without a code?`)) return;
+    if (!bulkConfirmPending) {
+      setBulkConfirmPending(true);
+      setTimeout(() => setBulkConfirmPending(false), 5000); // auto-cancel after 5s
+      return;
+    }
+    setBulkConfirmPending(false);
     try {
       const result = await bulkGenerate().unwrap();
       toast.success(`Generated ${result?.data?.generated || 0} codes`);
@@ -2236,7 +2254,7 @@ function AgentSetupTab() {
               <Loader2 size={14} className="animate-spin" /> Checking...
             </button>
           ) : downloadAvailable ? (
-            <a href={downloadUrl} download="aniston-agent-setup.exe" className="btn-primary text-sm flex items-center gap-1.5">
+            <a href={downloadUrl} download={downloadRes?.data?.filename || 'aniston-support-setup.exe'} className="btn-primary text-sm flex items-center gap-1.5">
               <Download size={14} /> Download Agent (.exe)
             </a>
           ) : (
@@ -2271,9 +2289,10 @@ function AgentSetupTab() {
         </div>
         {employees.length - withCodeCount > 0 && (
           <button onClick={handleBulkGenerate} disabled={bulkGenerating}
-            className="btn-secondary text-xs flex items-center gap-1.5 whitespace-nowrap">
+            className={`text-xs flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded-lg border font-medium transition-colors ${bulkConfirmPending ? 'border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100' : 'btn-secondary'}`}
+            title={bulkConfirmPending ? 'Click again to confirm bulk code generation' : undefined}>
             {bulkGenerating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-            Generate All Codes ({employees.length - withCodeCount})
+            {bulkConfirmPending ? `Confirm? (${employees.length - withCodeCount} codes)` : `Generate All Codes (${employees.length - withCodeCount})`}
           </button>
         )}
       </div>
@@ -2338,19 +2357,18 @@ function AgentSetupTab() {
                           {generating ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />} Generate Code
                         </button>
                       ) : (
-                        <>
-                          <button onClick={() => handleRegenerate(emp.id)} disabled={regenerating}
-                            className="text-[11px] py-1 px-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 flex items-center gap-1"
-                            title="Generate new code (old code saved to history)">
-                            <RefreshCw size={10} /> Regenerate
-                          </button>
-                          <button onClick={() => setCodeHistoryEmpId(emp.id)}
-                            className="text-[11px] py-1 px-2.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1"
-                            title="View all pairing codes and their status">
-                            <Clock size={10} /> Code History
-                          </button>
-                        </>
+                        <button onClick={() => handleRegenerate(emp.id)} disabled={regenerating}
+                          className={`text-[11px] py-1 px-2.5 rounded-lg border flex items-center gap-1 ${regenConfirmEmpId === emp.id ? 'border-amber-400 text-amber-700 bg-amber-50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                          title={regenConfirmEmpId === emp.id ? 'Click again to confirm — old code will be invalidated' : 'Generate new code (old code saved to history)'}>
+                          <RefreshCw size={10} /> {regenConfirmEmpId === emp.id ? 'Confirm?' : 'Regenerate'}
+                        </button>
                       )}
+                      {/* AG-008: Always show Code History button — employees may have history even without a current code */}
+                      <button onClick={() => setCodeHistoryEmpId(emp.id)}
+                        className="text-[11px] py-1 px-2.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1"
+                        title="View all pairing codes and their status">
+                        <Clock size={10} /> Code History
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -2379,7 +2397,7 @@ function AgentSetupTab() {
       {codeHistoryEmpId && (
         <AgentCodeHistoryModal
           employeeId={codeHistoryEmpId}
-          employeeName={employees.find(e => e.id === codeHistoryEmpId)?.firstName + ' ' + employees.find(e => e.id === codeHistoryEmpId)?.lastName}
+          employeeName={[employees.find(e => e.id === codeHistoryEmpId)?.firstName, employees.find(e => e.id === codeHistoryEmpId)?.lastName].filter(Boolean).join(' ') || 'Employee'}
           onClose={() => setCodeHistoryEmpId(null)}
         />
       )}
@@ -2469,7 +2487,7 @@ function AgentCodeHistoryModal({ employeeId, employeeName, onClose }: { employee
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                           <div className="text-right">
-                            {entry.connectedAt && <p className="text-[9px] text-gray-400">Used: {fmtDate(entry.connectedAt)}</p>}
+                            {entry.connectedAt && <p className="text-[9px] text-gray-400">First paired: {fmtDate(entry.connectedAt)}</p>}
                             {entry.revokedAt && <p className="text-[9px] text-gray-300">Revoked: {fmtDate(entry.revokedAt)}</p>}
                           </div>
                           {!entry.isConnected && (

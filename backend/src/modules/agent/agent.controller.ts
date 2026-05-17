@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Request, Response, NextFunction } from 'express';
 import { agentService } from './agent.service.js';
-import { heartbeatSchema, screenshotMetadataSchema, generateCodeSchema, setLiveModeSchema, dateParamSchema } from './agent.validation.js';
+import { heartbeatSchema, screenshotMetadataSchema, generateCodeSchema, setLiveModeSchema, dateParamSchema, employeeIdParamSchema, historyIdParamSchema, screenshotIdParamSchema, pairCodeSchema } from './agent.validation.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,14 +11,19 @@ const __dirname = path.dirname(__filename);
 // downloads/ lives at project root — 4 levels up from backend/dist/modules/agent/
 const DOWNLOADS_ROOT = path.resolve(__dirname, '../../../../downloads');
 // CI/CD SCP preserves the artifact directory name, so the exe lands in agent/agent-build/
-const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-agent-setup.exe');
+const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-support-setup.exe');
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
     try {
+      // BUG-011: Admin/HR users may have no employeeId — reject with a clear error
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, error: { code: 'NOT_AN_EMPLOYEE', message: 'Heartbeat requires an agent token linked to an employee' } });
+        return;
+      }
       const { activities } = heartbeatSchema.parse(req.body);
       const result = await agentService.submitHeartbeat(
-        req.user!.employeeId!,
+        req.user!.employeeId,
         req.user!.organizationId,
         activities,
         req.user!.userId
@@ -33,12 +38,17 @@ export class AgentController {
         res.status(400).json({ success: false, error: { code: 'FILE_REQUIRED', message: 'No file uploaded' } });
         return;
       }
+      // BUG-011: Admin/HR users may have no employeeId
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, error: { code: 'NOT_AN_EMPLOYEE', message: 'Screenshot upload requires an agent token linked to an employee' } });
+        return;
+      }
 
       const metadata = screenshotMetadataSchema.parse(req.body);
       const imageUrl = storageService.buildUrl(StorageFolder.AGENT_SCREENSHOTS, req.file.filename);
 
       const screenshot = await agentService.saveScreenshot(
-        req.user!.employeeId!,
+        req.user!.employeeId,
         req.user!.organizationId,
         imageUrl,
         metadata,
@@ -72,6 +82,7 @@ export class AgentController {
   async getActivityLogs(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
+      employeeIdParamSchema.parse(employeeId);
       dateParamSchema.parse(date);
       const result = await agentService.getActivityLogs(
         employeeId as string,
@@ -85,6 +96,7 @@ export class AgentController {
   async getScreenshots(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
+      employeeIdParamSchema.parse(employeeId);
       dateParamSchema.parse(date);
       const screenshots = await agentService.getScreenshots(
         employeeId as string,
@@ -113,6 +125,7 @@ export class AgentController {
   async getEmployeeStatus(req: Request, res: Response, next: NextFunction) {
     try {
       const employeeId = Array.isArray(req.params.employeeId) ? req.params.employeeId[0] : req.params.employeeId;
+      employeeIdParamSchema.parse(employeeId);
       const status = await agentService.getAgentStatus(employeeId, req.user!.organizationId);
       res.json({ success: true, data: status });
     } catch (err) { next(err); }
@@ -126,17 +139,24 @@ export class AgentController {
         success: true,
         data: {
           available,
-          downloadUrl: available ? '/downloads/aniston-agent-setup.exe' : null,
-          filename: 'aniston-agent-setup.exe',
+          downloadUrl: available ? '/downloads/aniston-support-setup.exe' : null,
+          filename: 'aniston-support-setup.exe',
         },
       });
     } catch (err) { next(err); }
   }
   async generatePairCode(req: Request, res: Response, next: NextFunction) {
     try {
+      // SEC-001: Admin/HR callers generate codes FOR an employee — employeeId comes from body.
+      // Fall back to req.user.employeeId only if the caller is the employee themselves (legacy path).
+      const targetEmployeeId = req.body?.employeeId || req.user!.employeeId;
+      if (!targetEmployeeId) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'employeeId is required' } });
+        return;
+      }
       const result = await agentService.generatePairCode(
         req.user!.userId,
-        req.user!.employeeId!,
+        targetEmployeeId,
         req.user!.organizationId
       );
       res.json({ success: true, data: result });
@@ -153,6 +173,7 @@ export class AgentController {
 
   async getLiveMode(req: Request, res: Response, next: NextFunction) {
     try {
+      employeeIdParamSchema.parse(req.params.employeeId);
       const result = await agentService.getLiveMode(req.params.employeeId as string, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
@@ -162,6 +183,8 @@ export class AgentController {
     try {
       const { code } = req.body;
       if (!code) return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Pairing code is required' } });
+      // BUG-008: Validate code format before hitting the database — rejects garbage inputs early
+      pairCodeSchema.parse(code);
       const result = await agentService.verifyPairCode(code);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
@@ -202,6 +225,7 @@ export class AgentController {
   async getCodeHistory(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId } = req.params;
+      employeeIdParamSchema.parse(employeeId);
       const result = await agentService.getCodeHistory(employeeId, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
@@ -221,6 +245,7 @@ export class AgentController {
   async deleteHistoryCode(req: Request, res: Response, next: NextFunction) {
     try {
       const { historyId } = req.params;
+      historyIdParamSchema.parse(historyId);
       // FIX 3: Derive employeeId from the DB record (via service lookup) rather than trusting req.body.
       // The service validates the historyId belongs to the org, and returns entry.employeeId.
       // We pass a placeholder — the service will resolve the real employeeId internally.
@@ -232,6 +257,7 @@ export class AgentController {
   async exportActivity(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
+      employeeIdParamSchema.parse(employeeId);
       dateParamSchema.parse(date);
       const buffer = await agentService.exportActivityExcel(employeeId, req.user!.organizationId, date, req.user!.userId);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -259,7 +285,17 @@ export class AgentController {
 
   async getScreenshotInterval(req: Request, res: Response, next: NextFunction) {
     try {
+      employeeIdParamSchema.parse(req.params.employeeId);
       const result = await agentService.getScreenshotInterval(req.params.employeeId, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async deleteScreenshot(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { screenshotId } = req.params;
+      screenshotIdParamSchema.parse(screenshotId);
+      const result = await agentService.deleteScreenshot(screenshotId, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -267,6 +303,7 @@ export class AgentController {
   async deleteActivityByDate(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
+      employeeIdParamSchema.parse(employeeId);
       dateParamSchema.parse(date);
       const result = await agentService.deleteActivityByDate(
         employeeId,
@@ -282,6 +319,7 @@ export class AgentController {
   async getReport(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId } = req.params;
+      employeeIdParamSchema.parse(employeeId);
       const { from, to } = req.query as { from?: string; to?: string };
 
       if (!from || !to) {
@@ -303,6 +341,14 @@ export class AgentController {
       }
 
       const result = await agentService.getEmployeeReport(employeeId, req.user!.organizationId, from, to);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  // BUG-003: Return the server's configured retention window so frontend doesn't use a hardcoded value
+  async getRetentionConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = agentService.getRetentionConfig();
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

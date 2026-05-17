@@ -46,6 +46,13 @@ export const createShiftSchema = z.object({
   gpsSpoofingTimeMinutes:        z.coerce.number().int().min(1).max(60).optional(),
   gpsMaxAgeSeconds:              z.coerce.number().int().min(30).max(600).optional(),
   outsideGeofenceAlertEnabled:   z.boolean().optional(),
+  // FIELD: block check-in when employee is inside their approved home geofence
+  blockMarkInInsideHomeGeofence: z.boolean().optional(),
+  homeGeofenceRadiusMeters:      z.coerce.number().int().min(50).max(5000).optional(),
+  // Auto-absent / late cutoff / break deduction (per-shift overrides)
+  autoAbsentAfterHours:          z.number().int().min(1).max(24).nullable().optional(),
+  lateMarkCutoffMinutes:         z.number().int().min(30).max(720).nullable().optional(),
+  breakDeductionMinutes:         z.number().int().min(0).max(120).optional(),
 }).refine(
   (data) => !data.startTime || !data.endTime || data.startTime !== data.endTime,
   { message: 'Shift end time must be different from start time', path: ['endTime'] }

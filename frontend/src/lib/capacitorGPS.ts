@@ -22,7 +22,7 @@ import { Geolocation, type Position } from '@capacitor/geolocation';
 
 // Register our custom native plugin (GpsTrackingPlugin.java in MainActivity)
 interface GpsTrackingPluginDef {
-  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; attendanceId?: string; trackingIntervalMinutes?: number; shiftEndEpochMs?: number }): Promise<void>;
+  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string; attendanceId?: string; trackingIntervalMinutes?: number; shiftEndEpochMs?: number; shiftType?: string }): Promise<void>;
   stop(): Promise<void>;
   updateToken(opts: { token: string }): Promise<void>;
   updateInterval(opts: { minutes: number }): Promise<void>;
@@ -160,6 +160,10 @@ export interface GPSCredentials {
   trackingIntervalMinutes?: number;
   /** Unix epoch ms of shift end time — service auto-stops when this is exceeded. 0 = no limit. */
   shiftEndEpochMs?: number;
+  /** Shift type: 'FIELD' for full GPS trail, 'HYBRID' for lightweight geofence monitoring. */
+  shiftType?: string;
+  /** Refresh token forwarded to native service for background token refresh (empty when httpOnly cookie). */
+  refreshToken?: string;
 }
 
 /**
@@ -181,6 +185,7 @@ export async function startNativeGpsService(credentials: GPSCredentials): Promis
     ...(credentials.shiftEndEpochMs != null && credentials.shiftEndEpochMs > 0
       ? { shiftEndEpochMs: credentials.shiftEndEpochMs }
       : {}),
+    ...(credentials.shiftType != null ? { shiftType: credentials.shiftType } : {}),
   });
 }
 
@@ -197,7 +202,9 @@ export async function startTrackingForShift(opts: {
   graceMinutes: number;
   trackingIntervalMinutes: number;
   trackingStartsOnCheckIn?: boolean;
-  credentials: Omit<GPSCredentials, 'attendanceId' | 'trackingIntervalMinutes' | 'shiftEndEpochMs'>;
+  /** Shift type passed to native service to control notification text and behaviour. */
+  shiftType?: string;
+  credentials: Omit<GPSCredentials, 'attendanceId' | 'trackingIntervalMinutes' | 'shiftEndEpochMs' | 'shiftType'>;
 }): Promise<void> {
   if (!isNativeAndroid) return;
   // Guard: only start if the shift policy allows tracking to start on check-in
@@ -219,6 +226,7 @@ export async function startTrackingForShift(opts: {
     attendanceId: opts.attendanceId,
     trackingIntervalMinutes: opts.trackingIntervalMinutes,
     shiftEndEpochMs,
+    shiftType: opts.shiftType,
   });
 }
 

@@ -1,14 +1,16 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, powerMonitor } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
 import { ipcMain } from 'electron';
-import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig, UnauthorizedError, setTokenRefreshCallback } from './api';
-import { startTracking, stopTracking, getBuffer, drainBuffer } from './tracker';
+import { pairWithCode, setTokens, sendHeartbeat, sendPing, isLoggedIn, getAgentConfig, UnauthorizedError, ForbiddenError, setTokenRefreshCallback } from './api';
+import { startTracking, stopTracking, getBuffer, drainBuffer, pauseTracking, resumeTracking } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
-import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
+import { startInputTracking, stopInputTracking } from './inputTracker';
+import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError, TrayState } from './tray';
+import { registerWatchdog, unregisterWatchdog } from './watchdog';
 import io from 'socket.io-client';
 
 // ── Global error handlers ─────────────────────────────────────────────────────
@@ -143,7 +145,10 @@ if (!gotSingleLock) {
 let autoLauncher: AutoLaunch | null = null;
 
 let syncInterval: NodeJS.Timeout | null = null;
+let pingInterval: NodeJS.Timeout | null = null;
 let isRepairing = false; // guard against concurrent re-pair attempts
+let startAgentConfigTimeout: ReturnType<typeof setTimeout> | null = null; // A-021
+let powerMonitorRegistered = false; // register powerMonitor handlers only once
 
 async function handlePair() {
   if (isRepairing) return;
@@ -168,8 +173,10 @@ async function handlePair() {
     updateTrayMenu(handlePair, handleLogout);
   } catch (err) {
     const msg = (err as Error).message;
-    // 'cancelled' means the user closed the window intentionally — no error UI needed
-    if (msg !== 'cancelled') {
+    // 'cancelled' = user closed the window; 'Already open' = showPairWindow rejected because
+    // window already visible (A-023: guard clause in tray.ts). Both are non-error conditions.
+    const isSilent = msg === 'cancelled' || msg === 'Already open';
+    if (!isSilent) {
       console.error('[Pair] Error:', msg);
       sendPairError(msg || 'Pairing failed. Try generating a new code.');
     }
@@ -179,14 +186,19 @@ async function handlePair() {
 }
 
 function handleLogout() {
-  stopTracking();
+  stopTracking();   // also calls stopInputTracking() internally
   stopScreenshots();
   stopSyncLoop();
+  stopPingLoop();
   stopConfigPoll();
   agentSocket?.disconnect();
   agentSocket = null;
+  // A-021: Cancel the post-startAgent config fetch timeout so it doesn't fire after logout
+  if (startAgentConfigTimeout) { clearTimeout(startAgentConfigTimeout); startAgentConfigTimeout = null; }
   setTokens('', '');
   store.clear();
+  // Remove the watchdog task on explicit logout — user intentionally disconnected
+  unregisterWatchdog().catch(() => { /* non-critical */ });
   // Stay idle after disconnect — tray now shows "Enter Pairing Code" so employee
   // can re-pair manually without being immediately forced back into the pair flow.
   updateTrayMenu(handlePair, handleLogout);
@@ -197,14 +209,59 @@ let configPollInterval: NodeJS.Timeout | null = null;
 let agentSocket: ReturnType<typeof io> | null = null;
 
 function startAgent() {
-  startTracking();
+  startTracking(); // also calls startInputTracking() internally
   startScreenshots();
   startSyncLoop();
+  startPingLoop();
   startConfigPoll();
   connectAgentSocket();
+
+  // BUG-001: Register powerMonitor sleep/resume handlers once per app lifetime.
+  // setInterval timers do NOT pause during sleep — on wake, the elapsed time fires
+  // all missed ticks instantly, inflating `activeMinutes` with fake data.
+  // Pausing tracking on suspend and restarting on resume eliminates this burst.
+  if (!powerMonitorRegistered) {
+    powerMonitorRegistered = true;
+
+    // 'suspend' = system going to sleep (lid close, sleep button, idle timeout)
+    powerMonitor.on('suspend', () => {
+      console.log('[Agent] System suspending — pausing all tracking');
+      pauseTracking();
+      stopScreenshots();
+      stopInputTracking();
+    });
+
+    // 'resume' = system waking from sleep
+    powerMonitor.on('resume', () => {
+      console.log('[Agent] System resumed — restarting tracking');
+      if (!isLoggedIn()) return;
+      resumeTracking();
+      startScreenshots();
+      startInputTracking();
+    });
+
+    // 'lock-screen' / 'unlock-screen': pause while screen is locked (Windows + macOS)
+    powerMonitor.on('lock-screen', () => {
+      console.log('[Agent] Screen locked — pausing tracking');
+      pauseTracking();
+      stopScreenshots();
+      stopInputTracking();
+    });
+
+    powerMonitor.on('unlock-screen', () => {
+      console.log('[Agent] Screen unlocked — resuming tracking');
+      if (!isLoggedIn()) return;
+      resumeTracking();
+      startScreenshots();
+      startInputTracking();
+    });
+  }
+
   // FIX-3: Read server config immediately so screenshot interval is applied at startup
   // (not just after the first CONFIG_POLL_INTERVAL_MS cycle)
-  setTimeout(async () => {
+  // A-021: Store timeout ref so logout can cancel it and prevent post-logout API calls
+  startAgentConfigTimeout = setTimeout(async () => {
+    startAgentConfigTimeout = null;
     try {
       const config = await getAgentConfig();
       if (config?.screenshotIntervalSeconds) {
@@ -218,7 +275,16 @@ function connectAgentSocket() {
   // Guard: don't create a second socket if one already exists (e.g. startAgent called twice)
   if (agentSocket) return;
 
-  const apiUrl = CONFIG.API_URL.replace('/api', '');
+  // A-026: Use URL.origin instead of string replace — '.replace("/api", "")' would break
+  // API_URLs that have "/api" elsewhere (e.g. "https://api.example.com/api/v1").
+  // URL.origin gives exactly "https://host:port" with no path component.
+  let apiUrl: string;
+  try {
+    apiUrl = new URL(CONFIG.API_URL).origin;
+  } catch {
+    // Fallback for malformed URLs — keeps the old behaviour
+    apiUrl = CONFIG.API_URL.replace('/api', '');
+  }
   const token = store.get('accessToken') as string;
   if (!token) return;
 
@@ -230,25 +296,34 @@ function connectAgentSocket() {
 
   const registerAgent = () => agentSocket?.emit('agent:register');
 
+  // socket.io-client v4: 'connect' fires on both initial connect AND every reconnect.
+  // The old 'reconnect' event was removed in v4; keeping only 'connect' is correct.
   agentSocket.on('connect', () => {
     console.log('[Socket] Agent connected to server');
     registerAgent();
   });
 
-  // Re-register after reconnect so the server re-adds this socket to the agent room
-  agentSocket.on('reconnect', () => {
-    console.log('[Socket] Agent reconnected — re-registering');
-    registerAgent();
-  });
-
   // Live mode toggled by admin — immediately apply new screenshot interval
   // (agent also polls /config every 5min as fallback, but this gives instant response)
-  agentSocket.on('agent:config-update', (data: { liveMode: boolean; intervalSeconds: number }) => {
+  agentSocket.on('agent:config-update', (data: { liveMode?: boolean; intervalSeconds?: number; screenshotIntervalSeconds?: number }) => {
     console.log('[Socket] Config update received:', data);
     if (data.liveMode && data.intervalSeconds) {
+      // Live mode enabled — apply the live interval immediately
       updateInterval(data.intervalSeconds * 1000);
-    } else if (!data.liveMode) {
-      updateInterval(600_000); // restore default 10-minute interval
+    } else if (data.liveMode === false) {
+      // CALC-004: Live mode disabled — fetch the server config to restore the admin-configured
+      // per-employee interval instead of hardcoding 600s (which ignores custom settings).
+      getAgentConfig().then(config => {
+        if (config?.screenshotIntervalSeconds) {
+          updateInterval(config.screenshotIntervalSeconds * 1000);
+        }
+      }).catch(() => {
+        // Fallback to default if config fetch fails
+        updateInterval(CONFIG.SCREENSHOT_INTERVAL_MS);
+      });
+    } else if (data.screenshotIntervalSeconds) {
+      // AGENT-004: Admin updated the screenshot interval outside of live mode — apply immediately.
+      updateInterval(data.screenshotIntervalSeconds * 1000);
     }
   });
 
@@ -286,10 +361,12 @@ function startSyncLoop() {
       const last = activities[activities.length - 1];
       if (last) updateActiveWindow(last.activeApp, last.activeWindow);
     } catch (err) {
-      // Token truly expired (access + refresh both failed) — discard buffer and re-pair
+      // Token truly expired (access + refresh both failed)
       if (err instanceof UnauthorizedError) {
-        console.warn('[Sync] Token expired — clearing credentials and prompting re-pair');
-        drainBuffer(activities.length);
+        console.warn('[Sync] Token expired — clearing credentials');
+        // A-005: Do NOT drain buffer on token expiry — the data was never sent to the server.
+        // Draining here silently discards buffered activity records. Keep them so that after
+        // re-pair the next sync cycle retransmits them.
         store.delete('accessToken');
         store.delete('refreshToken');
         setTokens('', '');
@@ -297,7 +374,26 @@ function startSyncLoop() {
         stopConfigPoll();
         agentSocket?.disconnect();
         agentSocket = null;
-        handlePair();
+        // PERMANENT PAIRING: once configured, NEVER auto-show the pair window.
+        // The employee deliberately installed and configured this agent. If the server
+        // token expires, we just wait idle in the tray. The employee can manually
+        // trigger re-pair from the tray menu if needed. This prevents the pair window
+        // from startling employees who have already configured their agent.
+        if (store.get('paired') === true) {
+          console.log('[Sync] Permanent pairing active — staying idle, not showing pair window');
+          // A-010: Show 'reconnect-required' so employee knows they need to re-pair (not just "Not Connected")
+          updateTrayMenu(handlePair, handleLogout, 'reconnect-required');
+        } else {
+          handlePair();
+        }
+        return;
+      }
+      // A-003: ForbiddenError means valid token but wrong permissions — not a transient error.
+      // Log it and stop retrying. This prevents flooding the server with 403 requests.
+      if (err instanceof ForbiddenError) {
+        console.error('[Sync] Forbidden (403) — agent token lacks permission. Contact admin.');
+        stopSyncLoop();
+        stopConfigPoll();
         return;
       }
       // Network/server error — keep buffer intact so next sync cycle retries these entries
@@ -310,6 +406,23 @@ function stopSyncLoop() {
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;
+  }
+}
+
+// Lightweight keepalive every 2 minutes — keeps the Redis agent-ping key fresh
+// so the admin dashboard shows accurate online/offline status between heartbeats.
+function startPingLoop() {
+  if (pingInterval) return;
+  pingInterval = setInterval(async () => {
+    if (!isLoggedIn()) return;
+    try { await sendPing(); } catch { /* non-critical — heartbeat is the primary path */ }
+  }, 120_000);
+}
+
+function stopPingLoop() {
+  if (pingInterval) {
+    clearInterval(pingInterval);
+    pingInterval = null;
   }
 }
 
@@ -375,6 +488,14 @@ app.whenReady().then(async () => {
     console.warn('[Agent] Auto-launch setup failed (non-critical):', (autoErr as Error).message);
   }
 
+  // Register Windows Task Scheduler watchdog — restarts the agent after Task Manager kill.
+  // A-009: Only register in packaged builds — in dev mode the exe path points to Electron's
+  // development binary, which would create a spurious scheduled task polluting the dev machine.
+  // Runs only on Windows; silently skipped on other platforms (handled inside registerWatchdog).
+  if (app.isPackaged) {
+    registerWatchdog(app.getPath('exe')).catch(() => { /* non-critical, already logged inside */ });
+  }
+
   // Create system tray
   createTray(handlePair, handleLogout);
 
@@ -386,9 +507,16 @@ app.whenReady().then(async () => {
     startAgent();
     updateTrayMenu(handlePair, handleLogout);
     console.log('[Agent] Auto-connected with stored token');
+  } else if (store.get('paired') === true) {
+    // PERMANENT PAIRING: previously configured — DO NOT auto-show pair window.
+    // Token may be temporarily invalid (server restart, maintenance window).
+    // Stay idle in the tray; employee can re-pair manually from the tray menu.
+    console.log('[Agent] Paired device but token currently invalid — staying idle (permanent pairing mode)');
+    // A-010: Show 'reconnect-required' so employee knows they need to re-pair (not just "Not Connected")
+    updateTrayMenu(handlePair, handleLogout, 'reconnect-required');
   } else {
-    // No valid token — show pairing window immediately
-    console.log('[Agent] No valid token — showing pairing window');
+    // Never been configured — show pairing window on first launch
+    console.log('[Agent] No valid token and never paired — showing pairing window');
     handlePair();
   }
 });

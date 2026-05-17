@@ -165,6 +165,13 @@ export class ShiftService {
       throw new ConflictError(`Shift code "${data.code}" already exists`);
     }
 
+    // Prevent FIELD shifts from being saved with an impractically long interval
+    if (data.shiftType === 'FIELD' && data.trackingIntervalMinutes !== undefined) {
+      if (data.trackingIntervalMinutes > 60) {
+        throw new BadRequestError('Live Tracking shifts cannot have a GPS interval longer than 60 minutes. Use 1–60 minutes for meaningful tracking.');
+      }
+    }
+
     let shift;
 
     // If a soft-deleted shift with same code exists, reactivate it with new data
@@ -208,6 +215,13 @@ export class ShiftService {
     // Strip any organizationId that may have snuck in from request body
     const { organizationId: _oid, ...safeData } = data as any;
 
+    // Prevent FIELD shifts from being saved with an impractically long interval
+    if (safeData.trackingIntervalMinutes !== undefined && shift.shiftType === 'FIELD') {
+      if (safeData.trackingIntervalMinutes > 60) {
+        throw new BadRequestError('Live Tracking shifts cannot have a GPS interval longer than 60 minutes. Use 1–60 minutes for meaningful tracking.');
+      }
+    }
+
     if (safeData.isDefault) {
       await prisma.shift.updateMany({
         where: { organizationId, isDefault: true, id: { not: id } },
@@ -215,7 +229,45 @@ export class ShiftService {
       });
     }
 
-    return prisma.shift.update({ where: { id, organizationId }, data: safeData });
+    const updated = await prisma.shift.update({ where: { id, organizationId }, data: safeData });
+
+    // If GPS interval changed, push the new value to all checked-in employees on this shift
+    // so their running native service updates without requiring a re-check-in.
+    if (
+      safeData.trackingIntervalMinutes !== undefined &&
+      safeData.trackingIntervalMinutes !== shift.trackingIntervalMinutes &&
+      shift.shiftType === 'FIELD'
+    ) {
+      try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const checkedInEmployees = await prisma.attendanceRecord.findMany({
+          where: {
+            date: today,
+            checkOutTime: null,
+            employee: {
+              shiftAssignments: {
+                some: { shiftId: id, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+              },
+            },
+          },
+          include: { employee: { select: { userId: true } } },
+        });
+        const { getIO } = await import('../../sockets/index.js');
+        const io = getIO();
+        if (io) {
+          for (const record of checkedInEmployees) {
+            if (record.employee.userId) {
+              io.to(`user:${record.employee.userId}`).emit('gps:interval-changed', {
+                intervalMinutes: safeData.trackingIntervalMinutes,
+              });
+            }
+          }
+        }
+      } catch { /* non-blocking — socket push is best-effort */ }
+    }
+
+    return updated;
   }
 
   async deleteShift(id: string, organizationId: string) {

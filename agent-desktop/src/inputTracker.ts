@@ -15,10 +15,13 @@ let totalMouseDistance = 0;
 let pollInterval: NodeJS.Timeout | null = null;
 let isPaused = false;
 
-// Track input state between snapshots via PowerShell.
-// Poll every 5 seconds — reduces spawns from 30/min to 12/min while still
-// capturing fine-grained keystrokes within each 30-second tracking window.
-const INPUT_POLL_MS = 5000;
+// Poll every 500ms — 60 polls per 30-second tracking window.
+// This dramatically reduces the missed-keystroke problem inherent in GAKS bit-0:
+// each bit-0 flag is cleared after the first GAKS call, so polling at 5s meant
+// a user who typed 100 keys in 1s could only register ~47 max (one per key per 5s window).
+// At 500ms the floor is ~10× better, catching most burst-typing sessions.
+// CPU cost: ~2 PowerShell spawns/sec. exec() is async so it does not block Electron.
+const INPUT_POLL_MS = 500;
 
 /**
  * Get current mouse position and detect keyboard/mouse activity
@@ -61,7 +64,7 @@ function pollInputState(): void {
   psRunning = true;
   exec(
     `powershell -NoProfile -NonInteractive -EncodedCommand ${PS_ENCODED}`,
-    { timeout: 5000, windowsHide: true },
+    { timeout: 400, windowsHide: true },
     (err, stdout) => {
       psRunning = false;
       if (isPaused) return; // may have been paused while PS was running
@@ -105,8 +108,14 @@ function pollInputState(): void {
 
 /**
  * Start input tracking — polls every 2 seconds
+ * A-016: No-op on non-Windows platforms — the PowerShell script uses Win32 DLLs
+ * (user32.dll GetAsyncKeyState/GetCursorPos) that do not exist on macOS/Linux.
  */
 export function startInputTracking(): void {
+  if (process.platform !== 'win32') {
+    console.log('[InputTracker] Skipped — not Windows');
+    return;
+  }
   if (pollInterval) return;
   lastMouseX = 0;
   lastMouseY = 0;

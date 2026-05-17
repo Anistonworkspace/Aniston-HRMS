@@ -1,5 +1,48 @@
 import { api } from '../../app/api';
 
+// ===== Home Location Request Types =====
+export type HomeLocationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface HomeLocationRequest {
+  id: string;
+  employeeId: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  address?: string;
+  status: HomeLocationStatus;
+  reviewedAt?: string;
+  reviewNotes?: string;
+  createdAt: string;
+}
+
+// ===== Saved Location Types =====
+export interface SavedLocation {
+  id: string;
+  organizationId: string;
+  name: string;
+  address?: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  isImportant: boolean;
+  category?: string;
+  addedByUserId: string;
+  addedBy?: { name: string; email: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSavedLocationRequest {
+  name: string;
+  address?: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters?: number;
+  isImportant?: boolean;
+  category?: string;
+}
+
 interface TodayStatus {
   record: any | null;
   isCheckedIn: boolean;
@@ -88,6 +131,35 @@ interface AgentPairCodeResponse {
 interface AgentLiveModeResponse {
   enabled: boolean;
   intervalSeconds?: number;
+}
+
+interface AgentReportDay {
+  date: string;
+  activeMinutes: number;
+  idleMinutes: number;
+  productiveMinutes: number;
+  unproductiveMinutes: number;
+  productivityScore: number | null;
+  score: number;
+  grade: string;
+  topApps: { app: string; minutes: number }[];
+}
+
+interface AgentReportData {
+  employee: { id: string; name: string; code: string };
+  from: string;
+  to: string;
+  days: AgentReportDay[];
+  summary: {
+    totalActiveMins: number;
+    totalIdleMins: number;
+    totalProductiveMins: number;
+    totalUnproductiveMins: number;
+    averageDailyScore: number;
+    grade: string;
+    daysWithData: number;
+  };
+  topApps: { app: string; minutes: number; percentage: number }[];
 }
 
 export const attendanceApi = api.injectEndpoints({
@@ -237,7 +309,10 @@ export const attendanceApi = api.injectEndpoints({
 
     getEmployeeScreenshots: builder.query<{ success: boolean; data: AgentScreenshot[] }, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/agent/screenshots/${employeeId}/${date}`,
-      providesTags: ['Attendance'],
+      // ACT-001: Tag with employee+date so deleteAgentScreenshot can precisely invalidate
+      providesTags: (_, __, { employeeId, date }) => [
+        { type: 'Attendance' as const, id: `agent-screenshots-${employeeId}-${date}` },
+      ],
     }),
 
     getAgentStatus: builder.query<{ success: boolean; data: AgentStatusResponse }, void>({
@@ -289,6 +364,17 @@ export const attendanceApi = api.injectEndpoints({
     deleteAgentActivityByDate: builder.mutation<{ success: boolean; data: { date: string; logsDeleted: number; screenshotsDeleted: number } }, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => ({ url: `/agent/activity/${employeeId}/${date}`, method: 'DELETE' }),
       invalidatesTags: ['Attendance'],
+    }),
+
+    // BUG-003: Fetch server-configured retention window (avoids hardcoded 30-day frontend constant)
+    getAgentRetentionConfig: builder.query<{ success: boolean; data: { activityRetentionDays: number } }, void>({
+      query: () => '/agent/config/retention',
+    }),
+
+    // HIGH-003: Monthly productivity report for an employee
+    getAgentReport: builder.query<{ success: boolean; data: AgentReportData }, { employeeId: string; from: string; to: string }>({
+      query: ({ employeeId, from, to }) => `/agent/report/${employeeId}?from=${from}&to=${to}`,
+      providesTags: (_, __, { employeeId }) => [{ type: 'Attendance' as const, id: `AgentReport-${employeeId}` }],
     }),
 
     // Pending regularizations (HR view)
@@ -453,8 +539,47 @@ export const attendanceApi = api.injectEndpoints({
       invalidatesTags: ['Attendance'],
     }),
 
+    // ===== SAVED LOCATIONS =====
+    getSavedLocations: builder.query<SavedLocation[], void>({
+      query: () => '/saved-locations',
+      providesTags: ['SavedLocations'],
+      transformResponse: (r: any) => r.data,
+    }),
+    createSavedLocation: builder.mutation<SavedLocation, CreateSavedLocationRequest>({
+      query: (body) => ({ url: '/saved-locations', method: 'POST', body }),
+      invalidatesTags: ['SavedLocations'],
+      transformResponse: (r: any) => r.data,
+    }),
+    updateSavedLocation: builder.mutation<SavedLocation, { id: string } & Partial<CreateSavedLocationRequest>>({
+      query: ({ id, ...body }) => ({ url: `/saved-locations/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['SavedLocations'],
+      transformResponse: (r: any) => r.data,
+    }),
+    deleteSavedLocation: builder.mutation<void, string>({
+      query: (id) => ({ url: `/saved-locations/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['SavedLocations'],
+    }),
+    promoteVisitToSavedLocation: builder.mutation<SavedLocation, { visitId: string; name: string }>({
+      query: ({ visitId, name }) => ({ url: `/saved-locations/from-visit/${visitId}`, method: 'POST', body: { name } }),
+      invalidatesTags: ['SavedLocations', 'Attendance'],
+      transformResponse: (r: any) => r.data,
+    }),
+
+    // ===== HOME LOCATION REQUEST =====
+    submitHomeLocationRequest: builder.mutation<HomeLocationRequest, { latitude: number; longitude: number; accuracy?: number; address?: string }>({
+      query: (body) => ({ url: '/workforce/shifts/home-location-request', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+      transformResponse: (r: any) => r.data,
+    }),
+
+    getMyHomeLocationRequest: builder.query<HomeLocationRequest | null, void>({
+      query: () => '/workforce/shifts/my-home-location-request',
+      providesTags: ['Attendance'],
+      transformResponse: (r: any) => r.data ?? null,
+    }),
+
     getMyShiftHistory: builder.query<any, void>({
-      query: () => '/shifts/my-history',
+      query: () => '/workforce/shifts/my-history',
       providesTags: ['Attendance'],
     }),
 
@@ -476,14 +601,18 @@ export const attendanceApi = api.injectEndpoints({
       invalidatesTags: ['Attendance'],
     }),
 
-    deleteAgentScreenshot: builder.mutation<{ success: boolean; data: { deleted: boolean } }, { screenshotId: string }>({
+    deleteAgentScreenshot: builder.mutation<{ success: boolean; data: { deleted: boolean } }, { screenshotId: string; employeeId: string; date: string }>({
       query: ({ screenshotId }) => ({ url: `/agent/screenshots/${screenshotId}`, method: 'DELETE' }),
-      // No invalidatesTags — the gallery calls refetch() directly after delete to avoid a broad cache bust
+      // ACT-001: Invalidate the screenshots cache for this employee+date so the gallery refetches
+      // after deletion without requiring a manual refetch() call in every component.
+      invalidatesTags: (_, __, { employeeId, date }) => [
+        { type: 'Attendance' as const, id: `agent-screenshots-${employeeId}-${date}` },
+      ],
     }),
 
-    forceRefreshAgentStatus: builder.mutation<{ success: boolean }, { employeeId: string }>({
-      query: ({ employeeId }) => ({ url: `/agent/ping/${employeeId}`, method: 'POST' }),
-      invalidatesTags: ['Attendance'],
+    getAgentStatusForRefresh: builder.query<{ success: boolean; data: { isActive: boolean; lastHeartbeat: string | null; isPaired: boolean } }, string>({
+      query: (employeeId) => `/agent/status/${employeeId}`,
+      providesTags: (_, __, employeeId) => [{ type: 'Attendance' as const, id: `agent-status-${employeeId}` }],
     }),
   }),
 });
@@ -555,6 +684,15 @@ export const {
   // Geo Locations
   useGetGeoLocationsQuery,
   useUpdateLocationVisitNameMutation,
+  // Saved Locations
+  useGetSavedLocationsQuery,
+  useCreateSavedLocationMutation,
+  useUpdateSavedLocationMutation,
+  useDeleteSavedLocationMutation,
+  usePromoteVisitToSavedLocationMutation,
+  // Home Location Request
+  useSubmitHomeLocationRequestMutation,
+  useGetMyHomeLocationRequestQuery,
   // GPS Consent
   useRecordGPSConsentMutation,
   useGetGPSConsentStatusQuery,
@@ -566,5 +704,7 @@ export const {
   useGpsAlertMutation,
   useTagStopMutation,
   useDeleteAgentScreenshotMutation,
-  useForceRefreshAgentStatusMutation,
+  useLazyGetAgentStatusForRefreshQuery,
+  useGetAgentRetentionConfigQuery,
+  useGetAgentReportQuery,
 } = attendanceApi;
