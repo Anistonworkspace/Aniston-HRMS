@@ -1725,12 +1725,14 @@ function EmployeeLeaveDetailModal({
                         <p className={cn('text-xs font-semibold flex items-center gap-1.5', adjForm.mode === 'add' ? 'text-emerald-700' : 'text-indigo-700')}>
                           <SlidersHorizontal size={13} /> Adjust Leave Quota
                         </p>
-                        {/* Add / Deduct toggle */}
+                        {/* Add / Deduct toggle — HR can only deduct; ADMIN/SUPER_ADMIN can add too */}
                         <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
-                          <button
-                            onClick={() => setAdjForm((f) => ({ ...f, mode: 'add' }))}
-                            className={cn('px-3 py-1 font-medium transition-colors', adjForm.mode === 'add' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50')}
-                          >+ Add</button>
+                          {user?.role !== 'HR' && (
+                            <button
+                              onClick={() => setAdjForm((f) => ({ ...f, mode: 'add' }))}
+                              className={cn('px-3 py-1 font-medium transition-colors', adjForm.mode === 'add' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50')}
+                            >+ Add</button>
+                          )}
                           <button
                             onClick={() => setAdjForm((f) => ({ ...f, mode: 'deduct' }))}
                             className={cn('px-3 py-1 font-medium transition-colors', adjForm.mode === 'deduct' ? 'bg-red-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50')}
@@ -3098,6 +3100,7 @@ function PolicySettingsTab() {
   const [traineeQuotas, setTraineeQuotas] = useState<Record<string, number>>({});
   const [durations, setDurations] = useState({ probationMonths: 3, internMonths: 3 });
   const [maxPaidPerMonth, setMaxPaidPerMonth] = useState(0);
+  const [maxPaidPerMonthTrainee, setMaxPaidPerMonthTrainee] = useState(0);
   // Single unpaid leave toggle
   const [unpaidEnabled, setUnpaidEnabled] = useState(true);
 
@@ -3126,6 +3129,7 @@ function PolicySettingsTab() {
       internMonths: policy.internDurationMonths ?? 3,
     });
     setMaxPaidPerMonth(policy.maxPaidLeavesPerMonth ?? 0);
+    setMaxPaidPerMonthTrainee(policy.maxPaidLeavesPerMonthTrainee ?? 0);
 
     // Unpaid leave toggle — read directly from policy.allowUnpaidLeave field
     setUnpaidEnabled(policy.allowUnpaidLeave !== false);
@@ -3190,6 +3194,7 @@ function PolicySettingsTab() {
           probationDurationMonths: durations.probationMonths,
           internDurationMonths: durations.internMonths,
           maxPaidLeavesPerMonth: maxPaidPerMonth,
+          maxPaidLeavesPerMonthTrainee: maxPaidPerMonthTrainee,
           allowUnpaidLeave: unpaidEnabled,
           rules,
         },
@@ -3362,6 +3367,15 @@ function PolicySettingsTab() {
               )}
             </div>
           )}
+          <div className="border-t border-gray-100 pt-3">
+            {numField(
+              'Max Paid Leaves / Month',
+              '0 = unlimited. Cross-type monthly cap for paid leaves (Trainees).',
+              maxPaidPerMonthTrainee,
+              setMaxPaidPerMonthTrainee,
+              0, 31
+            )}
+          </div>
         </div>
 
         {/* Card 3 — Unpaid Leave */}

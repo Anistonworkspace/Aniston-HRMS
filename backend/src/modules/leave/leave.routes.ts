@@ -492,7 +492,7 @@ router.get('/policies', async (req, res, next) => {
 router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, rules } = req.body;
+    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, maxPaidLeavesPerMonthTrainee, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
         where: { organizationId: req.user!.organizationId, isDefault: true },
@@ -523,11 +523,13 @@ router.post('/policies', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
       include: { rules: { include: { leaveType: { select: { id: true, name: true, code: true } } } } },
     });
     // Workaround: Prisma v6 does not reliably set @default(0) Int fields via create().
-    // Apply maxPaidLeavesPerMonth via a follow-up update so it is always persisted.
+    // Apply maxPaid fields via a follow-up update so they are always persisted.
     const maxPaid = Number(maxPaidLeavesPerMonth ?? 0);
-    if (maxPaid !== 0) {
-      await prisma.leavePolicy.update({ where: { id: policy.id }, data: { maxPaidLeavesPerMonth: maxPaid } });
+    const maxPaidTrainee = Number(maxPaidLeavesPerMonthTrainee ?? 0);
+    if (maxPaid !== 0 || maxPaidTrainee !== 0) {
+      await prisma.leavePolicy.update({ where: { id: policy.id }, data: { maxPaidLeavesPerMonth: maxPaid, maxPaidLeavesPerMonthTrainee: maxPaidTrainee } });
       (policy as any).maxPaidLeavesPerMonth = maxPaid;
+      (policy as any).maxPaidLeavesPerMonthTrainee = maxPaidTrainee;
     }
     res.status(201).json({ success: true, data: policy });
   } catch (err) { next(err); }
@@ -542,7 +544,7 @@ router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
     });
     if (!existingPolicy) { res.status(404).json({ success: false, error: { message: 'Leave policy not found' } }); return; }
 
-    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, allowUnpaidLeave, rules } = req.body;
+    const { name, description, isDefault, probationDurationMonths, internDurationMonths, maxPaidLeavesPerMonth, maxPaidLeavesPerMonthTrainee, allowUnpaidLeave, rules } = req.body;
     if (isDefault) {
       await prisma.leavePolicy.updateMany({
         where: { organizationId: req.user!.organizationId, isDefault: true, id: { not: req.params.id } },
@@ -556,6 +558,7 @@ router.patch('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
     if (probationDurationMonths !== undefined) updateData.probationDurationMonths = probationDurationMonths;
     if (internDurationMonths !== undefined) updateData.internDurationMonths = internDurationMonths;
     if (maxPaidLeavesPerMonth !== undefined) updateData.maxPaidLeavesPerMonth = maxPaidLeavesPerMonth;
+    if (maxPaidLeavesPerMonthTrainee !== undefined) updateData.maxPaidLeavesPerMonthTrainee = maxPaidLeavesPerMonthTrainee;
     if (allowUnpaidLeave !== undefined) updateData.allowUnpaidLeave = allowUnpaidLeave;
 
     const policy = await prisma.leavePolicy.update({
@@ -895,6 +898,17 @@ router.post(
           error: {
             code: 'FORBIDDEN',
             message: `HR cannot adjust leave balances for ${targetRole} accounts. Only Super Admin or Admin can perform this action.`,
+          },
+        });
+      }
+
+      // HR can only deduct — positive adjustments (adding days) require ADMIN or SUPER_ADMIN
+      if (requesterRole === 'HR' && days > 0) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'HR can only deduct leave days. Adding leave days requires Admin or Super Admin access.',
           },
         });
       }

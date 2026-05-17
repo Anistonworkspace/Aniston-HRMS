@@ -340,17 +340,22 @@ export class LeaveService {
       }
     }
 
-    // 7b. Global monthly paid-leave limit for ACTIVE employees (cross-type, cross-month).
+    // 7b. Global monthly paid-leave limit (cross-type, cross-month).
+    // ACTIVE uses maxPaidLeavesPerMonth; PROBATION/INTERN use maxPaidLeavesPerMonthTrainee.
     // Instead of hard-blocking, we auto-split the excess days into unpaid (LWP).
     // monthlyCapUnpaidDays accumulates how many days must become LWP due to cap overflow.
     let monthlyCapUnpaidDays = 0;
-    if (leaveType.isPaid && employee.status === 'ACTIVE') {
+    if (leaveType.isPaid && ['ACTIVE', 'PROBATION', 'INTERN'].includes(employee.status)) {
       try {
         const globalPolicy = await leavePolicyService.getOrCreateDefaultPolicy(employee.organizationId);
-        const maxPaidPerMonth = (globalPolicy as any).maxPaidLeavesPerMonth ?? 0;
+        const isTrainee = ['PROBATION', 'INTERN'].includes(employee.status);
+        const maxPaidPerMonth = isTrainee
+          ? ((globalPolicy as any).maxPaidLeavesPerMonthTrainee ?? 0)
+          : ((globalPolicy as any).maxPaidLeavesPerMonth ?? 0);
+        const relevantCategory = isTrainee ? ['PROBATION', 'INTERN'] : ['ACTIVE'];
         if (maxPaidPerMonth > 0) {
           const activePaidTypeIds = (globalPolicy.rules as any[])
-            .filter((r: any) => r.employeeCategory === 'ACTIVE' && r.isAllowed && r.leaveType?.isPaid !== false)
+            .filter((r: any) => relevantCategory.includes(r.employeeCategory) && r.isAllowed && r.leaveType?.isPaid !== false)
             .map((r: any) => r.leaveTypeId);
 
           if (activePaidTypeIds.length > 0) {
@@ -368,7 +373,7 @@ export class LeaveService {
               const overlapStart = startDate > mStart ? startDate : mStart;
               const overlapEnd = endDate < mEnd ? endDate : mEnd;
               const calOverlap = Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1;
-              const daysInMonth = Math.round(days * (calOverlap / totalCalDays));
+              const daysInMonth = Math.floor(days * (calOverlap / totalCalDays));
 
               if (daysInMonth > 0) {
                 const overlappingRequests = await prisma.leaveRequest.findMany({
@@ -392,7 +397,7 @@ export class LeaveService {
                   const reqCalOverlap = Math.max(0, Math.floor((reqOverlapEnd.getTime() - reqOverlapStart.getTime()) / 86400000) + 1);
                   // Use paidDays if recorded, otherwise fall back to days
                   const reqPaid = Number((req as any).paidDays ?? req.days);
-                  const reqDaysInMonth = Math.round(reqPaid * (reqCalOverlap / reqTotalCal));
+                  const reqDaysInMonth = Math.floor(reqPaid * (reqCalOverlap / reqTotalCal));
                   alreadyUsedInMonth += reqDaysInMonth;
                 }
 
@@ -646,30 +651,41 @@ export class LeaveService {
         }
       };
 
-      // Primary leave request (paid portion, or full unpaid if leaveType is already unpaid)
-      const leaveRequest = await tx.leaveRequest.create({
-        data: {
-          employeeId,
-          leaveTypeId: data.leaveTypeId,
-          startDate,
-          endDate,
-          days: paidDays,
-          paidDays: leaveType.isPaid ? paidDays : 0,
-          unpaidDays: leaveType.isPaid ? unpaidDays : days,
-          isHalfDay: data.isHalfDay && unpaidDays === 0,
-          halfDaySession: (data.isHalfDay && unpaidDays === 0) ? (data.halfDaySession || null) : null,
-          reason: data.reason,
-          attachmentUrl: data.attachmentUrl || null,
-          status: finalStatus,
-        },
-        include: { leaveType: { select: { name: true, code: true } } },
-      });
+      // Guard: if monthly cap is fully exhausted, paidDays = 0 — skip the paid request
+      // and route everything through LWP. Require lwpLeaveType to exist in this case.
+      if (paidDays === 0 && !lwpLeaveType) {
+        throw new BadRequestError(
+          `Monthly paid leave cap is fully exhausted. All ${days} day(s) would be unpaid, but no Unpaid/LWP leave type is configured. Please contact HR to set up a Leave Without Pay type.`
+        );
+      }
 
-      if (balance) {
+      // Primary leave request (paid portion, or full unpaid if leaveType is already unpaid).
+      // Skipped when paidDays = 0 (fully exhausted by monthly cap) — LWP handles all days.
+      let leaveRequest: any = null;
+      if (paidDays > 0) {
+        leaveRequest = await tx.leaveRequest.create({
+          data: {
+            employeeId,
+            leaveTypeId: data.leaveTypeId,
+            startDate,
+            endDate,
+            days: paidDays,
+            paidDays: leaveType.isPaid ? paidDays : 0,
+            unpaidDays: leaveType.isPaid ? unpaidDays : days,
+            isHalfDay: data.isHalfDay && unpaidDays === 0,
+            halfDaySession: (data.isHalfDay && unpaidDays === 0) ? (data.halfDaySession || null) : null,
+            reason: data.reason,
+            attachmentUrl: data.attachmentUrl || null,
+            status: finalStatus,
+          },
+          include: { leaveType: { select: { name: true, code: true } } },
+        });
+      }
+
+      if (leaveRequest && balance) {
         if (autoApprove) {
           // Optimistic lock: only increment used if balance still has sufficient days.
           // Prevents negative balance when two auto-approve paths race concurrently.
-          // `balance` is not a filterable Prisma column — use used <= allocated+carriedForward-N instead.
           const maxUsedAllowed = Number(balance.allocated) + Number(balance.carriedForward) - paidDays;
           const autoApproveResult = await tx.leaveBalance.updateMany({
             where: { id: balance.id, used: { lte: maxUsedAllowed } },
@@ -684,19 +700,25 @@ export class LeaveService {
         }
       }
 
-      // LWP split request — created automatically when paid balance was partially exhausted
+      // LWP split request — created automatically when paid balance/cap was partially or fully exhausted.
+      // When paidDays = 0, this carries all requested days as unpaid; lwpLeaveType is guaranteed non-null above.
       let lwpRequest: any = null;
-      if (unpaidDays > 0 && lwpLeaveType) {
+      const lwpDaysToCreate = paidDays === 0 ? days : unpaidDays;
+      if (lwpDaysToCreate > 0 && lwpLeaveType) {
         lwpRequest = await tx.leaveRequest.create({
           data: {
             employeeId,
             leaveTypeId: lwpLeaveType.id,
             startDate,
             endDate,
-            days: unpaidDays,
+            days: lwpDaysToCreate,
+            paidDays: 0,
+            unpaidDays: lwpDaysToCreate,
             isHalfDay: false,
             halfDaySession: null,
-            reason: `[Auto LWP split from ${leaveType.name}] ${data.reason}`,
+            reason: paidDays === 0
+              ? `[Auto LWP — monthly paid cap fully exhausted from ${leaveType.name}] ${data.reason}`
+              : `[Auto LWP split from ${leaveType.name}] ${data.reason}`,
             attachmentUrl: null,
             status: finalStatus,
           },
@@ -704,11 +726,23 @@ export class LeaveService {
         });
         // LWP is unpaid — track pending days in LWP balance if it exists
         if (lwpBalance) {
-          await tx.leaveBalance.update({ where: { id: lwpBalance.id }, data: { pending: { increment: unpaidDays } } });
+          await tx.leaveBalance.update({ where: { id: lwpBalance.id }, data: { pending: { increment: lwpDaysToCreate } } });
         }
+        // If fully unpaid (paidDays=0), mark attendance under LWP label
+        if (paidDays === 0 && autoApprove) {
+          await markAttendance(lwpLeaveType.name);
+        }
+      } else if (lwpDaysToCreate > 0 && !lwpLeaveType) {
+        // This should have been caught above for the paidDays=0 case.
+        // For partial splits where lwpLeaveType is missing, throw a clear error.
+        throw new BadRequestError(
+          `${unpaidDays} day(s) exceed your monthly paid leave cap but no Unpaid/LWP leave type is configured. Please contact HR to set up a Leave Without Pay type.`
+        );
       }
 
-      return { leaveRequest, lwpRequest, paidDays, unpaidDays };
+      // Use lwpRequest as the primary reference when paidDays = 0 (fully unpaid path)
+      const primaryRequest = leaveRequest ?? lwpRequest;
+      return { leaveRequest: primaryRequest, lwpRequest: leaveRequest ? lwpRequest : null, paidDays, unpaidDays: lwpDaysToCreate };
     });
 
     emitToOrg(employee.organizationId, 'leave:applied', {
