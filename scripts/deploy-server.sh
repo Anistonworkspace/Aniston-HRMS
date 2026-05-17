@@ -75,8 +75,22 @@ fi
   echo "DATABASE_URL=$RESOLVED_DATABASE_URL"
   echo "REDIS_PASSWORD=$DEPLOY_REDIS_PASSWORD"
   echo "REDIS_URL=redis://:$DEPLOY_REDIS_PASSWORD@127.0.0.1:6379"
-  echo "JWT_SECRET=$DEPLOY_JWT_SECRET"
-  echo "JWT_REFRESH_SECRET=$DEPLOY_JWT_REFRESH_SECRET"
+  # Use the stronger of: GitHub Secret value vs current .env value.
+  # This preserves a manually-rotated strong secret even if GitHub Secret is still weak.
+  CURRENT_JWT=$(grep '^JWT_SECRET=' .env 2>/dev/null | cut -d= -f2- | tr -d '\n' || true)
+  CURRENT_JWT_REFRESH=$(grep '^JWT_REFRESH_SECRET=' .env 2>/dev/null | cut -d= -f2- | tr -d '\n' || true)
+  FINAL_JWT="${DEPLOY_JWT_SECRET}"
+  FINAL_JWT_REFRESH="${DEPLOY_JWT_REFRESH_SECRET}"
+  if [ ${#CURRENT_JWT} -gt ${#DEPLOY_JWT_SECRET} ]; then
+    FINAL_JWT="${CURRENT_JWT}"
+    echo "INFO: Keeping existing stronger JWT_SECRET from server .env (len=${#CURRENT_JWT} > secret len=${#DEPLOY_JWT_SECRET})"
+  fi
+  if [ ${#CURRENT_JWT_REFRESH} -gt ${#DEPLOY_JWT_REFRESH_SECRET} ]; then
+    FINAL_JWT_REFRESH="${CURRENT_JWT_REFRESH}"
+    echo "INFO: Keeping existing stronger JWT_REFRESH_SECRET from server .env (len=${#CURRENT_JWT_REFRESH} > secret len=${#DEPLOY_JWT_REFRESH_SECRET})"
+  fi
+  echo "JWT_SECRET=$FINAL_JWT"
+  echo "JWT_REFRESH_SECRET=$FINAL_JWT_REFRESH"
   echo "JWT_ACCESS_EXPIRY=15m"
   echo "JWT_REFRESH_EXPIRY=7d"
   echo "ENCRYPTION_KEY=$DEPLOY_ENCRYPTION_KEY"
