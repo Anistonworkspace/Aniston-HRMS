@@ -30,6 +30,7 @@ router.post('/break/start', requireEmpPerm('canMarkAttendance'), (req, res, next
 router.post('/break/end', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.endBreak(req, res, next));
 router.get('/today', requireEmpPerm('canViewAttendanceHistory'), (req, res, next) => attendanceController.getTodayStatus(req, res, next));
 router.get('/my', requireEmpPerm('canViewAttendanceHistory'), (req, res, next) => attendanceController.getMyAttendance(req, res, next));
+router.get('/history', requireEmpPerm('canViewAttendanceHistory'), (req, res, next) => attendanceController.getMyAttendance(req, res, next));
 
 // Activity pulse (hybrid/WFH session tracking)
 router.post('/activity-pulse', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.recordActivityPulse(req, res, next));
