@@ -704,8 +704,13 @@ export class AgentService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // If agentPairingCode is null on the employee row (e.g. data was migrated or partially reset),
+    // fall back to the most recent history entry so the modal never incorrectly shows "No code generated yet".
+    const latestHistoryCode = history.length > 0 ? history[0].code : null;
+    const effectiveCurrentCode = employee.agentPairingCode ?? latestHistoryCode;
+
     return {
-      currentCode: employee.agentPairingCode,
+      currentCode: effectiveCurrentCode,
       currentCodeConnected: !!employee.agentPairedAt,
       currentCodeLastSeen: employee.agentLastSeenAt?.toISOString() || null,
       history,

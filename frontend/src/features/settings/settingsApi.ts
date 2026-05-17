@@ -88,6 +88,7 @@ export interface AgentPairingCodeHistoryEntry {
 interface AgentCodeHistoryResponse {
   currentCode: string | null;
   currentCodeConnected: boolean;
+  currentCodeLastSeen: string | null;
   history: AgentPairingCodeHistoryEntry[];
 }
 

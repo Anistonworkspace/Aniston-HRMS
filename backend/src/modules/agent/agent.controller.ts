@@ -10,8 +10,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // downloads/ lives at project root — 4 levels up from backend/dist/modules/agent/
 const DOWNLOADS_ROOT = path.resolve(__dirname, '../../../../downloads');
-// CI/CD SCP preserves the artifact directory name, so the exe lands in agent/agent-build/
-const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-support-setup.exe');
+// CI/CD SCP with strip_components:1 places the exe directly under agent/ (no agent-build/ subdir)
+const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'aniston-support-setup.exe');
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {

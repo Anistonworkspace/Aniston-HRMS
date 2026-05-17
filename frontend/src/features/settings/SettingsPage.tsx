@@ -2409,6 +2409,7 @@ function AgentSetupTab() {
 function AgentCodeHistoryModal({ employeeId, employeeName, onClose }: { employeeId: string; employeeName: string; onClose: () => void }) {
   const { data: res, isLoading, refetch } = useGetAgentCodeHistoryQuery(employeeId);
   const [deleteCode, { isLoading: deleting }] = useDeleteAgentHistoryCodeMutation();
+  const [regenerate, { isLoading: regenerating }] = useRegenerateAgentCodeMutation();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const data = res?.data;
@@ -2423,6 +2424,17 @@ function AgentCodeHistoryModal({ employeeId, employeeName, onClose }: { employee
       toast.error(err?.data?.error?.message || 'Failed to delete code');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (!confirm('Generate a new pairing code? The current code will be moved to history and any agent using it will need to re-pair.')) return;
+    try {
+      await regenerate({ employeeId }).unwrap();
+      toast.success('New pairing code generated');
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to generate code');
     }
   };
 
@@ -2454,15 +2466,20 @@ function AgentCodeHistoryModal({ employeeId, employeeName, onClose }: { employee
                 <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Current Code</p>
                 {data?.currentCode ? (
                   <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                    <div className="flex items-center gap-2.5">
-                      <div className={cn('w-2 h-2 rounded-full', data.currentCodeConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400')} />
-                      <code className="text-sm font-mono font-bold text-gray-800 select-all tracking-wider" data-mono>{data.currentCode}</code>
-                      <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium', data.currentCodeConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>
-                        {data.currentCodeConnected ? '● Connected' : '○ Not yet used'}
-                      </span>
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      <div className="flex items-center gap-2.5">
+                        <div className={cn('w-2 h-2 rounded-full flex-shrink-0', data.currentCodeConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400')} />
+                        <code className="text-sm font-mono font-bold text-gray-800 select-all tracking-wider" data-mono>{data.currentCode}</code>
+                        <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium', data.currentCodeConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>
+                          {data.currentCodeConnected ? '● Connected' : '○ Not yet used'}
+                        </span>
+                      </div>
+                      {data.currentCodeLastSeen && (
+                        <p className="text-[9px] text-gray-400 pl-4">Last seen: {fmtDate(data.currentCodeLastSeen)}</p>
+                      )}
                     </div>
                     <button onClick={() => { navigator.clipboard.writeText(data.currentCode!); toast.success('Code copied'); }}
-                      className="text-gray-400 hover:text-gray-600 p-1" title="Copy">
+                      className="text-gray-400 hover:text-gray-600 p-1 flex-shrink-0" title="Copy">
                       <Copy size={13} />
                     </button>
                   </div>
@@ -2518,11 +2535,21 @@ function AgentCodeHistoryModal({ employeeId, employeeName, onClose }: { employee
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
-          <p className="text-[10px] text-gray-400">
-            <strong>Connected</strong> codes had their tokens issued — agents using them continue working until their JWT expires (30–90 days).
+        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex items-center justify-between gap-3">
+          <p className="text-[10px] text-gray-400 flex-1">
+            <strong>Connected</strong> codes had their tokens issued — agents continue working until their JWT expires (30–90 days).
             Only <strong>never-used</strong> codes can be deleted.
           </p>
+          <button
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-colors flex-shrink-0"
+            style={{ backgroundColor: 'var(--primary-color)' }}
+            title="Generate a new pairing code for this employee"
+          >
+            {regenerating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            Generate New Code
+          </button>
         </div>
       </div>
     </div>
