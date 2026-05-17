@@ -3,7 +3,7 @@ import os from 'os';
 import fs from 'fs';
 import Store from 'electron-store';
 import { app } from 'electron';
-import { uploadScreenshot, isLoggedIn } from './api';
+import { uploadScreenshot, isLoggedIn, ForbiddenError } from './api';
 import { CONFIG } from './config';
 
 let screenshotInterval: NodeJS.Timeout | null = null;
@@ -139,8 +139,14 @@ async function retryQueue() {
         await uploadScreenshot(item.filePath, item.metadata);
         try { fs.unlinkSync(item.filePath); } catch {}
         console.log(`[Screenshot] Queued upload succeeded: ${path.basename(item.filePath)}`);
-      } catch {
-        remaining.push(item); // Keep for next retry cycle
+      } catch (uploadErr) {
+        // Permanent failures (400 Bad Request, 403 Forbidden) — delete file, do not re-queue
+        if (uploadErr instanceof ForbiddenError || (uploadErr as any).status === 400) {
+          console.warn(`[Screenshot] Permanent failure for ${path.basename(item.filePath)} — discarding`);
+          try { fs.unlinkSync(item.filePath); } catch {}
+        } else {
+          remaining.push(item); // Transient failure — keep for next retry cycle
+        }
       }
       // Delay between retries to avoid hammering server when queue is large
       await new Promise(r => setTimeout(r, 1_000));

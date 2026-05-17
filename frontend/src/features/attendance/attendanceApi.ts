@@ -142,7 +142,6 @@ interface AgentReportDay {
   productivityScore: number | null;
   score: number;
   grade: string;
-  topApps: { app: string; minutes: number }[];
 }
 
 interface AgentReportData {

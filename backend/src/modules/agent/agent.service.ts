@@ -356,6 +356,7 @@ export class AgentService {
     const logs = await prisma.activityLog.findMany({
       where: { employeeId, date: queryDate, organizationId, durationSeconds: { gt: 0 } },
       orderBy: { timestamp: 'asc' },
+      take: 2000,
       select: {
         id: true, employeeId: true, date: true, timestamp: true,
         activeApp: true, activeWindow: true, activeUrl: true, category: true,

@@ -63,6 +63,7 @@ const BUFFER_MAX = 1000;
 let activityBuffer: ActivityEntry[] = [];
 let trackingInterval: NodeJS.Timeout | null = null;
 let isPaused = false;
+let wasManuallyPaused = false;
 let lastTickTime: number = Date.now();
 
 /** Returns a snapshot of the buffer without clearing it. */
@@ -75,8 +76,16 @@ export function drainBuffer(count: number): void {
   activityBuffer.splice(0, count);
 }
 
-export function pauseTracking() { isPaused = true; pauseInputTracking(); }
-export function resumeTracking() { isPaused = false; resumeInputTracking(); }
+/** Explicit user-initiated pause (e.g. tray menu "Pause"). Marks wasManuallyPaused so that
+ *  system sleep/resume events do not automatically restart tracking against user intent. */
+export function pauseTracking() { isPaused = true; wasManuallyPaused = true; pauseInputTracking(); }
+export function resumeTracking() { isPaused = false; wasManuallyPaused = false; resumeInputTracking(); }
+
+/** System-level pause (sleep/lock). Does not affect wasManuallyPaused. */
+export function pauseTrackingSystem() { isPaused = true; pauseInputTracking(); }
+/** System-level resume (wake/unlock). Skipped when user has manually paused tracking. */
+export function resumeTrackingSystem() { if (!wasManuallyPaused) { isPaused = false; resumeInputTracking(); } }
+
 export function isTracking() { return trackingInterval !== null && !isPaused; }
 
 /**

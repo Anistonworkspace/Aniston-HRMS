@@ -6,7 +6,7 @@ import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
 import { ipcMain } from 'electron';
 import { pairWithCode, setTokens, sendHeartbeat, sendPing, isLoggedIn, getAgentConfig, UnauthorizedError, ForbiddenError, setTokenRefreshCallback } from './api';
-import { startTracking, stopTracking, getBuffer, drainBuffer, pauseTracking, resumeTracking } from './tracker';
+import { startTracking, stopTracking, getBuffer, drainBuffer, pauseTracking, resumeTracking, pauseTrackingSystem, resumeTrackingSystem } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { startInputTracking, stopInputTracking } from './inputTracker';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError, TrayState } from './tray';
@@ -226,7 +226,7 @@ function startAgent() {
     // 'suspend' = system going to sleep (lid close, sleep button, idle timeout)
     powerMonitor.on('suspend', () => {
       console.log('[Agent] System suspending — pausing all tracking');
-      pauseTracking();
+      pauseTrackingSystem();
       stopScreenshots();
       stopInputTracking();
     });
@@ -235,7 +235,7 @@ function startAgent() {
     powerMonitor.on('resume', () => {
       console.log('[Agent] System resumed — restarting tracking');
       if (!isLoggedIn()) return;
-      resumeTracking();
+      resumeTrackingSystem();
       startScreenshots();
       startInputTracking();
     });
@@ -243,7 +243,7 @@ function startAgent() {
     // 'lock-screen' / 'unlock-screen': pause while screen is locked (Windows + macOS)
     powerMonitor.on('lock-screen', () => {
       console.log('[Agent] Screen locked — pausing tracking');
-      pauseTracking();
+      pauseTrackingSystem();
       stopScreenshots();
       stopInputTracking();
     });
@@ -251,7 +251,7 @@ function startAgent() {
     powerMonitor.on('unlock-screen', () => {
       console.log('[Agent] Screen unlocked — resuming tracking');
       if (!isLoggedIn()) return;
-      resumeTracking();
+      resumeTrackingSystem();
       startScreenshots();
       startInputTracking();
     });
@@ -394,6 +394,13 @@ function startSyncLoop() {
         console.error('[Sync] Forbidden (403) — agent token lacks permission. Contact admin.');
         stopSyncLoop();
         stopConfigPoll();
+        return;
+      }
+      // 400 Bad Request means the payload is permanently invalid (e.g. schema change).
+      // Draining prevents an infinite retry loop on corrupt/rejected entries.
+      if ((err as any).status === 400) {
+        console.error('[Sync] Bad Request (400) — draining rejected entries to prevent retry loop');
+        drainBuffer(activities.length);
         return;
       }
       // Network/server error — keep buffer intact so next sync cycle retries these entries

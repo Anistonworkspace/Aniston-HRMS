@@ -153,7 +153,7 @@ export async function sendHeartbeat(activities: unknown[]) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Heartbeat rejected: ${res.status} ${text.slice(0, 120)}`);
+    throw Object.assign(new Error(`Heartbeat rejected: ${res.status} ${text.slice(0, 120)}`), { status: res.status });
   }
   return res.json();
 }
@@ -185,6 +185,8 @@ export async function uploadScreenshot(
 
   // A-003: 403 is permanent — do not retry
   if (res.status === 403) throw new ForbiddenError();
+  // 400 Bad Request is permanent — payload is malformed, retrying will never succeed
+  if (res.status === 400) throw Object.assign(new Error(`Screenshot upload rejected: 400`), { status: 400 });
 
   if (res.status === 401) {
     // A-028: Refresh token, then re-build FormData with a fresh stream for the retry

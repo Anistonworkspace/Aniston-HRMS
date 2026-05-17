@@ -28,11 +28,19 @@ const agentDataLimiter = rateLimiter({
   keyFn: (req) => `agent-data:${req.user?.userId || req.ip}`,
 });
 
+// Agent-only guard — prevents browser sessions from hitting agent data endpoints
+const agentOnly = (req: any, res: any, next: any) => {
+  if (!req.user?.isAgent) {
+    return res.status(403).json({ success: false, error: { code: 'AGENT_REQUIRED', message: 'This endpoint requires an agent token' } });
+  }
+  next();
+};
+
 // Agent endpoints (employee sends data from desktop agent)
-router.post('/heartbeat', agentDataLimiter, (req, res, next) => agentController.submitHeartbeat(req, res, next));
+router.post('/heartbeat', agentOnly, agentDataLimiter, (req, res, next) => agentController.submitHeartbeat(req, res, next));
 // FIX 1a: Lightweight ping — stores last-seen in Redis only, no DB insert
-router.post('/ping', agentDataLimiter, (req, res, next) => agentController.ping(req, res, next));
-router.post('/screenshot', agentDataLimiter, uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
+router.post('/ping', agentOnly, agentDataLimiter, (req, res, next) => agentController.ping(req, res, next));
+router.post('/screenshot', agentOnly, agentDataLimiter, uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
 router.get('/config/retention', (req, res, next) => agentController.getRetentionConfig(req, res, next));
 router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
