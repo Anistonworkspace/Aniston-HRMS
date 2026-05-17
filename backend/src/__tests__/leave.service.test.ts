@@ -270,7 +270,9 @@ describe('LeaveService', () => {
 
     it('auto-splits excess days as unpaid when allowUnpaidLeave is enabled', async () => {
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce(makeEmployee() as any);
+      // First findFirst: primary leave type; Second findFirst: LWP/unpaid leave type lookup
       vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(makeLeaveType() as any);
+      vi.mocked(prisma.leaveType.findFirst).mockResolvedValueOnce(makeLeaveType({ id: 'lt-lwp-001', name: 'Leave Without Pay', code: 'LWP', isPaid: false }) as any);
       vi.mocked(prisma.leaveRequest.count).mockResolvedValueOnce(0);
 
       // 2 days available, requesting 3 — 1 day should auto-split to unpaid
