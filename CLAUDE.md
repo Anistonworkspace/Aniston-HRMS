@@ -10,17 +10,24 @@ Enterprise-grade Human Resource Management System (HRMS) as a Progressive Web Ap
 - **Mobile**: Capacitor (Android APK build) — `frontend/capacitor.config.ts`
 - **Infra**: Docker Compose (postgres:16-alpine, redis:7-alpine, ai-service Python FastAPI) + GitHub Actions CI/CD
 
+## CRITICAL — No Git Worktrees
+**NEVER use `isolation: "worktree"` or `git worktree add` in this project.**
+All changes from ALL agents MUST be made directly in the main working tree so they appear as a single unified diff in VS Code Source Control. Worktrees create separate hidden branches that scatter changes across multiple source control entries and are never automatically pushed to GitHub.
+
 ## Project Structure
 ```
 Aniston-hrms/
 ├── frontend/          # React app (Vite + Capacitor)
-├── backend/           # Express API
+├── backend/           # Express API (49 modules)
 ├── shared/            # Shared TypeScript types & permissions (@aniston/shared)
-├── prisma/            # Prisma schema + seed + migrations
+├── prisma/            # Prisma schema + seed + migrations (20+ migrations)
 ├── docker/            # docker-compose.yml
 ├── ai-service/        # Python FastAPI (OCR + scoring)
+├── agent-desktop/     # Electron Windows EXE — activity tracking agent
+├── store-releases/    # Android/iOS store release scripts + checklists
 ├── deploy/            # nginx.conf, deployment config
 ├── docs/              # Mega prompt & reference docs
+├── scripts/           # One-off patch/fix scripts
 └── .env               # Environment variables (not committed)
 ```
 
@@ -60,7 +67,7 @@ npm run dev
 
 ## Architecture Decisions
 1. **npm workspaces monorepo** — frontend, backend, shared packages
-2. **Module pattern** on backend — all 40+ modules follow full MVC: controller/service/routes/validation in `backend/src/modules/<feature>/`
+2. **Module pattern** on backend — all 49 modules follow full MVC: controller/service/routes/validation in `backend/src/modules/<feature>/`
 3. **RTK Query** for frontend API calls with auto-caching and tag-based invalidation
 4. **Single Prisma schema** at `prisma/schema.prisma` — all models in one file (80+ models)
 5. **RBAC** — 7 roles (SUPER_ADMIN, ADMIN, HR, MANAGER, EMPLOYEE, GUEST_INTERVIEWER, INTERN) with permission map in `shared/src/permissions.ts`
@@ -77,51 +84,60 @@ npm run dev
 16. **PWA** — vite-plugin-pwa with `registerType: 'prompt'` + `injectManifest` strategy; update detection via `AppUpdateGuard`
 17. **Android APK** — Capacitor build via GitHub Actions; APK served at `/downloads/aniston-hrms.apk`; nginx aliases to `downloads/apk-build/`
 18. **Task Integration** — Jira, Asana, ClickUp integration via `task-integration` module with encrypted API keys
-19. **`kycCompleted` is computed, not stored** — derived in `auth.service.ts` from `user.employee?.documentGate?.kycStatus === 'VERIFIED'` at JWT generation time. Changing `kycStatus` in DB takes effect on next token refresh. For immediate revocation, emit `kyc:status-changed` socket event and dispatch `setUser({ ...user, kycCompleted: false })` from AppShell listener.
+19. **Desktop Agent** — Electron EXE at `agent-desktop/`; tracks active window, keystrokes, mouse, screenshots; syncs via JWT heartbeat every 60s; screenshot interval configurable per employee via Redis; `agentOnly` middleware guards `/agent/heartbeat`, `/agent/ping`, `/agent/screenshot` — browser tokens rejected
+20. **`kycCompleted` is computed, not stored** — derived in `auth.service.ts` from `user.employee?.documentGate?.kycStatus === 'VERIFIED'` at JWT generation time. Changing `kycStatus` in DB takes effect on next token refresh. For immediate revocation, emit `kyc:status-changed` socket event and dispatch `setUser({ ...user, kycCompleted: false })` from AppShell listener.
 
-## Backend Modules (40+)
-All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules:
+## Backend Modules (49)
+All modules in `backend/src/modules/<name>/` follow MVC pattern:
 
-| Module | Purpose |
-|---|---|
-| `agent` | Remote agent screenshots + activity monitoring |
-| `ai-assistant` | Context-aware FAB chat, Redis conversation history |
-| `ai-config` | Multi-provider AI config (OpenAI/DeepSeek/Anthropic/Gemini), AES-encrypted keys |
-| `announcement` | Org-wide announcements + social wall |
-| `asset` | Asset CRUD + assign/return workflow |
-| `attendance` | 3-mode attendance (OFFICE/FIELD_SALES/PROJECT_SITE) |
-| `auth` | JWT + refresh tokens + RBAC |
-| `backup` | Database backup management |
-| `branding` | Company branding (logo, colors, theme) |
-| `component-master` | Salary component master definitions |
-| `dashboard` | Stats + analytics aggregation |
-| `document` | Document upload, verification, management |
-| `document-ocr` | OCR extraction, AI verification, format validation |
-| `employee` | Employee CRUD, profile, documents, audit |
-| `employee-deletion` | Soft-delete workflow with approval |
-| `employee-permissions` | Granular permission overrides per employee |
-| `exit-access` | Exit/offboarding checklist + access revocation |
-| `helpdesk` | Support tickets + comments |
-| `holiday` | Holiday CRUD management |
-| `intern` | Intern profile, mentor assignment, achievement letters |
-| `invitation` | Token-based employee invites (72-hr TTL, email delivery) |
-| `leave` | Leave types, balances, requests, approvals, settings, policies |
-| `letter` | Letter templates + generation + assignments |
-| `onboarding` | 7-step wizard + document gate + KYC |
-| `payroll` | Indian statutory payroll (EPF/ESI/PT/TDS) + Excel export |
-| `payroll-adjustment` | One-off payroll adjustments |
-| `payroll-deletion` | Payroll record deletion with approval workflow |
-| `performance` | Goals, review cycles, enterprise dashboard + task integration |
-| `policy` | Company policy docs + acknowledgment tracking |
-| `public-apply` | Public job application (AI MCQ, tracking, interview rounds) |
-| `recruitment` | Job openings + Kanban pipeline + interview execution + scoring + offers + public application management |
-| `report` | Reports + Excel/PDF exports |
-| `salary-template` | Salary template CRUD + structure assignment |
-| `settings` | Org settings, locations, audit logs, AI config |
-| `shift` | Shift definitions + rotation patterns + assignments |
-| `task-integration` | Jira/Asana/ClickUp integration for leave handover risk |
-| `walkIn` | Walk-in kiosk (5-step form) + HR management |
-| `whatsapp` | WhatsApp session, messages, OTP, conversations |
+| Module | Route | Purpose |
+|---|---|---|
+| `agent` | `/api/agent` | Desktop agent heartbeat, screenshots, activity monitoring, agentOnly guard |
+| `ai-assistant` | `/api/ai-assistant` | Context-aware FAB chat, Redis conversation history |
+| `ai-config` | `/api/settings/ai-config` | Multi-provider AI config (OpenAI/DeepSeek/Anthropic/Gemini), AES-encrypted keys |
+| `announcement` | `/api/announcements` | Org-wide announcements + social wall |
+| `asset` | `/api/assets` | Asset CRUD + assign/return workflow |
+| `attendance` | `/api/attendance` | 3-mode attendance (OFFICE/FIELD_SALES/PROJECT_SITE) |
+| `auth` | `/api/auth` | JWT + refresh tokens + RBAC |
+| `backup` | `/api/backup` | Database backup management |
+| `branding` | `/api/branding` | Company branding (logo, colors, theme) |
+| `component-master` | `/api/component-master` | Salary component master definitions |
+| `crash-report` | `/api/crash-reports` | Native app crash report ingestion |
+| `dashboard` | `/api/dashboard` | Stats + analytics aggregation |
+| `department` | `/api/departments` | Department management |
+| `designation` | `/api/designations` | Designation/title management |
+| `document` | `/api/documents` | Document upload, verification, management |
+| `document-ocr` | `/api/documents` | OCR extraction, AI verification, format validation |
+| `employee` | `/api/employees` | Employee CRUD, profile, documents, audit |
+| `employee-deletion` | `/api/employee-deletion` | Soft-delete workflow with approval |
+| `employee-permissions` | `/api/employee-permissions` | Granular permission overrides per employee |
+| `exit` | `/api/exit` | Exit/offboarding workflow |
+| `exit-access` | `/api/exit-access` | Exit checklist + access revocation |
+| `helpdesk` | `/api/helpdesk` | Support tickets + comments |
+| `holiday` | `/api/holidays` | Holiday CRUD management |
+| `intern` | `/api/intern` | Intern profile, mentor assignment, achievement letters |
+| `invitation` | `/api/invitations` | Token-based employee invites (72-hr TTL, email delivery) |
+| `leave` | `/api/leaves` | Leave types, balances, requests, approvals, settings, policies |
+| `letter` | `/api/letters` | Letter templates + generation + assignments |
+| `notifications` | `/api/notifications` | In-app + push notification management |
+| `onboarding` | `/api/onboarding` | 7-step wizard + document gate + KYC |
+| `payroll` | `/api/payroll` | Indian statutory payroll (EPF/ESI/PT/TDS) + Excel export |
+| `payroll-adjustment` | `/api/payroll-adjustments` | One-off payroll adjustments |
+| `payroll-deletion` | `/api/payroll-deletion-requests` | Payroll record deletion with approval workflow |
+| `performance` | `/api/performance` | Goals, review cycles, enterprise dashboard + task integration |
+| `policy` | `/api/policies` | Company policy docs + acknowledgment tracking |
+| `profile-edit-request` | `/api/profile-edit-requests` | Employee profile edit approval workflow |
+| `public-apply` | `/api/jobs` | Public job application (AI MCQ, tracking, interview rounds) |
+| `recruitment` | `/api/recruitment` | Job openings + Kanban pipeline + interview execution + scoring + offers |
+| `report` | `/api/reports` | Reports + Excel/PDF exports |
+| `salary-template` | `/api/salary-templates` | Salary template CRUD + structure assignment |
+| `saved-location` | `/api/saved-locations` | Employee home/work GPS coordinates — submit + HR approve |
+| `settings` | `/api/settings` | Org settings, locations, audit logs, AI config |
+| `shift` | `/api/workforce` | Shift definitions + rotation patterns + assignments |
+| `system-logs` | `/api/system-logs` | System event log viewer |
+| `task-integration` | `/api/task-integration` | Jira/Asana/ClickUp integration for leave handover risk |
+| `walkIn` | `/api/walk-in` | Walk-in kiosk (5-step form) + HR management |
+| `whatsapp` | `/api/whatsapp` | WhatsApp session, messages, OTP, conversations |
 
 ## New Backend Routes (Phase 6–9)
 | Route prefix | Module | Notes |
@@ -204,6 +220,10 @@ All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules
 | `EmployeeActivation` | Employee activation token tracking |
 | `AgentScreenshot` | Remote monitoring screenshots |
 | `ActivityLog` | Detailed activity logs |
+| `SavedLocation` | Employee home/work GPS coordinates — pending HR approval |
+| `CrashReport` | Native app crash reports (Android/iOS/Electron) |
+| `ProfileEditRequest` | Employee profile edit approval workflow |
+| `SystemLog` | System-level event audit log |
 
 ## Key Files
 | File | Purpose |
@@ -273,6 +293,23 @@ All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules
 | `frontend/src/sw.ts` | Service worker — cache strategy, offline fallback, background sync |
 | `frontend/index.html` | PWA prompt early capture (`window.__pwaInstallPrompt`) before React mounts |
 | `frontend/capacitor.config.ts` | Capacitor config for Android APK build |
+| `agent-desktop/src/main.ts` | Electron main process — pairing, sync loop, power monitor, ping loop |
+| `agent-desktop/src/tracker.ts` | Activity tracker — active-win, input counts, buffer, manual vs system pause |
+| `agent-desktop/src/screenshot.ts` | Screenshot capture + offline retry queue (ForbiddenError/400 = discard) |
+| `agent-desktop/src/api.ts` | Agent HTTP API — authFetch, sendHeartbeat (status on error), uploadScreenshot |
+| `agent-desktop/src/inputTracker.ts` | Keystroke/mouse polling via PowerShell GetAsyncKeyState (500ms interval) |
+| `agent-desktop/src/watchdog.ts` | Watchdog process that auto-restarts the agent if it crashes |
+| `agent-desktop/src/config.ts` | Agent config constants (intervals, idle threshold, API URL) |
+| `backend/src/modules/agent/agent.routes.ts` | Agent routes — agentOnly guard on heartbeat/ping/screenshot |
+| `backend/src/modules/agent/agent.service.ts` | Agent business logic — activity logs (take:2000), screenshot interval, retention |
+| `backend/src/modules/saved-location/` | Saved location MVC — employee submits home/work GPS, HR approves |
+| `frontend/src/features/activity/ActivityTrackingPage.tsx` | Activity monitoring UI — Overview/Timeline/Screenshots/Report tabs (no live feed) |
+| `frontend/src/features/roster/VisitLocationsTab.tsx` | GPS visit locations map tab in roster |
+| `frontend/src/features/attendance/FieldSalesView.tsx` | Field sales GPS trail + visit clustering + saved location home block warning |
+| `store-releases/android/build-android.ps1` | PowerShell script to build + sign release APK locally |
+| `store-releases/ios/build-ios.sh` | Shell script for iOS IPA build |
+| `store-releases/ios/PUBLISH_CHECKLIST.md` | iOS App Store publish checklist |
+| `scripts/fix-field-shift-interval.ts` | One-off patch: fix field shift check-in interval for existing records |
 
 ## Backend Module Pattern
 Each module in `backend/src/modules/<name>/` has:
@@ -404,6 +441,20 @@ location = /downloads/aniston-hrms.apk {
 - **Read-only masked view** — saved API key shown as `•••••••••••• Saved` with lock icon by default; base URL displayed; no accidental edits
 - **Edit-toggle pattern** — fields only editable after clicking "Edit" button; closing form clears API key from state (security — never stored in Redux)
 - **Custom provider dual-auth** — custom task manager provider now sends both `X-API-Key` and `Authorization: Bearer <key>` headers for maximum compatibility with self-hosted instances
+
+### Phase 11 (Complete) — Agent Hardening, GPS Geofencing & Leave Logic
+- **Agent `agentOnly` middleware** — heartbeat/ping/screenshot routes now require `isAgent: true` JWT claim; browser session tokens get 403
+- **Agent 400-drain** — `sendHeartbeat` attaches `.status` to thrown errors; sync loop drains buffer on 400 Bad Request to prevent infinite retry on corrupt payloads
+- **Agent screenshot retry** — `retryQueue` now discards files permanently on `ForbiddenError` or status 400 instead of re-queuing indefinitely
+- **Agent manual-pause flag** — `wasManuallyPaused` tracks deliberate user pause; `pauseTrackingSystem`/`resumeTrackingSystem` used for OS sleep/lock events so user-initiated pause survives sleep/wake cycle
+- **Agent activity log cap** — `getActivityLogs()` now has `take: 2000` to prevent unbounded DB reads on high-activity days
+- **Activity Tracking UI** — Live Feed tab removed (never implemented server-side); only screenshot-by-interval monitoring retained; `ScreenshotIntervalControl` is the primary per-employee monitoring control; retention days dynamic from server config
+- **Saved Locations** — `saved-location` module: employees submit home/work GPS coordinates; HR approves; stored with org scope; field employees blocked from marking in within home geofence radius (`blockMarkInInsideHomeGeofence` + `homeGeofenceRadiusMeters` on Shift)
+- **GPS Visit Locations** — `VisitLocationsTab` in RosterPage shows clustered GPS visit locations on Mapbox map
+- **Leave logic fixes** — `getLeaveTypes` filters `deletedAt:null`; `getPendingApprovals` includes `APPROVED_WITH_CONDITION`; `deleteLeaveType` sets `deletedAt=now()`; guard against operating on already-deleted types
+- **Attendance cron IST fix** — auto-close stale attendance records now correctly converts IST shift times to UTC before computing auto-checkout time
+- **Agent watchdog** — `watchdog.ts` auto-restarts agent process on crash; `lastSeenAt` column on `AgentSession` tracks last heartbeat timestamp
+- **Crash reports** — `crash-report` module ingests native app crash reports (Android/iOS/Electron) for remote visibility
 
 ## Indian Payroll Compliance
 - EPF: 12% of basic (employee + employer), basic capped at 15,000

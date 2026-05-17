@@ -22,8 +22,10 @@
     "realtime": "Socket.io",
     "ai": "Python FastAPI (pytesseract OCR, DeepSeek scoring)",
     "containerization": "Docker Compose",
-    "testing": "Vitest + Playwright (planned)",
-    "pwa": "Workbox service worker"
+    "testing": "Vitest + Playwright",
+    "pwa": "Workbox service worker",
+    "mobile": "Capacitor (Android APK)",
+    "desktopAgent": "Electron (Windows EXE)"
   },
   "conventions": {
     "codeStyle": "TypeScript strict, ESM modules",
@@ -34,6 +36,10 @@
     "idFormat": "UUID v4",
     "dateFormat": "ISO 8601",
     "currencyFormat": "INR with en-IN locale"
+  },
+  "worktree": {
+    "disabled": true,
+    "reason": "All agent changes must appear in the main working tree so they are visible in VS Code Source Control as a single set of changes. Never use isolation:worktree."
   },
   "permissions": {
     "allow": [
@@ -108,7 +114,8 @@
       "Bash(rm -rf /*)",
       "Bash(curl * | bash)",
       "Bash(wget * | bash)",
-      "Read(.env.production)"
+      "Read(.env.production)",
+      "Bash(git worktree add *)"
     ]
   },
   "model": "claude-sonnet-4-6",
